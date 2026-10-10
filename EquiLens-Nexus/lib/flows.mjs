@@ -1,0 +1,26 @@
+import {buildOptions} from './options.mjs';
+import {request} from './finmind.mjs';
+import {todayTW,minusDays,round} from './engine.mjs';
+export const FLOW_VERSION='2.0';
+export function cacheableFlow(result){return !Object.keys(result.errors).length&&result.options?.available&&result.options.contracts.length>0&&result.summary.available&&result.futures.available&&result.coverage.withRecords>0&&result.rankings.every(r=>r.covered>0);}
+export function validFlowDate(date,latest=todayTW()){return typeof date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(Date.parse(date))&&new Date(date).toISOString().slice(0,10)===date&&date>='2018-06-05'&&date<=latest;}
+const amount=v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v))?Number(v):null;
+function net(r){const buy=amount(r?.buy),sell=amount(r?.sell);return buy===null||sell===null?null:buy-sell;}
+function sum(values){return values.every(v=>v!==null)?values.reduce((a,b)=>a+b,0):null;}
+export function flowNames(rows){const m=new Map(rows.map(r=>[r.name,r]));return {foreign:m.has('Foreign_Investor')?sum([net(m.get('Foreign_Investor')),m.has('Foreign_Dealer_Self')?net(m.get('Foreign_Dealer_Self')):0]):null,trust:net(m.get('Investment_Trust')),dealer:m.has('Dealer')?net(m.get('Dealer')):sum([net(m.get('Dealer_self')),net(m.get('Dealer_Hedging'))])};}
+export function flowCatalog(info){const catalog=new Map();for(const r of info){if(!/^[1-9]\d{3}$/.test(r.stock_id)||!['twse','tpex'].includes(r.type)||/ETF|ETN|存託|受益|權證|牛熊/.test(r.industry_category||''))continue;const prev=catalog.get(r.stock_id);if(!prev||String(r.date||'')>String(prev.date||''))catalog.set(r.stock_id,{id:r.stock_id,name:r.stock_name,market:r.type==='twse'?'上市':'上櫃',date:r.date});}return catalog;}
+export function buildFlows(date,{info=[],stocks=[],total=[],futures=[],options=[],optionDaily=[]},errors={}){
+ const catalog=flowCatalog(info),byStock=new Map();for(const r of stocks){if(r.date!==date||!catalog.has(r.stock_id))continue;if(!byStock.has(r.stock_id))byStock.set(r.stock_id,[]);byStock.get(r.stock_id).push(r);}
+ const rows=[...byStock].map(([id,items])=>{const n=flowNames(items);return {...catalog.get(id),...n,total:sum(Object.values(n))};});
+ const rankings=['上市','上櫃'].flatMap(market=>['foreign','trust','dealer','total'].map(investor=>{const eligible=rows.filter(r=>r.market===market&&r[investor]!==null),sort=(a,b)=>b[investor]-a[investor]||a.id.localeCompare(b.id),map=r=>({id:r.id,name:r.name,netShares:r[investor],netLots:round(r[investor]/1000,3)});return {id:(market==='上市'?'twse':'tpex')+'-'+investor,market,investor,title:market+({foreign:'外資',trust:'投信',dealer:'自營商',total:'三大法人合計'}[investor])+'買賣超前 20',covered:eligible.length,buy:eligible.filter(r=>r[investor]>0).sort(sort).slice(0,20).map(map),sell:eligible.filter(r=>r[investor]<0).sort((a,b)=>sort(b,a)).slice(0,20).map(map)};}));
+ const totals=total.filter(r=>r.date===date),summary=flowNames(totals),sourceTotal=totals.find(r=>r.name==='total');summary.total=sourceTotal?net(sourceTotal):sum(Object.values(summary));
+ const tx=[...new Map(futures.filter(r=>(r.futures_id||r.name)==='TX'&&r.institutional_investors==='外資'&&r.date<=date).map(r=>[r.date,r])).values()].sort((a,b)=>a.date.localeCompare(b.date)),current=tx.find(r=>r.date===date),previous=tx.filter(r=>r.date<date).at(-1);
+ const position=r=>{const long=amount(r?.long_open_interest_balance_volume),short=amount(r?.short_open_interest_balance_volume);return long===null||short===null?null:{long,short,net:long-short};},now=position(current),before=position(previous);
+ return {version:FLOW_VERSION,date,retrievedAt:new Date().toISOString(),summary:{available:totals.length>0,...summary},futures:{available:!!now,asOf:now?date:null,previousDate:before?previous.date:null,...now,netChange:now&&before?now.net-before.net:null,longChange:now&&before?now.long-before.long:null,shortChange:now&&before?now.short-before.short:null},options:buildOptions(date,options,optionDaily),rankings,errors,coverage:{indexed:catalog.size,withRecords:rows.length,returnedRecords:stocks.filter(r=>r.date===date).length},sources:[{title:'期交所選擇權買賣權分計',url:'https://www.taifex.com.tw/cht/3/callsAndPutsDate'},{title:'FinMind 現貨籌碼資料',url:'https://finmind.github.io/tutor/TaiwanMarket/Chip/'},{title:'FinMind 期貨法人資料',url:'https://finmind.github.io/tutor/TaiwanMarket/Derivative/'}]};
+}
+export async function queryFlows(date,{requestData=request,...options}={}){
+ if(!validFlowDate(date))throw new Error('請選擇 2018-06-05 至今天的有效日期');
+ const data={},errors={},tasks=[['info','TaiwanStockInfo',{}],['stocks','TaiwanStockInstitutionalInvestorsBuySell',{start_date:date,end_date:date}],['total','TaiwanStockTotalInstitutionalInvestors',{start_date:date,end_date:date}],['futures','TaiwanFuturesInstitutionalInvestors',{data_id:'TX',start_date:minusDays(date,60),end_date:date}],['options','TaiwanOptionInstitutionalInvestors',{data_id:'TXO',start_date:minusDays(date,14),end_date:date}],['optionDaily','TaiwanOptionDaily',{data_id:'TXO',start_date:minusDays(date,7),end_date:date}]];
+ let stopped=false;for(const [key,dataset,params] of tasks){if(stopped){errors[key]='前項遇到額度或認證限制，未繼續查詢';continue;}try{data[key]=await requestData(dataset,params,options);}catch(e){errors[key]=e.message;if(e.fatal)stopped=true;}}
+ return buildFlows(date,data,errors);
+}

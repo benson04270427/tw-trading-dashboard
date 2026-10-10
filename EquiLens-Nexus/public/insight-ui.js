@@ -1,0 +1,176 @@
+// 電腦版與手機版共用的圖表與卡片產生器（兩邊各放一份相同檔案）。顏色一律取 CSS 變數，深淺主題自動適用。
+import * as MK from './market.js';
+export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export const fmt = (v, n = 0) => v == null || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: n, minimumFractionDigits: n });
+export const pct = (v, n = 2) => v == null ? '—' : `${v > 0 ? '+' : ''}${fmt(v, n)}%`;
+export const cls = v => v == null ? 'muted' : v > 0 ? 'up' : v < 0 ? 'down' : 'muted';
+const TXT = 'var(--text,var(--ink))';
+const lots = shares => fmt(shares / 1000, 0);
+
+/* ---------- 盤中走勢小圖：以昨收為基準線 ---------- */
+export function sparkSVG(values, prev, { w = 120, h = 38 } = {}) {
+  const v = (values || []).filter(x => x > 0); if (v.length < 2) return `<svg class="ix-spark" viewBox="0 0 ${w} ${h}"></svg>`;
+  const base = prev > 0 ? prev : v[0], lo = Math.min(...v, base), hi = Math.max(...v, base), rg = hi - lo || 1;
+  const x = i => i / (v.length - 1) * (w - 2) + 1, y = p => 2 + (hi - p) / rg * (h - 4);
+  const up = v.at(-1) >= base, col = up ? 'var(--up)' : 'var(--down)', pts = v.map((p, i) => `${x(i).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
+  return `<svg class="ix-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="${w}" y1="${y(base)}" y2="${y(base)}" stroke="var(--soft)" stroke-dasharray="2 3" stroke-width=".8"/><polygon points="1,${y(base)} ${pts} ${x(v.length - 1)},${y(base)}" fill="${col}" opacity=".13"/><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+
+/* ---------- K 線（日 K／5 分 K）：K 棒＋5MA／20MA＋成交量；滑鼠移動或點擊顯示該根數值 ---------- */
+// bars：[日期或「日期 時間」, 開, 高, 低, 收, 量（張）]，由舊到新。均線用完整序列計算，只畫最後 show 根。
+export const MA_LINES = [[5, 'var(--amber)'], [20, 'var(--violet)']];
+export function maOf(closes, n) { const out = []; let s = 0; closes.forEach((c, i) => { s += c; if (i >= n) s -= closes[i - n]; out.push(i >= n - 1 ? s / n : null); }); return out; }
+const CK = new Map(), ckHover = new Map(); let ckSeq = 0; // 已繪製的 K 線（供讀值）、游標停留的那根（10 秒重繪後保留）
+const axis = p => fmt(p, p < 100 ? 2 : p < 1000 ? 1 : 0);
+const ckTime = (k, period) => period === 'day' ? k.slice(0, 10).replaceAll('-', '/') : `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))} ${k.slice(11)}`;
+function ckRef(d, k) { // 漲跌幅基準：日 K 比前一日收盤；5 分 K 比該日昨收（prevs 由伺服器提供，沒有時用序列中前一日最後一根）
+  if (d.period === 'day') return d.bars[k - 1]?.[4] ?? null;
+  const day = d.bars[k][0].slice(0, 10); if (d.prevs?.[day] > 0) return d.prevs[day];
+  for (let j = k - 1; j >= 0; j--) if (d.bars[j][0].slice(0, 10) !== day) return d.bars[j][4];
+  return d.prev ?? null;
+}
+function ckRead(d, i) {
+  const k = d.off + i, b = d.bars[k], ref = ckRef(d, k), chg = ref > 0 ? (b[4] / ref - 1) * 100 : null;
+  return `<b class="ck-t">${ckTime(b[0], d.period)}</b><span>開 ${fmt(b[1], 2)}</span><span>高 ${fmt(b[2], 2)}</span><span>低 ${fmt(b[3], 2)}</span><span>收 <b class="${cls(chg)}">${fmt(b[4], 2)}</b></span><span class="${cls(chg)}">${pct(chg)}</span><span>量 ${fmt(b[5])} ${MK.unit()}</span>${d.mas.map(m => `<span style="color:${m.col}">MA${m.n} <b>${m.v[k] == null ? '—' : fmt(m.v[k], 2)}</b></span>`).join('')}`;
+}
+export function candleSVG(bars, { w = 640, h = 300, show = 90, period = 'day', key = '', prev = null, prevs = null } = {}) {
+  if (!bars?.length) return '<div class="ix-empty">尚無 K 線資料</div>';
+  const mas = MA_LINES.map(([n, col]) => ({ n, col, v: maOf(bars.map(b => b[4]), n) }));
+  const off = Math.max(0, bars.length - show), vis = bars.slice(off), n = vis.length;
+  const L = 4, R = 58, top = 8, ph = Math.round(h * .7), vt = ph + 8, vb = h - 18, slot = (w - L - R) / Math.max(n, period === 'day' ? 40 : 54);
+  const vals = vis.flatMap((b, i) => [b[2], b[3], ...mas.map(m => m.v[off + i]).filter(v => v != null)]);
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * .06 || hi * .01 || 1; lo -= pad; hi += pad;
+  const X = i => L + (i + .5) * slot, Y = p => top + (hi - p) / (hi - lo) * (ph - top), cw = Math.max(1, slot * .66), f1 = v => v.toFixed(1);
+  const vmax = Math.max(...vis.map(b => b[5])) || 1, V = v => vb - v / vmax * (vb - vt);
+  const color = i => { const b = vis[i], pc = bars[off + i - 1]?.[4] ?? b[4]; return b[4] > b[1] ? 'var(--up)' : b[4] < b[1] ? 'var(--down)' : b[4] > pc ? 'var(--up)' : b[4] < pc ? 'var(--down)' : 'var(--soft)'; };
+  let g = '';
+  for (let k = 0; k <= 4; k++) { const p = lo + (hi - lo) * k / 4; g += `<line x1="0" x2="${w - R}" y1="${f1(Y(p))}" y2="${f1(Y(p))}" stroke="var(--line)"/><text x="${w - R + 4}" y="${f1(Y(p) + 3.5)}" font-size="10" fill="var(--soft)">${axis(p)}</text>`; }
+  g += `<line x1="0" x2="${w - R}" y1="${vt}" y2="${vt}" stroke="var(--line)"/>`;
+  let lastLabel = -1e9; // 日 K 標月份、5 分 K 標日期（換日畫虛線）
+  vis.forEach((b, i) => {
+    const pk = (i ? vis[i - 1][0] : bars[off - 1]?.[0]) || '', newDay = period !== 'day' && b[0].slice(0, 10) !== pk.slice(0, 10), newMonth = period === 'day' && b[0].slice(0, 7) !== pk.slice(0, 7);
+    if (newDay && i) g += `<line x1="${f1(X(i) - slot / 2)}" x2="${f1(X(i) - slot / 2)}" y1="${top}" y2="${vb}" stroke="var(--line2,var(--line))" stroke-dasharray="3 3"/>`;
+    if ((newDay || newMonth) && X(i) - lastLabel > 46) { g += `<text x="${f1(X(i) - slot / 2 + 2)}" y="${h - 4}" font-size="10" fill="var(--soft)">${period === 'day' ? `${i && b[0].slice(0, 4) !== pk.slice(0, 4) ? b[0].slice(0, 4) + '/' : ''}${Number(b[0].slice(5, 7))}月` : `${Number(b[0].slice(5, 7))}/${Number(b[0].slice(8, 10))}`}</text>`; lastLabel = X(i); }
+  });
+  vis.forEach((b, i) => {
+    const c = color(i), x = f1(X(i)), yo = Y(b[1]), yc = Y(b[4]), bx = f1(X(i) - cw / 2);
+    g += `<line x1="${x}" x2="${x}" y1="${f1(Y(b[2]))}" y2="${f1(Y(b[3]))}" stroke="${c}"/><rect x="${bx}" y="${f1(Math.min(yo, yc))}" width="${f1(cw)}" height="${f1(Math.max(1, Math.abs(yo - yc)))}" fill="${c}"/><rect x="${bx}" y="${f1(V(b[5]))}" width="${f1(cw)}" height="${f1(vb - V(b[5]))}" fill="${c}" opacity=".45"/>`;
+  });
+  for (const m of mas) { const pts = vis.map((_, i) => m.v[off + i] == null ? null : `${f1(X(i))},${f1(Y(m.v[off + i]))}`).filter(Boolean); if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${m.col}" stroke-width="1.5" stroke-linejoin="round"/>`; }
+  const lc = color(n - 1), ly = Y(vis[n - 1][4]);
+  g += `<line x1="0" x2="${w - R}" y1="${f1(ly)}" y2="${f1(ly)}" stroke="${lc}" stroke-dasharray="2 3" opacity=".75"/><rect x="${w - R + 1}" y="${f1(ly - 8)}" width="${R - 2}" height="16" rx="3" fill="${lc}"/><text x="${w - R + 4}" y="${f1(ly + 3.5)}" font-size="10" font-weight="700" fill="#fff">${axis(vis[n - 1][4])}</text>`;
+  g += `<text x="${w - R + 4}" y="${vt + 11}" font-size="10" fill="var(--soft)">${vmax >= 1e4 ? fmt(vmax / 1e4, 1) + '萬' : fmt(vmax)} ${MK.unit()}</text>`;
+  const id = `ck${++ckSeq}`, d = { bars, off, n, mas, X, slot, L, w, period, key, prev, prevs }; CK.set(id, d); if (CK.size > 8) CK.delete(CK.keys().next().value);
+  const hk = ckHover.get(key), at = hk ? vis.findIndex(b => b[0] === hk) : -1;
+  g += `<line class="ck-x" x1="${at >= 0 ? f1(X(at)) : 0}" x2="${at >= 0 ? f1(X(at)) : 0}" y1="${top}" y2="${vb}" stroke="var(--text,var(--ink))" stroke-width=".8" stroke-dasharray="2 2" opacity="${at >= 0 ? .6 : 0}"/><rect x="${L}" y="0" width="${w - L - R}" height="${h}" fill="transparent"/>`;
+  return `<div class="ck-wrap"><div class="ck-read num" id="${id}-r">${ckRead(d, at >= 0 ? at : n - 1)}</div><svg class="ix-candle" id="${id}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${period === 'day' ? '日 K' : '5 分 K'}線圖，含 5 日與 20 日均線">${g}</svg>
+  <div class="ck-legend">${mas.map(m => `<span><i style="background:${m.col}"></i>MA${m.n}</span>`).join('')}<span class="soft">${period === 'day' ? '日 K · 不還原' : '5 分 K'}${MK.unit() ? ` · 量：${MK.unit()}` : ''}</span></div></div>`;
+}
+function ckPoint(e) {
+  const svg = e.target.closest?.('svg.ix-candle'), d = svg && CK.get(svg.id); if (!d) return;
+  const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * d.w, i = Math.max(0, Math.min(d.n - 1, Math.floor((x - d.L) / d.slot)));
+  const line = svg.querySelector('.ck-x'), lx = d.X(i).toFixed(1); line.setAttribute('x1', lx); line.setAttribute('x2', lx); line.setAttribute('opacity', '.6');
+  const out = svg.ownerDocument.getElementById(svg.id + '-r'); if (out) out.innerHTML = ckRead(d, i);
+  ckHover.set(d.key, d.bars[d.off + i][0]);
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointermove', ckPoint); document.addEventListener('pointerdown', ckPoint);
+  document.addEventListener('pointerout', e => { // 滑鼠離開圖表：回到最新一根
+    const svg = e.target.closest?.('svg.ix-candle'), d = svg && CK.get(svg.id); if (!d || e.pointerType !== 'mouse' || svg.contains(e.relatedTarget)) return;
+    ckHover.delete(d.key); svg.querySelector('.ck-x').setAttribute('opacity', '0');
+    const out = svg.ownerDocument.getElementById(svg.id + '-r'); if (out) out.innerHTML = ckRead(d, d.n - 1);
+  });
+}
+
+/* ---------- 大戶持股：千張大戶比例（線）＋股東人數（柱） ---------- */
+export function holdersSVG(series, { w = 640, h = 200 } = {}) {
+  if (!series?.length) return '';
+  const L = 40, R = 52, T = 14, B = 22, n = series.length, bw = (w - L - R) / n;
+  const bv = series.map(s => s.big1000), lo = Math.min(...bv), hi = Math.max(...bv), rg = hi - lo || 1;
+  const pv = series.map(s => s.people), pmin = Math.min(...pv) * 0.995, pmax = Math.max(...pv), pr = pmax - pmin || 1;
+  const x = i => L + (i + .5) * bw, y = v => T + (hi - v) / rg * (h - T - B);
+  let g = '';
+  series.forEach((s, i) => { const bh = (s.people - pmin) / pr * (h - T - B) * .85 + 2; g += `<rect x="${x(i) - bw * .32}" y="${h - B - bh}" width="${bw * .64}" height="${bh}" fill="var(--violet)" opacity=".28"/>`; });
+  g += `<polyline points="${series.map((s, i) => `${x(i)},${y(s.big1000)}`).join(' ')}" fill="none" stroke="var(--amber)" stroke-width="2"/>`;
+  series.forEach((s, i) => { g += `<circle cx="${x(i)}" cy="${y(s.big1000)}" r="2.6" fill="var(--amber)"><title>${s.date} 千張大戶 ${s.big1000}% · 股東 ${fmt(s.people)} 人</title></circle>`; });
+  g += `<text x="${L - 6}" y="${y(hi) + 4}" font-size="10" fill="var(--amber)" text-anchor="end">${fmt(hi, 2)}%</text><text x="${L - 6}" y="${y(lo) + 4}" font-size="10" fill="var(--amber)" text-anchor="end">${fmt(lo, 2)}%</text>`;
+  g += `<text x="${w - R + 4}" y="${T + 8}" font-size="10" fill="var(--violet)">${fmt(pmax / 1000, 1)}k 人</text><text x="${w - R + 4}" y="${h - B}" font-size="10" fill="var(--violet)">${fmt(pmin / 1000, 1)}k</text>`;
+  g += `<text x="${L}" y="${h - 4}" font-size="10" fill="var(--soft)">${series[0].date.slice(5)}</text><text x="${w - R}" y="${h - 4}" font-size="10" fill="var(--soft)" text-anchor="end">${series.at(-1).date.slice(5)}</text>`;
+  return `<svg class="ix-holders" viewBox="0 0 ${w} ${h}" role="img" aria-label="千張大戶持股比例與股東人數">${g}</svg>`;
+}
+
+/* ---------- 板塊輪動：每 N 分鐘新增成交金額的板塊占比（100% 堆疊面積） ---------- */
+export const PALETTE = ['#22e6ff', '#ff4fd8', '#ffc34d', '#9b8cff', '#16e38b', '#ff8a3d', '#4d8dff', '#ff3d5a', '#7d8ba1'];
+export function rotationData(sum, { top = 8, bucket = 5 } = {}) {
+  const idx = []; sum.times.forEach((t, i) => { const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3)); if (i === 0 || i === sum.times.length - 1 || m % bucket === 0) idx.push(i); });
+  const uniq = [...new Set(idx)]; if (uniq.length < 3) return null;
+  const names = sum.sectors.slice(0, top).map(s => s.name), rows = [];
+  for (let k = 1; k < uniq.length; k++) {
+    const a = uniq[k - 1], b = uniq[k], incs = sum.sectors.map(s => Math.max(0, s.a[b] - s.a[a])), tot = incs.reduce((x, y) => x + y, 0) || 1;
+    const main = incs.slice(0, top), other = incs.slice(top).reduce((x, y) => x + y, 0);
+    rows.push({ i: b, t: sum.times[b], shares: [...main, other].map(v => v / tot), money: tot });
+  }
+  return { names: [...names, '其他'], rows };
+}
+export function rotationSVG(rot, { w = 640, h = 200, cursor = null } = {}) {
+  if (!rot) return '<div class="ix-empty">錄製超過 15 分鐘後即可看到板塊輪動。</div>';
+  const n = rot.rows.length, x = k => k / (n - 1 || 1) * w, layers = rot.names.map(() => []);
+  rot.rows.forEach((r, k) => { let acc = 0; r.shares.forEach((s, j) => { layers[j].push([x(k), acc, acc + s]); acc += s; }); });
+  const Y = v => (1 - v) * (h - 16);
+  let g = layers.map((L, j) => `<polygon points="${[...L.map(p => `${p[0].toFixed(1)},${Y(p[2]).toFixed(1)}`), ...L.slice().reverse().map(p => `${p[0].toFixed(1)},${Y(p[1]).toFixed(1)}`)].join(' ')}" fill="${PALETTE[j % PALETTE.length]}" opacity="${j === rot.names.length - 1 ? .35 : .78}"><title>${esc(rot.names[j])}</title></polygon>`).join('');
+  const ticks = [0, Math.floor((n - 1) / 2), n - 1];
+  g += ticks.map(k => `<text x="${x(k)}" y="${h - 3}" font-size="10" fill="var(--soft)" text-anchor="${k === 0 ? 'start' : k === n - 1 ? 'end' : 'middle'}">${rot.rows[k].t}</text>`).join('');
+  if (cursor != null) { const k = rot.rows.findIndex(r => r.i >= cursor); if (k >= 0) g += `<line x1="${x(k)}" x2="${x(k)}" y1="0" y2="${h - 16}" stroke="${TXT}" stroke-width="1.5" stroke-dasharray="3 2"/>`; }
+  return `<svg class="ix-rotation" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="板塊輪動">${g}</svg><div class="ix-legend">${rot.names.map((nm, j) => `<span><i style="background:${PALETTE[j % PALETTE.length]}"></i>${esc(nm)}</span>`).join('')}</div>`;
+}
+// 時光機畫格 → 熱浪圖使用的個股資料
+export function replayStocks(sum, frame) {
+  const out = [];
+  sum.stocks.forEach((s, i) => { const p = frame.p[i] / 100, a = frame.a[i] * 1e6; if (!(p > 0 && a > 0)) return; out.push({ id: s.id, name: s.name, sector: s.sector, market: s.market, close: p, money: a, change: s.prev > 0 ? Math.round((p / s.prev - 1) * 1e4) / 100 : null, prevMoney: null, volume: null, open: null, high: null, low: null }); });
+  return out;
+}
+
+/* ---------- 券商分點 ---------- */
+export function brokerHTML(b) {
+  if (!b) return '<div class="ix-empty">查無分點資料</div>';
+  const row = (x, side) => `<tr class="${x.dayTrader ? 'ix-dt' : ''}"><td>${esc(x.name)}${x.dayTrader ? '<em class="ix-badge warn">隔日沖</em>' : ''}${Math.abs(x.streak) >= 3 ? `<em class="ix-badge ${x.streak > 0 ? 'up' : 'down'}">連${Math.abs(x.streak)}${x.streak > 0 ? '買' : '賣'}</em>` : ''}</td><td class="num ${side}">${x.net > 0 ? '+' : ''}${lots(x.net)}</td><td class="num">${fmt(side === 'up' ? x.avgBuy : x.avgSell, 2)}</td><td class="num ${cls(x.cumNet)}">${x.cumNet > 0 ? '+' : ''}${lots(x.cumNet)}</td></tr>`;
+  const table = (list, side, title) => `<div class="ix-btable"><h5 class="${side}">${title}</h5><table><thead><tr><th>分點</th><th>淨張</th><th>均價</th><th>${b.dates.length}日累計</th></tr></thead><tbody>${list.map(x => row(x, side)).join('') || '<tr><td colspan="4" class="muted">無</td></tr>'}</tbody></table></div>`;
+  return `<div class="ix-bmeta"><span>${esc(b.date)}</span><span>${fmt(b.brokerCount)} 個分點 · 成交 ${lots(b.volume)} 張</span><span>主力集中度 <b class="${cls(b.concentration)}">${pct(b.concentration, 1)}</b></span></div>
+  <div class="ix-bgrid">${table(b.buy.slice(0, 8), 'up', '買超前 8')}${table(b.sell.slice(0, 8), 'down', '賣超前 8')}</div>
+  ${b.dayTraders.length ? `<p class="ix-note">⚠️ 疑似隔日沖：${b.dayTraders.map(d => `${esc(d.name)}（前日 +${lots(d.prevNet)} → 今日 ${lots(d.net)} 張）`).join('、')}</p>` : ''}
+  <p class="ix-foot">主力集中度 =（前 15 大買超 − 前 15 大賣超）÷ 成交量 · 隔日沖：前日大買、今日賣出六成以上 · 分點資料每日約 21:00 公布</p>`;
+}
+
+/* ---------- 大戶持股 ---------- */
+export function holderHTML(h) {
+  if (!h?.series?.length) return '<div class="ix-empty">查無股權分散資料</div>';
+  const last = h.series.at(-1), s = h.signal;
+  return `<div class="ix-bmeta"><span class="ix-pill ${s?.tone === '籌碼集中' ? 'up' : s?.tone === '籌碼渙散' ? 'down' : ''}">${esc(s?.tone || '資料累積中')}</span><span>千張大戶 <b>${fmt(last.big1000, 2)}%</b>${s ? `（週 <span class="${cls(s.d1)}">${s.d1 > 0 ? '+' : ''}${fmt(s.d1, 2)}</span>・4 週 <span class="${cls(s.d4)}">${s.d4 > 0 ? '+' : ''}${fmt(s.d4, 2)}</span>）` : ''}</span><span>股東 ${fmt(last.people)} 人${s?.peopleChange4w != null ? `（4 週 <span class="${cls(-s.peopleChange4w)}">${pct(s.peopleChange4w, 1)}</span>）` : ''}</span></div>
+  ${holdersSVG(h.series)}<div class="ix-legend"><span><i style="background:var(--amber)"></i>千張大戶 %</span><span><i style="background:var(--violet);opacity:.5"></i>股東人數</span><span class="muted">400 張以上 ${fmt(last.big400, 2)}% · 50 張以下 ${fmt(last.small, 2)}% · ${esc(last.date)}</span></div>`;
+}
+
+/* ---------- 雷達事件 ---------- */
+export const ALERT_ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️' };
+export const ALERT_GROUPS = [['all', '全部'], ['watch', '自選'], ['volume', '爆量'], ['surge', '急拉急殺'], ['limit', '漲跌停'], ['pattern', '型態／防守'], ['news', '新聞']];
+export function alertMatch(a, g) { return g === 'all' || (g === 'watch' && a.watch) || (g === 'volume' && a.type === 'volume') || (g === 'surge' && a.type.startsWith('surge')) || (g === 'limit' && a.type.startsWith('limit')) || (g === 'pattern' && ['pattern-entry', 'stop'].includes(a.type)) || (g === 'news' && a.type === 'news'); }
+export const isMove = a => a.type !== 'report' && a.type !== 'news'; // 盤中異動（不含日報與新聞）
+export function alertRow(a) {
+  if (a.type === 'news') { // 個股新聞：點擊開啟原文
+    const inner = `<span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">🗞️</span><span class="ix-ab"><b>${esc(a.name)} <small class="num">${esc(a.stockId)}</small>${a.watch ? '<em class="ix-badge acc">自選</em>' : ''} <em class="ix-tag news">${esc(a.source || '新聞')}</em></b><small>${esc(a.detail)}</small></span><span class="ix-ap num ${cls(a.change)}">${a.close != null ? fmt(a.close, 2) : ''}<small>${a.change != null ? pct(a.change) : ''}</small></span>`;
+    return /^https?:\/\//i.test(a.url || '') ? `<a class="ix-alert t-news lv-${esc(a.level)}" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>` : `<div class="ix-alert t-news lv-${esc(a.level)}">${inner}</div>`;
+  }
+  if (a.type === 'report') return `<button class="ix-alert t-report" data-open-report="${esc(a.date || '')}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">📰</span><span class="ix-ab"><b>AI 盤後日報</b><small>${esc(a.detail)}</small></span></button>`;
+  const tone = ['surge-up', 'limit-up', 'pattern-entry', 'limit-down-open'].includes(a.type) ? 'up' : ['surge-down', 'limit-down', 'stop', 'limit-up-open'].includes(a.type) ? 'down' : 'hot';
+  return `<button class="ix-alert lv-${a.level} tone-${tone}" data-alert-stock="${esc(a.stockId)}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">${ALERT_ICON[a.type] || '📡'}</span><span class="ix-ab"><b>${esc(a.name)} <small class="num">${esc(a.stockId)}</small>${a.watch ? '<em class="ix-badge acc">自選</em>' : ''} <em class="ix-tag ${tone}">${esc(a.title)}</em></b><small>${esc(a.detail)}</small></span><span class="ix-ap num ${cls(a.change)}">${fmt(a.close, 2)}<small>${pct(a.change)}</small></span></button>`;
+}
+
+/* ---------- AI 盤後日報 ---------- */
+export function reportHTML(r, { compact = false } = {}) {
+  if (!r) return '';
+  const list = (title, items, icon) => items?.length ? `<section class="ix-rsec"><h4>${icon} ${title}</h4><ul>${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>` : '';
+  return `<article class="ix-report"><p class="ix-rdate num">${esc(r.date)} 盤後</p><h3 class="ix-rh">${esc(r.headline)}</h3><p class="ix-rs">${esc(r.summary)}</p>
+  ${(r.sections || []).map((s, i) => `<details class="ix-rsec" ${compact && i > 0 ? '' : 'open'}><summary>${esc(s.title)}</summary><ul>${s.points.map(p => `<li>${esc(p)}</li>`).join('')}</ul></details>`).join('')}
+  ${r.watchlist?.length ? `<section class="ix-rsec"><h4>👀 值得注意</h4><div class="ix-rwatch">${r.watchlist.map(w => `<button data-stock="${esc(w.id)}"><b>${esc(w.name)} <small class="num">${esc(w.id)}</small></b><span>${esc(w.note)}</span></button>`).join('')}</div></section>` : ''}
+  ${list('明日觀察', r.tomorrow, '🗓')}${list('風險提醒', r.risks, '⚠️')}
+  <p class="ix-foot">由 <span translate="no">${esc(r.model || 'AI')}</span> 依當日資料產生 · ${esc(MK.dateTime(r.createdAt))}${r.usage ? ` · ${fmt(r.usage.input)} / ${fmt(r.usage.output)} tokens` : ''} · 研究紀錄，非投資建議</p></article>`;
+}

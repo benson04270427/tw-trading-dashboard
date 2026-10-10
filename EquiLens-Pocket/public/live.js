@@ -1,0 +1,328 @@
+// 衡析 Pocket：盤中分頁（族群／自選即時看板、異動雷達、族群排名、雷達設定）、個股 K 線、熱浪時光機、個股籌碼深度、AI 盤後日報、推播訂閱。
+import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, rotationData, rotationSVG, replayStocks } from './insight-ui.js';
+import { tx } from './i18n.js';
+import * as MK from './market.js';
+
+let C = null; // { api, toast, draw, S, openSheet, openStock, inScope, aggregate, renderTreemap, heatColor, $ }
+const pref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } }, savePref = (k, v) => { try { localStorage.setItem(k, v); } catch { } };
+const L = { view: 'board', board: null, boardAt: 0, bgroup: pref('pocket.boardGroup', ''), bsort: pref('pocket.boardSort', 'default'), alerts: [], latest: 0, alertDate: '', group: 'all', monitor: null, draft: null, push: { state: 'unknown', count: 0 }, report: null, reportLoaded: false, replay: null, error: '' };
+export const liveState = L;
+// 平台：iPhone／iPad（含 iPadOS 桌面版 UA）與是否從主畫面圖示開啟（iOS 只有主畫面 App 能收推播）
+export const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+export const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushHelp = state => state === 'unsupported'
+  ? IOS ? STANDALONE ? '這支 iPhone 的系統版本不支援網頁推播，請更新到 iOS 16.4 以上。' : 'iPhone／iPad 要先加入主畫面才能收通知：用 Safari 開啟衡析手機版的網址 →「分享」→「加入主畫面」，再從主畫面的「衡析」圖示開啟，回到這裡按「開啟通知」（需 iOS 16.4 以上）。'
+    : '這個瀏覽器不支援推播。請用 Chrome 安裝到主畫面的 App 開啟。'
+  : IOS ? '通知權限已關閉，請到 iPhone「設定 → 通知 → 衡析」打開「允許通知」。' : '通知權限被封鎖，請到手機設定 → 應用程式 → Chrome（或此 App）→ 通知 開啟。';
+export function initLive(ctx) { C = ctx; }
+
+
+export function marketOpen() { return MK.isOpen(); }
+const elapsed = s => MK.elapsed(s);
+const yi = v => v == null ? '—' : fmt(v / 1e8, Math.abs(v) >= 1e10 ? 0 : 1);
+
+/* ---------- data ---------- */
+export async function loadBoard() { try { const want = L.bgroup, b = await C.api('api/board' + (want ? '?group=' + encodeURIComponent(want) : '')); if (want === L.bgroup) { L.board = b; L.boardAt = Date.now(); L.error = ''; } } catch (e) { if (!e.silent) L.error = e.message; } }
+export async function loadAlerts(reset = false) {
+  try {
+    const r = await C.api('api/alerts?since=' + (reset ? 0 : L.latest));
+    if (reset || r.date !== L.alertDate) { L.alerts = []; L.alertDate = r.date; }
+    if (r.alerts.length) L.alerts.push(...r.alerts);
+    L.latest = Math.max(L.latest, r.latest || 0);
+  } catch (e) { if (!e.silent) L.error = e.message; }
+}
+async function loadMonitor() { try { L.monitor = await C.api('api/monitor'); L.draft = structuredClone({ monitor: L.monitor.enabled, radar: L.monitor.radar }); } catch (e) { if (!e.silent) L.error = e.message; } }
+export async function loadLiveTab() { await Promise.all([loadBoard(), loadAlerts(!L.alertDate), L.monitor ? null : loadMonitor(), checkPush()]); }
+setInterval(async () => {
+  if (!C || document.hidden) return;
+  const S = C.S;
+  if (S.tab === 'live' && (marketOpen() || Date.now() - L.boardAt > 60000)) { await Promise.all([loadBoard(), loadAlerts()]); if (S.tab === 'live' && !sheetOpen()) redrawLive(); }
+  if (S.tab === 'brief' && L.report?.busy) { await loadReport(); if (S.tab === 'brief') C.draw(); }
+}, 10000);
+const sheetOpen = () => C.$('#sheet')?.classList.contains('open');
+function redrawLive() { // 重繪時保留頁面與族群切換列的捲動位置
+  const keep = window.scrollY, chips = C.$('.lv-gchips')?.scrollLeft; C.draw(); window.scrollTo(0, keep);
+  const el = C.$('.lv-gchips'); if (el && chips != null) el.scrollLeft = chips;
+}
+
+/* ---------- 盤中分頁 ---------- */
+export function livePage() {
+  const m = L.monitor, open = marketOpen();
+  const status = `<div class="statusline"><span class="pill"><span class="dot ${open && m?.enabled ? 'live' : ''}"></span>${!m ? '讀取中' : !m.enabled ? '監控已關閉' : open ? `監控中 ${esc(L.board?.asOf?.slice(11, 19) || '')}` : '非盤中'}</span>${m?.error ? `<span class="pill warn">${esc(m.error)}</span>` : ''}<span class="pill">今日異動 ${L.alerts.filter(isMove).length}</span>${m?.news?.enabled ? `<span class="pill">🗞️ 新聞 ${L.alerts.filter(a => a.type === 'news').length}</span>` : ''}</div>`;
+  const seg = `<div class="seg" style="margin-bottom:12px">${[['board', '看板'], ['radar', '雷達'], ['groups', '族群排名'], ['settings', '設定']].map(([v, l]) => `<button class="${L.view === v ? 'on' : ''}" data-lview="${v}">${l}</button>`).join('')}</div>`;
+  const err = L.error ? `<div class="notice err">${esc(L.error)}</div>` : '';
+  return status + seg + err + (L.view === 'board' ? boardView() : L.view === 'radar' ? radarView() : L.view === 'groups' ? groupsView() : settingsView());
+}
+/* ---------- 即時看板：自選或研究總覽任一族群 ---------- */
+const BOARD_SORTS = [['default', '預設'], ['chg', '漲幅'], ['amt', '成交值']];
+const chgOf = s => s.quote?.change ?? s.daily?.change;
+function sortStocks(list) {
+  if (L.bsort === 'chg') return list.slice().sort((a, b) => (chgOf(b) ?? -1e9) - (chgOf(a) ?? -1e9));
+  if (L.bsort === 'amt') return list.slice().sort((a, b) => (b.quote?.amount || 0) - (a.quote?.amount || 0));
+  return list;
+}
+function boardView() {
+  const b = L.board; if (!b) return '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
+  const chips = b.groups ? `<div class="chips lv-gchips"><button class="chip ${b.group === 'watch' ? 'on' : ''}" data-bgroup="watch">☆ 自選<b class="num">${b.watchCount}</b></button>${b.groups.map(g => `<button class="chip ${b.group === g.id ? 'on' : ''}" data-bgroup="${esc(g.id)}">${esc(g.name)}<b class="num ${cls(g.score)}">${g.score == null ? '—' : pct(g.score)}</b></button>`).join('')}</div>` : '';
+  const g = b.groups?.find(x => x.id === b.group), up = b.stocks.filter(s => chgOf(s) > 0).length, down = b.stocks.filter(s => chgOf(s) < 0).length;
+  const sum = g ? `<span>量能加權 <b class="num ${cls(g.score)}">${pct(g.score)}</b></span><span>漲 <b class="num up">${g.up}</b>／跌 <b class="num down">${g.down}</b></span><span class="num">${yi(g.amount)} 億</span>${g.rank ? `<span>第 <b class="num">${g.rank}</b> 名</span>` : ''}`
+    : `<span>自選 ${b.stocks.length} 檔</span><span>漲 <b class="num up">${up}</b>／跌 <b class="num down">${down}</b></span>`;
+  const bar = `<div class="lv-gbar"><div class="lv-gsum">${b.loading ? '<span class="spinner"></span>' : sum}</div><div class="seg lv-sort">${BOARD_SORTS.map(([v, l]) => `<button class="${L.bsort === v ? 'on' : ''}" data-bsort="${v}">${l}</button>`).join('')}</div></div>`;
+  if (b.loading) return chips + bar + '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
+  if (!b.stocks.length) return chips + bar + `<div class="empty">${b.group === 'watch' ? '尚無自選股。在「個股」分頁點選股票後按 ☆ 加入，或在上方切換到任一族群看板。' : '此族群沒有成分股。'}</div>`;
+  return chips + bar + `<div class="lv-grid">${sortStocks(b.stocks).map(s => {
+    const q = s.quote, chg = chgOf(s), price = q?.close ?? s.daily?.price;
+    const ratio = q?.volume && q?.yesterdayVolume && elapsed(q.time) >= 5 ? q.volume / (elapsed(q.time) / 270) / q.yesterdayVolume : null;
+    return `<button class="lv-card ${cls(chg)}" data-kbar="${s.id}"><div class="lv-top"><b>${esc(s.name)}<small class="num">${s.id}</small></b>${s.score != null ? `<span class="score ${s.score >= 75 ? 'hi' : s.score >= 55 ? 'mid' : ''}">${fmt(s.score)}</span>` : ''}</div>
+      <div class="lv-px"><span class="num big ${cls(chg)}">${fmt(price, 2)}</span><span class="chg num ${cls(chg)}">${pct(chg)}</span></div>
+      ${sparkSVG(s.spark, s.prev)}
+      <div class="lv-meta num"><span>${q?.volume ? `${fmt(q.volume)} 張` : q?.time ? `收盤 ${q.time}` : s.daily?.asOf ? `日資料 ${s.daily.asOf.slice(5)}` : '—'}</span><span>${q?.amount ? `${yi(q.amount)} 億` : ''}</span><span class="${ratio >= 2 ? 'up' : ''}">${ratio ? `量比 ${fmt(ratio, 1)}` : ''}</span></div></button>`;
+  }).join('')}</div><p class="foot">${b.live ? '盤中每 10 秒更新' : b.date ? `顯示 ${esc(b.date)} 最後狀態` : '開盤後自動顯示即時報價'} · 點卡片看日 K／5 分 K<br>族群旁的數字為量能加權漲幅（與「族群排名」同算法）</p>`;
+}
+function radarView() {
+  const p = L.push, list = L.alerts.filter(a => alertMatch(a, L.group)).slice().reverse();
+  const pushCard = `<section class="card lv-push"><div class="card-b"><b>📲 手機通知</b><p>${p.state === 'on' ? `已開啟 · 共 ${p.count} 台裝置` : p.state === 'unsupported' || p.state === 'denied' ? pushHelp(p.state) : '開啟後，盤中異動與 AI 日報會直接推到這支手機。'}</p>
+    <div class="upd-row">${p.state === 'on' ? '<button class="btn" data-push="test">發送測試</button><button class="btn" data-push="off">關閉通知</button>' : p.state === 'unsupported' || p.state === 'denied' ? '' : '<button class="btn primary" data-push="on" style="grid-column:1/-1">開啟通知</button>'}</div></div></section>`;
+  const chips = `<div class="chips" style="margin-bottom:10px">${ALERT_GROUPS.map(([k, l]) => `<button class="chip ${L.group === k ? 'on' : ''}" data-agroup="${k}">${l} ${L.alerts.filter(a => alertMatch(a, k)).length}</button>`).join('')}</div>`;
+  return pushCard + chips + `<section class="card ix-alerts">${list.map(alertRow).join('') || `<div class="empty">${marketOpen() ? '目前沒有符合條件的異動。' : '今日尚無異動紀錄。開盤後雷達會自動掃描。'}</div>`}</section>`;
+}
+function settingsView() {
+  const d = L.draft; if (!d) return '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
+  const r = d.radar, sel = (path, opts, unit = '') => `<select class="sel" data-rset="${path}">${opts.map(v => `<option value="${v}" ${String(path.split('.').reduce((o, k) => o[k], r)) === String(v) ? 'selected' : ''}>${v}${unit}</option>`).join('')}</select>`;
+  const sw = (path, label, desc, extra = '') => { const on = path === 'monitor' ? d.monitor : path.split('.').reduce((o, k) => o[k], r); return `<div class="lv-rule"><label class="lv-sw"><input type="checkbox" data-rset="${path}" ${on ? 'checked' : ''}><span></span></label><div><b>${label}</b><small>${desc}</small>${extra ? `<div class="lv-opts">${extra}</div>` : ''}</div></div>`; };
+  return `<section class="card"><div class="card-b">
+    ${sw('monitor', '盤中監控', '平日盤中定時取即時快照（頻率依資料源與方案），驅動即時熱浪、時光機、看板與雷達。')}
+    <h3 class="lv-h">監控範圍</h3><div class="seg">${[['watch', '只看自選'], ['research', '自選＋研究名單'], ['all', '全市場']].map(([v, l]) => `<button class="${r.scope === v ? 'on' : ''}" data-rscope="${v}">${l}</button>`).join('')}</div>
+    <h3 class="lv-h">提醒條件</h3>
+    ${sw('volume.on', '🔥 爆量', '依目前成交量推估全日量，超過昨量倍數時提醒（開盤 15 分鐘後）', `${sel('volume.ratio', [1.5, 2, 3, 5], ' 倍')}${sel('volume.minAmount', [0, 50000000, 100000000, 500000000])}<small>最低成交金額（元）</small>`)}
+    ${sw('surge.on', '🚀 急拉／⚡ 急殺', '設定時間內漲（跌）幅達門檻（含）即提醒；以昨收計算，比較現價與這段時間內的最低（最高）價', `${sel('surge.minutes', [1, 3, 5, 10, 15], ' 分鐘')}${sel('surge.pct', [1, 1.5, 2, 3, 5], '%')}`)}
+    ${sw('limit.on', '🔺 漲跌停', '觸及、打開與再鎖漲跌停')}
+    ${sw('pattern.on', '🎯 型態進場', '型態選股中的股票向上穿越條件進場價（不受監控範圍限制）')}
+    ${sw('stop.on', '🛑 跌破防守', '監控範圍內有型態計畫的股票向下跌破結構防守價')}
+    <button class="btn primary block" data-rsave style="margin-top:14px">儲存雷達設定</button></div></section>
+    <p class="foot">雷達在電腦上的衡析 Nexus 執行；手機關閉時仍會掃描並推播。</p>`;
+}
+/* ---------- 個股 K 線：日 K／5 分 K（5MA、20MA），盤中每 10 秒更新即時報價與 K 線 ---------- */
+const K = { id: null, period: pref('pocket.chartPeriod', '5m') === 'day' ? 'day' : '5m', data: null, error: '', seq: 0 };
+const chartShown = id => sheetOpen() && !!C.$(`#sheet-body [data-chart="${id}"]`);
+async function openChart(id, period = K.period) {
+  if (K.id !== id) { K.data = null; K.error = ''; }
+  const shown = chartShown(id); K.id = id; K.period = period; savePref('pocket.chartPeriod', period);
+  if (!shown) C.openSheet(L.board?.stocks.find(x => x.id === id)?.name || id, '');
+  paintChart(); await refreshChart();
+}
+async function refreshChart() {
+  const id = K.id, period = K.period, seq = ++K.seq;
+  try { const d = await C.api(`api/chart?id=${id}&period=${period}`); if (seq !== K.seq) return; K.data = d; K.error = ''; }
+  catch (e) { if (seq !== K.seq || e.silent) return; K.error = e.message; }
+  if (chartShown(id)) paintChart();
+}
+setInterval(() => { if (C && K.id && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+function paintChart() {
+  const id = K.id, d = K.data?.id === id ? K.data : null, s = L.board?.stocks.find(x => x.id === id), body = C.$('#sheet-body');
+  const ready = d && d.period === K.period, q = d?.quote ?? s?.quote, dayBar = d?.session || null;
+  const price = q?.close ?? dayBar?.[4] ?? d?.daily?.price ?? s?.daily?.price, chg = q?.change ?? d?.daily?.change ?? s?.daily?.change;
+  const live = d?.live && marketOpen(), info = [q?.open ?? dayBar?.[1], q?.high ?? dayBar?.[2], q?.low ?? dayBar?.[3]];
+  // 依畫面寬度決定圖寬與根數（摺疊螢幕展開時顯示更多 K 棒）
+  const w = Math.round(Math.max(300, Math.min(900, (body?.clientWidth || 360) - 30))), h = Math.round(Math.min(400, Math.max(250, w * .72)));
+  const chart = K.error && !ready ? `<div class="notice err">${esc(K.error)}</div>` : ready ? candleSVG(d.bars, { w, h, show: Math.round(w / (d.period === 'day' ? 6 : 5)), period: d.period, key: id + d.period, prev: d.prev, prevs: d.days ? Object.fromEntries(d.days.map(x => [x.date, x.prev])) : null }) : `<div class="empty"><span class="spinner"></span> 讀取${K.period === 'day' ? '日' : ' 5 分'} K…</div>`;
+  const caption = !ready ? '' : d.period === 'day' ? `日 K（不還原）${d.today ? ` · 最後一根為 ${md(d.today)} ${live ? '即時' : '當日'}資料` : ''} · 左右滑動或點圖查看各根數值`
+    : `${d.notice ? `<span class="amber">⚠ ${esc(d.notice)}</span><br>` : ''}5 分 K · ${d.days.map(x => md(x.date)).join('、')}${d.days.some(x => x.source === 'replay') ? ' · 盤中以每分鐘快照組成，高低點為近似值，收盤後改用資料源的分 K' : ''} · 左右滑動或點圖查看各根數值`;
+  C.$('#sheet-title').innerHTML = `${esc(d?.name || s?.name || id)}<small>${id}${d?.sector ? ' · ' + esc(d.sector) : ''}</small>`;
+  body.innerHTML = `<div data-chart="${id}"><div class="hero"><div><div class="big num ${cls(chg)}">${fmt(price, 2)}</div><div class="num ${cls(chg)}" style="font-weight:700">${pct(chg)}${q?.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</div>
+    <div class="meta num">開 ${fmt(info[0], 2)} · 高 ${fmt(info[1], 2)} · 低 ${fmt(info[2], 2)}<br>${q?.volume ? `成交 ${fmt(q.volume)} 張` : dayBar ? `成交 ${fmt(dayBar[5])} 張` : ''}${q?.amount ? ` · ${yi(q.amount)} 億` : ''}${q?.bid ? ` · 委買 ${fmt(q.bid, 2)}／委賣 ${fmt(q.ask, 2)}` : ''}</div></div></div>
+    <div class="statusline">${live ? `<span class="pill"><span class="dot live"></span>盤中 · 每 10 秒更新 ${esc(q?.time || '')}</span>` : q?.date ? `<span class="pill">${md(q.date)} ${esc(q.time || '')}</span>` : ''}</div>
+    <div class="seg" style="margin-bottom:10px">${[['day', '日K'], ['5m', '5分K']].map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
+    <section class="card"><div class="card-b">${chart}${caption ? `<p class="ix-foot">${caption}</p>` : ''}</div></section>
+    <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div></div>`;
+}
+
+/* ---------- 設定（☰）：新聞推播 ---------- */
+const hhmmss = ms => MK.parts(ms).hm;
+export function newsSettingsCard() {
+  if (!L.monitor) { loadMonitor().then(() => { const el = C.$('#news-set'); if (el) el.outerHTML = newsSettingsCard(); }); return '<section class="card" id="news-set"><div class="card-b"><span class="spinner"></span> 讀取新聞推播設定…</div></section>'; }
+  const n = L.monitor.news || { enabled: false, scope: 'all', quiet: false }, s = n.status || {};
+  const status = !n.enabled ? '目前關閉' : s.error ? `⚠ ${esc(s.error)}` : s.at ? `上次掃描 ${hhmmss(s.at)} · 今日新聞 ${s.today || 0} 則` : '即將開始第一次掃描';
+  return `<section class="card" id="news-set"><div class="card-h"><h2>🗞️ 新聞推播</h2></div><div class="card-b">
+    <div class="lv-rule"><label class="lv-sw"><input type="checkbox" data-npush="enabled" ${n.enabled ? 'checked' : ''}><span></span></label><div><b>新聞推播</b><small>每分鐘掃描一次研究族群成分股的個股新聞，有新新聞立即推播（點通知直接開原文）。論壇貼文與重複轉載會自動略過；剛開啟時，已有的新聞只記錄不推播。</small></div></div>
+    <div class="lv-rule"><div style="flex:1"><b>推播範圍</b><div class="seg" style="margin-top:8px">${[['all', '全部研究族群'], ['watch', '只推自選股']].map(([v, l]) => `<button class="${n.scope === v ? 'on' : ''}" data-npush-scope="${v}">${l}</button>`).join('')}</div></div></div>
+    <div class="lv-rule"><label class="lv-sw"><input type="checkbox" data-npush="quiet" ${n.quiet ? 'checked' : ''}><span></span></label><div><b>夜間勿擾</b><small>23:00–07:00 只記錄到雷達、不推播</small></div></div>
+    <p class="set-p muted">狀態：${status}${L.push.state !== 'on' ? `<br>${['unsupported', 'denied'].includes(L.push.state) ? pushHelp(L.push.state) : '這支手機的通知尚未開啟：請到「盤中 → 雷達」按「開啟通知」'}` : ''}</p></div></section>`;
+}
+async function saveNews(patch) {
+  const cur = L.monitor?.news || { enabled: false, scope: 'all', quiet: false };
+  const r = await C.api('api/news/settings', { enabled: cur.enabled, scope: cur.scope, quiet: cur.quiet, ...patch });
+  L.monitor = { ...L.monitor, news: r.news }; const el = C.$('#news-set'); if (el) el.outerHTML = newsSettingsCard();
+  C.toast(r.news.enabled ? (patch.enabled ? '新聞推播已開啟，每分鐘掃描一次' : '新聞推播設定已儲存') : '新聞推播已關閉');
+}
+
+/* ---------- 推播 ---------- */
+const b64ToU8 = s => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - s.length % 4) % 4)); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+async function checkPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) { L.push = { state: 'unsupported', count: 0 }; return; }
+  if (Notification.permission === 'denied') { L.push = { state: 'denied', count: 0 }; return; }
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('/'), sub = await reg?.pushManager.getSubscription();
+    const k = await C.api('api/push/key' + (sub ? '?endpoint=' + encodeURIComponent(sub.endpoint) : ''));
+    L.push = { state: sub && k.subscribed ? 'on' : 'off', count: k.count };
+  } catch { L.push = { state: 'off', count: 0 }; }
+}
+async function enablePush() {
+  // iPhone Safari 規定通知權限必須在點擊當下直接請求，前面不能先 await 其他動作，否則不會跳出詢問
+  const perm = await Notification.requestPermission(); if (perm !== 'granted') { await checkPush(); throw new Error('沒有取得通知權限'); }
+  const reg = await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready;
+  const { publicKey } = await C.api('api/push/key');
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(publicKey) });
+  await C.api('api/push/subscribe', { subscription: sub.toJSON() });
+  await checkPush();
+}
+async function disablePush() { const reg = await navigator.serviceWorker.getRegistration('/'), sub = await reg?.pushManager.getSubscription(); if (sub) { await C.api('api/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); } await checkPush(); }
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => { });
+  navigator.serviceWorker.addEventListener('message', e => { if (e.data?.type === 'open') { const h = new URL(e.data.url).hash; if (h && h !== location.hash) location.hash = h; } });
+}
+
+/* ---------- AI 盤後日報（今日焦點分頁頂端） ---------- */
+export async function loadReport(date) { try { L.report = await C.api('api/report' + (date ? '?date=' + date : '')); } catch (e) { if (!e.silent) L.report = { error: e.message }; } L.reportLoaded = true; }
+export function reportCard() {
+  const r = L.report; if (!L.reportLoaded) { loadReport().then(() => { if (C.S.tab === 'brief') C.draw(); }); return ''; }
+  if (!r) return '';
+  const head = `<div class="card-h"><h2>🤖 AI 盤後日報</h2>${r.dates?.length > 1 ? `<select class="sel lv-rsel" data-rdate>${r.dates.slice().reverse().map(d => `<option ${d === r.report?.date ? 'selected' : ''}>${d}</option>`).join('')}</select>` : ''}</div>`;
+  const body = r.busy ? '<div class="empty"><span class="spinner"></span> AI 正在撰寫今日日報…</div>'
+    : r.report ? reportHTML(r.report, { compact: true })
+      : !r.configured ? '<div class="empty">尚未設定推理模型。請在電腦版「資料與設定」設定後，平日會自動產生。</div>'
+        : `<div class="empty">尚無日報。平日 ${esc(r.settings?.time || '16:30')} 後自動產生。</div>`;
+  return `<section class="card lv-report">${head}${r.error && !r.busy ? `<div class="notice warn" style="margin:0 14px 10px">${esc(r.error)}</div>` : ''}${body}${r.report && !r.busy ? '<div class="card-b" style="padding-bottom:8px"><button class="btn block primary" data-rcard>📊 下載 9:16 圖卡</button></div>' : ''}${r.configured && !r.busy ? `<div class="card-b"><button class="btn block" data-rgen>${r.report?.date === C.twToday() ? '⟳ 重新產生今日日報' : '✨ 立即產生今日日報'}</button></div>` : ''}</section>`;
+}
+
+/* ---------- 熱浪時光機 ---------- */
+export const replayActive = () => !!L.replay;
+async function openReplay(date) {
+  const days = (await C.api('api/replay/days')).days; if (!days.length) throw new Error('還沒有時光機紀錄。盤中監控開啟後，每分鐘會自動錄製一個畫格。');
+  const d = date || days.at(-1), sum = await C.api('api/replay?date=' + d);
+  L.replay = { days, date: d, sum, rot: rotationData(sum), i: sum.times.length - 1, playing: false, speed: 1, frames: new Map(), agg: null };
+  C.S.heat.live = false;
+  await showFrame(L.replay.i, true);
+}
+async function frame(i) { const R = L.replay; if (!R.frames.has(i)) R.frames.set(i, C.api(`api/replay/frame?date=${R.date}&i=${i}`)); return R.frames.get(i); }
+async function showFrame(i, full = false) {
+  const R = L.replay; if (!R) return; R.i = Math.max(0, Math.min(R.sum.times.length - 1, i));
+  const f = await frame(R.i); if (!L.replay || L.replay !== R) return;
+  R.agg = C.aggregate({ sectors: [{ stocks: replayStocks(R.sum, f) }] }, C.S.heat.market);
+  for (let k = 1; k <= 3; k++) if (R.i + k < R.sum.times.length) frame(R.i + k);
+  if (full || !C.$('#rp-time')) { C.draw(); return; }
+  paintReplay();
+}
+function paintReplay() {
+  const R = L.replay, t = R.agg.total;
+  C.$('#rp-time').textContent = R.sum.times[R.i]; C.$('#rp-slider').value = R.i;
+  C.$('#rp-kpi').innerHTML = kpiHTML(t);
+  C.$('#rp-rot').innerHTML = rotationSVG(R.rot, { w: 360, h: 150, cursor: R.i });
+  const el = C.$('#hm'); if (el) C.renderTreemap(el, R.agg, { focus: C.S.heat.focus, selected: null });
+}
+const kpiHTML = t => `<div class="kpi"><span>累計成交</span><b class="num">${yi(t.money)}<small>億</small></b></div><div class="kpi"><span>加權漲跌 · 漲停 ${t.limitUp}</span><b class="num ${cls(t.change)}">${pct(t.change)}</b></div>`;
+let playTimer = null;
+function setPlaying(on) {
+  const R = L.replay; if (!R) return; R.playing = on; clearInterval(playTimer);
+  if (on) { if (R.i >= R.sum.times.length - 1) R.i = 0; playTimer = setInterval(async () => { if (!L.replay) return clearInterval(playTimer); if (R.i >= R.sum.times.length - 1) { setPlaying(false); return; } await showFrame(R.i + R.speed); }, 450); }
+  const b = C.$('#rp-play'); if (b) b.textContent = on ? '⏸' : '▶';
+}
+export function replayPage() {
+  const R = L.replay, n = R.sum.times.length;
+  return `<div class="toolbar"><div class="field"><select class="sel" data-rpday style="flex:1">${R.days.slice().reverse().map(d => `<option ${d === R.date ? 'selected' : ''}>${d}</option>`).join('')}</select><button class="btn" data-rpclose>結束時光機</button></div>
+    <div class="seg">${['全部', '上市', '上櫃'].map(m => `<button class="${C.S.heat.market === m ? 'on' : ''}" data-rpmarket="${m}">${m}</button>`).join('')}</div></div>
+    <div class="rp-bar"><button class="btn primary" id="rp-play" data-rpplay>${R.playing ? '⏸' : '▶'}</button><b class="num" id="rp-time">${R.sum.times[R.i]}</b><input type="range" id="rp-slider" min="0" max="${n - 1}" value="${R.i}" aria-label="時間"><div class="seg rp-speed">${[[1, '1×'], [3, '3×'], [10, '10×']].map(([v, l]) => `<button class="${R.speed === v ? 'on' : ''}" data-rpspeed="${v}">${l}</button>`).join('')}</div></div>
+    <div class="kpis" id="rp-kpi" style="padding:0;margin-bottom:10px">${R.agg ? kpiHTML(R.agg.total) : ''}</div>
+    <div class="hm-wrap"><div id="hm" role="img" aria-label="時光機熱浪圖"></div></div>
+    <div class="hm-legend">${[-7, -5, -3, -1, 0, 1, 3, 5, 7].map(v => `<span style="background:${C.heatColor(v)}">${v > 0 ? '+' : ''}${v}</span>`).join('')}</div>
+    <section class="card" style="margin-top:10px"><div class="card-h"><h2>板塊輪動<small>每 5 分鐘新增成交的板塊占比</small></h2></div><div class="card-b" id="rp-rot">${rotationSVG(R.rot, { w: 360, h: 150, cursor: R.i })}</div></section>
+    <div class="foot">${esc(R.date)} · ${n} 個畫格（每分鐘一格）· 累計成交金額與漲跌幅</div>`;
+}
+export function mountReplay() { const el = C.$('#hm'); if (el && L.replay?.agg) C.renderTreemap(el, L.replay.agg, { focus: C.S.heat.focus, selected: null }); }
+
+/* ---------- 個股詳情：分點、大戶 ---------- */
+export function stockExtrasShell(id) {
+  return `<section class="card ix-card"><div class="card-h"><h2>🏦 主力分點<small>近 5 日</small></h2></div><div class="card-b" id="ix-brokers"><div class="empty"><span class="spinner"></span> 讀取券商分點…</div></div></section>
+  <section class="card ix-card"><div class="card-h"><h2>🐋 大戶持股<small>每週股權分散</small></h2></div><div class="card-b" id="ix-holders"><div class="empty"><span class="spinner"></span> 讀取股權分散表…</div></div></section>`;
+}
+export async function fillStockExtras(id) {
+  const fill = async (sel, path, render) => { try { const d = await C.api(path); const el = C.$(sel); if (el && C.S.sheetStock?.id === id) el.innerHTML = render(d); } catch (e) { const el = C.$(sel); if (el && !e.silent) el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; } };
+  await Promise.all([fill('#ix-brokers', 'api/brokers?id=' + id, brokerHTML), fill('#ix-holders', 'api/holders?id=' + id, holderHTML)]);
+}
+
+/* ---------- 事件 ---------- */
+document.addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b || !C) return; const ds = b.dataset;
+  try {
+    if (ds.lview) { L.view = ds.lview; if (ds.lview === 'radar') checkPush().then(() => C.S.tab === 'live' && C.draw()); if (ds.lview === 'groups') loadGroupRank(); return C.draw(); }
+    if ('grQuery' in ds) { GR.view = 'live'; return queryGroupRank(); }
+    if (ds.grGroup) { GR.open.has(ds.grGroup) ? GR.open.delete(ds.grGroup) : GR.open.add(ds.grGroup); return C.draw(); }
+    if (ds.grStock) return C.inScope(ds.grStock) ? C.openStock(ds.grStock) : openChart(ds.grStock);
+    if (ds.kbar) return openChart(ds.kbar);
+    if (ds.cperiod) return openChart(K.id, ds.cperiod);
+    if ('chartRefresh' in ds) { b.disabled = true; try { await refreshChart(); } finally { b.disabled = false; } return; }
+    if (ds.bgroup) {
+      L.bgroup = ds.bgroup; savePref('pocket.boardGroup', ds.bgroup); if (L.board) L.board = { ...L.board, group: ds.bgroup, stocks: [], loading: true };
+      redrawLive(); await loadBoard(); if (C.S.tab !== 'live' || sheetOpen()) return;
+      redrawLive(); C.$('.lv-gchips .chip.on')?.scrollIntoView({ inline: 'center', block: 'nearest' }); return;
+    }
+    if (ds.bsort) { L.bsort = ds.bsort; savePref('pocket.boardSort', ds.bsort); return redrawLive(); }
+    if (ds.npushScope) { if (ds.npushScope !== L.monitor?.news?.scope) await saveNews({ scope: ds.npushScope }); return; }
+    if (ds.agroup) { L.group = ds.agroup; return C.draw(); }
+    if (ds.alertStock) { const id = ds.alertStock; return C.inScope(id) ? C.openStock(id) : openChart(id); }
+    if ('openReport' in ds) { C.setTab('brief'); return; }
+    if (ds.push === 'on') { b.disabled = true; await enablePush(); C.toast('通知已開啟'); return C.draw(); }
+    if (ds.push === 'off') { await disablePush(); C.toast('已關閉這台裝置的通知'); return C.draw(); }
+    if (ds.push === 'test') { const r = await C.api('api/push/test', {}); C.toast(r.sent ? '測試通知已送出' : '沒有可送達的裝置'); return; }
+    if (ds.rscope && L.draft) { L.draft.radar.scope = ds.rscope; return C.draw(); }
+    if ('rsave' in ds && L.draft) { await C.api('api/monitor/settings', L.draft); await loadMonitor(); C.toast('雷達設定已儲存'); return C.draw(); }
+    if ('rcard' in ds && L.report?.report) { b.disabled = true; const old = b.textContent; b.textContent = '繪製中…'; try { const [{ downloadReportCard }, data] = await Promise.all([import('./report-card.js'), C.api('api/report/card?date=' + L.report.report.date)]); if (await downloadReportCard(data) === 'download') C.toast('已下載圖卡，可在相簿的「Download／下載」找到'); } finally { b.disabled = false; b.textContent = old; } return; }
+    if ('rgen' in ds) { if (!confirm(tx('使用推理模型產生今日盤後日報？可能產生少量 API 費用。'))) return; await C.api('api/report/generate', {}); await loadReport(); C.toast('AI 開始撰寫日報，完成後會推播通知'); return C.draw(); }
+    if ('replayOpen' in ds) { b.disabled = true; try { await openReplay(); } finally { b.disabled = false; } return; }
+    if ('rpclose' in ds) { setPlaying(false); L.replay = null; return C.draw(); }
+    if ('rpplay' in ds) return setPlaying(!L.replay.playing);
+    if (ds.rpspeed) { L.replay.speed = Number(ds.rpspeed); C.$$('[data-rpspeed]').forEach(x => x.classList.toggle('on', x === b)); return; }
+    if (ds.rpmarket) { C.S.heat.market = ds.rpmarket; return showFrame(L.replay.i, true); }
+  } catch (err) { if (!err.silent) C.toast(err.message); }
+});
+document.addEventListener('change', async e => {
+  const t = e.target; if (!C) return;
+  if (t.dataset.npush) { t.disabled = true; try { await saveNews({ [t.dataset.npush]: t.checked }); } catch (err) { if (!err.silent) C.toast(err.message); t.checked = !t.checked; } finally { t.disabled = false; } return; }
+  if (t.dataset.rset && L.draft) { const path = t.dataset.rset, v = t.type === 'checkbox' ? t.checked : Number(t.value); if (path === 'monitor') L.draft.monitor = v; else { const ks = path.split('.'); ks.slice(0, -1).reduce((o, k) => o[k], L.draft.radar)[ks.at(-1)] = v; } return; }
+  if ('rdate' in t.dataset) { await loadReport(t.value); return C.draw(); }
+  if ('rpday' in t.dataset) { setPlaying(false); try { await openReplay(t.value); } catch (err) { C.toast(err.message); } }
+});
+let slideTimer;
+document.addEventListener('input', e => { if (e.target.id === 'rp-slider' && L.replay) { setPlaying(false); const i = Number(e.target.value); C.$('#rp-time').textContent = L.replay.sum.times[i]; clearTimeout(slideTimer); slideTimer = setTimeout(() => showFrame(i), 60); } });
+
+/* ---------- 族群排名（低量排除＋√成交金額加權） ---------- */
+const GR = { live: null, record: null, dates: [], view: 'live', loading: false, error: '', open: new Set(), loaded: false };
+async function loadGroupRank() {
+  if (!GR.loaded) { GR.loaded = true; try { const r = await C.api('api/grouprank'); GR.record = r.record; GR.dates = r.dates; if (r.live) GR.live = r.live; } catch (e) { if (!e.silent) GR.error = e.message; } }
+  if (!GR.live || marketOpen()) await queryGroupRank(true); else if (C.S.tab === 'live') C.draw();
+}
+async function queryGroupRank(quiet = false) {
+  if (GR.loading) return; GR.loading = true; GR.error = ''; if (!quiet && C.S.tab === 'live') C.draw();
+  try { GR.live = await C.api('api/grouprank/query', {}); } catch (e) { if (!e.silent) GR.error = e.message; }
+  GR.loading = false; if (C.S.tab === 'live' && L.view === 'groups' && !sheetOpen()) C.draw();
+}
+setInterval(() => { if (C && C.S.tab === 'live' && L.view === 'groups' && GR.view === 'live' && marketOpen() && !document.hidden) queryGroupRank(true); }, 30000);
+const md = d => d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : '';
+function grMove(g) {
+  if (g.move == null) return g.prevRank == null ? '<span class="fr-mv new">—</span>' : '';
+  if (g.move === 0) return '<span class="fr-mv flat">－0</span>';
+  return g.move > 0 ? `<span class="fr-mv up">▲+${g.move}</span>` : `<span class="fr-mv down">▼${g.move}</span>`;
+}
+function groupsView() {
+  const d = GR.view === 'live' ? GR.live : GR.record, max = Math.max(0.5, ...(d?.groups || []).filter(g => g.score != null).map(g => Math.abs(g.score)));
+  const ctl = `<div class="toolbar"><div class="field"><button class="btn primary" data-gr-query ${GR.loading ? 'disabled' : ''} style="flex:1">${GR.loading ? '<span class="spinner"></span> 更新中…' : '⟳ 更新排名'}</button><select class="sel" data-gr-date style="flex:1"><option value="live" ${GR.view === 'live' ? 'selected' : ''}>即時排名</option>${GR.dates.slice().reverse().map(x => `<option value="${x}" ${GR.view === x ? 'selected' : ''}>${md(x)} 收盤</option>`).join('')}</select></div></div>`;
+  if (!d) return ctl + (GR.error ? `<div class="notice err">${esc(GR.error)}</div>` : '') + `<div class="empty">${GR.loading ? '<span class="spinner"></span> 計算族群排名…' : '按「更新排名」取得各族群目前的漲幅排名。'}</div>`;
+  const meta = `<div class="statusline"><span class="pill">${d.source === 'live' ? '盤中' : md(d.date) + ' 收盤'} · ${esc(String(d.asOf || '—').slice(11, 16))}</span><span class="pill">${d.quoted}/${d.stocks} 檔</span>${d.compare ? `<span class="pill">對照 ${md(d.compare.date)} 收盤</span>` : ''}</div>`;
+  const list = d.groups.map(g => { const open = GR.open.has(g.id);
+    return `<button class="fr-card ${g.score == null ? 'none' : ''}" data-gr-group="${esc(g.id)}"><span class="fr-rk num">${g.rank ?? '—'}</span><span class="fr-nm"><b>${esc(g.name)}</b><small><span class="up">${g.up}</span>/<span class="down">${g.down}</span> · 成交 ${fmt((g.amount || 0) / 1e8, 1)} 億${g.excluded ? ` · ${g.excluded} 檔低量` : ''}</small></span>${grMove(g)}<span class="fr-av num ${cls(g.score)}">${pct(g.score)}</span>
+      ${g.score != null ? `<span class="fr-bar"><i class="${g.score >= 0 ? 'pos' : 'neg'}" style="width:${Math.abs(g.score) / max * 50}%;${g.score >= 0 ? 'left:50%' : 'right:50%'}"></i></span>` : ''}</button>
+      ${open ? `<div class="fr-items"><p class="gr-ref">成交加權 <b class="${cls(g.wavg)}">${pct(g.wavg)}</b> · 簡單平均 <b class="${cls(g.avg)}">${pct(g.avg)}</b> · 上漲比 ${fmt(g.breadth, 0)}%</p>${g.items.map(x => `<button class="fr-item ${x.excluded ? 'ex' : ''}" data-gr-stock="${esc(x.id)}"><span>${esc(x.name)} <small class="num">${esc(x.id)}</small>${x.excluded ? ' <em class="ix-badge warn">低量</em>' : ''}</span><span class="num">${fmt(x.amount / 1e8, 1)}億</span><span class="num ${cls(x.rate)}">${pct(x.rate)}</span></button>`).join('')}</div>` : ''}`; }).join('');
+  return ctl + (GR.error ? `<div class="notice err">${esc(GR.error)}</div>` : '') + meta + `<section class="card fr-list">${list}</section><p class="foot">排名依「量能加權漲幅」：排除低量個股（成交低於族群 0.5% 或 1,000 萬），以 √成交金額加權，避免冷門股或單一權值股失真<br>▲ 名次上升　▼ 名次下降（對照前一交易日收盤）· 盤中每 30 秒自動更新</p>`;
+}
+document.addEventListener('change', async e => { if (!C || !e.target.matches?.('[data-gr-date]')) return; GR.view = e.target.value; if (GR.view !== 'live') { try { const r = await C.api('api/grouprank?date=' + GR.view); GR.record = r.record; } catch (err) { if (!err.silent) GR.error = err.message; } } C.draw(); });

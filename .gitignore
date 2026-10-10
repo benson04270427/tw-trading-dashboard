@@ -1,0 +1,11 @@
+# 衡析：不上傳到 GitHub 的內容
+# 本機資料：金鑰（DPAPI 加密）、手機密碼、推播金鑰、Cloudflare 通道設定、自選股、行情快取
+.local/
+# 搬家匯出的設定與資料、舊版備份
+migration-data/
+backup-*/
+# 套件與暫存
+node_modules/
+*.zip
+dev/
+*.log

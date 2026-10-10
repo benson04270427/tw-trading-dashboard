@@ -1,0 +1,19 @@
+{
+  "name": "equilens-nexus",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EquiLens Nexus — self-hosted stock research desk (multi-market, bring your own data sources and AI model)",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/setup.js && node --check public/market.js && node --check public/i18n.js && node --check public/heatmap.js && node --check public/briefing.js && node --check public/live.js && node --check public/insight-ui.js && node --check public/grouprank.js && node --check public/report-card.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0"
+  },
+  "license": "MIT"
+}

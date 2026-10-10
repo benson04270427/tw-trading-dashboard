@@ -1,0 +1,16 @@
+{
+  "market": "JP",
+  "note": "Sample groups to show how research groups work. Adjust them to your own research.",
+  "groups": [
+    { "name": "Semiconductors", "stockIds": ["8035", "6857", "6723", "6146", "4063"] },
+    { "name": "Autos", "stockIds": ["7203", "7267", "7201", "7269", "7270"] },
+    { "name": "Banks", "stockIds": ["8306", "8316", "8411", "8308", "8309"] },
+    { "name": "Consumer & Entertainment", "stockIds": ["6758", "7974", "9983", "4661", "2914"] }
+  ],
+  "stocks": [
+    { "id": "8035", "name": "Tokyo Electron" }, { "id": "6857", "name": "Advantest" }, { "id": "6723", "name": "Renesas Electronics" }, { "id": "6146", "name": "Disco" }, { "id": "4063", "name": "Shin-Etsu Chemical" },
+    { "id": "7203", "name": "Toyota Motor" }, { "id": "7267", "name": "Honda Motor" }, { "id": "7201", "name": "Nissan Motor" }, { "id": "7269", "name": "Suzuki Motor" }, { "id": "7270", "name": "Subaru" },
+    { "id": "8306", "name": "Mitsubishi UFJ Financial" }, { "id": "8316", "name": "Sumitomo Mitsui Financial" }, { "id": "8411", "name": "Mizuho Financial" }, { "id": "8308", "name": "Resona Holdings" }, { "id": "8309", "name": "Sumitomo Mitsui Trust" },
+    { "id": "6758", "name": "Sony Group" }, { "id": "7974", "name": "Nintendo" }, { "id": "9983", "name": "Fast Retailing" }, { "id": "4661", "name": "Oriental Land" }, { "id": "2914", "name": "Japan Tobacco" }
+  ]
+}

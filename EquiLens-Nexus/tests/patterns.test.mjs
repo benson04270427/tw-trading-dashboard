@@ -1,0 +1,17 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+import {PATTERNS,permitted,screenPatterns,detectPatterns,tickPrice} from '../lib/patterns.mjs';
+const fixtures=JSON.parse(fs.readFileSync(new URL('./pattern-fixtures.json',import.meta.url),'utf8'));
+const f=fixtures[0],calendar=f.price.map(x=>x.date),cutoff=calendar.at(-1);
+const run=(price=f.price,adjusted=f.adjusted,date=cutoff)=>screenPatterns([f.stock],{[f.stock.id]:{price,adjusted}},date,calendar);
+for(const fixture of fixtures)test(`historical regression: ${fixture.pattern} geometry and bounded conditional levels`,()=>{
+ const matches=detectPatterns(fixture.adjusted,fixture.price);const m=matches.find(m=>m.id===fixture.pattern);assert(m);assert(m.score>=0&&m.score<=100);assert(m.start<m.end);assert(m.plan.stop<m.plan.entry);assert(m.plan.entry<=m.plan.entryMax);assert(m.anchors.every(x=>x.index>=0&&x.index<90));assert(m.plan.missing.includes('事件'));
+});
+test('all eight excluded sectors and non-ordinary instruments are rejected',()=>{for(const sector of ['金融保險業','水泥工業','造紙工業','紡織纖維','運動休閒','貿易百貨','油電燃氣業','文化創意業','ETF','未分類'])assert.equal(permitted({...f.stock,sector}),false,sector);assert.equal(permitted({...f.stock,id:'0050'}),false);assert.equal(permitted({...f.stock,market:'興櫃'}),false);assert(permitted(f.stock));});
+test('300 lots boundary uses five latest sessions of actual shares, including zero-volume days',()=>{const price=f.price.map(x=>({...x,Trading_Volume:300000}));assert.equal(run(price).eligible,1);price.at(-1).Trading_Volume=299999;assert.equal(run(price).eligible,0);price.at(-1).Trading_Volume=0;assert.equal(run(price).exclusions[0].reason,'五日平均成交量小於 300 張');});
+test('90 market dates must align in both adjusted and raw series; missing days are not silently compressed',()=>{assert.equal(run(f.price.slice(1)).eligible,0);assert.equal(run(f.price,f.adjusted.filter((_,i)=>i!==45)).eligible,0);});
+test('future bars cannot change historical patterns; obsolete prices do not expose actionable entries',()=>{const future={...f.price.at(-1),date:'2099-01-01',close:99999};assert.deepEqual(run([...f.price,future]).stocks,run().stocks);assert.equal(run(f.price,f.adjusted,'2099-01-01').stocks.length,0);});
+test('invalid OHLC and missing volume are excluded',()=>{for(const change of [{min:999999},{Trading_Volume:null}]){const price=structuredClone(f.price);Object.assign(price.at(-1),change);assert.equal(run(price).eligible,0);}});
+test('flat and monotonic decline are not bullish patterns',()=>{for(const flat of [true,false]){const p=f.price.map((r,i)=>({...r,close:flat?100:200-i,open:flat?100:200-i,max:flat?101:201-i,min:flat?99:199-i}));assert.equal(detectPatterns(p,p).length,0);}});
+test('uniform adjustment rebasing preserves type and raw-price plan',()=>{const original=detectPatterns(f.adjusted,f.price),rebased=f.adjusted.map(r=>({...r,open:r.open*2,min:r.min*2,max:r.max*2,close:r.close*2}));assert.deepEqual(detectPatterns(rebased,f.price).map(x=>[x.id,x.plan]),original.map(x=>[x.id,x.plan]));});
+test('stock tick rounding follows ordinary-stock price bands',()=>{for(const [v,up,down] of [[9.999,10,9.99],[49.99,50,49.95],[99.99,100,99.9],[499.9,500,499.5],[999.9,1000,999],[1001,1005,1000]]){assert.equal(tickPrice(v),up);assert.equal(tickPrice(v,false),down);}});
+test('patterns are isolated from group membership and do not require DSL IDs',()=>{const s=run();assert.equal(s.universe,1);assert.equal(s.eligible,1);assert.equal(PATTERNS.length,10);assert(!('groupIds' in s.stocks[0]));});

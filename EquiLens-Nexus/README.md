@@ -1,0 +1,67 @@
+# 衡析 Nexus（電腦版）
+
+衡析的本機研究核心與電腦版介面：研究評分、資金熱浪、盤中雷達、族群排名、型態選股、AI 盤後日報與所有設定。
+整體介紹、支援的市場與資料源見專案根目錄的 [README.zh-TW.md](../README.zh-TW.md)。
+
+## 啟動與停止
+
+| | Windows | macOS／Linux |
+|---|---|---|
+| 安裝套件（第一次） | `npm install --omit=dev` | `npm install --omit=dev` |
+| 啟動 | 雙擊 **啟動衡析Nexus.cmd**（或 `Start-Nexus.ps1`） | `./start.sh` |
+| 停止 | `Stop-Nexus.ps1` | `./stop.sh` |
+
+網址：http://127.0.0.1:4330（可用環境變數 `PORT` 更改）。需求：Node.js 22 以上。
+第一次開啟會出現設定精靈；之後在「資料與設定」修改市場、語言、資料來源、AI 模型與研究族群。
+
+## 頁面
+
+| 頁面 | 內容 |
+|---|---|
+| 今日焦點 | AI 盤後日報、盤前焦點新聞（鉅亨網，台股或中文介面時顯示）、本周經濟數據與科技財報 |
+| 資金熱浪 | 板塊熱浪圖（面積＝成交金額、顏色＝漲跌幅）、盤中即時更新、⏱ 時光機回放與板塊輪動 |
+| 盤中雷達 | 族群／自選即時看板（日 K／5 分 K）、異動雷達、雷達與新聞推播設定、浮動雷達視窗 |
+| 族群排名 | 研究族群的量能加權漲幅排名與每日收盤紀錄 |
+| 研究總覽／市場族群 | 四維評分（技術、籌碼、話題、行業）與族群脈動 |
+| 型態選股 | 90 個交易日、10 種型態，條件式進場與防守 |
+| 法人／期貨籌碼 | 台股＋FinMind 才顯示：三大法人、外資期權部位、個股買賣超排行與 9:16 圖卡 |
+| 話題追蹤／自選追蹤 | 人工判讀的事件證據、自選分組 |
+| 資料與設定 | 市場與語言、資料來源與金鑰、推理模型、研究族群管理、設定檔匯出入、更新排程、評分權重 |
+
+資料源不支援的功能會自動隱藏或改用研究名單的本機資料（例如沒有全市場單日行情時，熱浪圖以研究族群為範圍）。
+
+## 資料位置
+
+所有資料都在 `.local/`（或環境變數 `EQUITY_DATA_DIR` 指定的資料夾）：`config.json`、`settings.json`、`groups.json`、
+`watchlist.json`、`stocks/`（研究個股行情）、`heatmap-*.json`、`replay/`（時光機）、`alerts-*.json`、`reports/` 等。
+切換研究市場時，目前市場的資料會移到 `.local/markets/<市場>/`，切回時搬回。
+
+金鑰由作業系統加密保存（Windows DPAPI、macOS 鑰匙圈、Linux Secret Service），頁面與 API 不會讀回。
+`.local/` 絕對不要上傳或分享。
+
+## 遠端使用完整電腦版（選用）
+
+可透過 Cloudflare Tunnel＋Cloudflare Access 從外部使用電腦版，採雙層保護：
+
+1. **Cloudflare Access**：在 Zero Trust → Access → Applications 為你的主機名稱（例如 `nexus.example.com`）建立應用程式，Policy 只允許指定的信箱。
+2. **Nexus 自行驗證**每個遠端請求的 `Cf-Access-Jwt-Assertion`（RS256 簽章、簽發者、AUD、有效期限），不符即回 403。
+
+設定檔 `.local/remote.json`：
+
+```json
+{ "hosts": ["nexus.example.com"], "teamDomain": "your-team.cloudflareaccess.com", "aud": "<Application Audience Tag>" }
+```
+
+`aud` 是應用程式設定頁的 Application Audience (AUD) Tag（64 位十六進位）。`teamDomain` 或 `aud` 為空時，所有遠端請求一律拒絕；
+本機 http://127.0.0.1:4330 不受影響。通道設定可與手機版共用同一個 `cloudflared` 設定檔（見 `../EquiLens-Pocket/README.md`）。
+
+## 開發
+
+```bash
+npm test                                   # 全部測試
+node tools/i18n-keys.mjs --missing en      # 列出還沒有英文翻譯的介面字串
+```
+
+模組說明與擴充方式（新增資料源、市場、AI 服務、語言）見 [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)。
+
+研究資訊，非交易建議。

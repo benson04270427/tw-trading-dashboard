@@ -1,0 +1,16 @@
+{
+  "market": "US",
+  "note": "Sample groups to show how research groups work. Adjust them to your own research.",
+  "groups": [
+    { "name": "AI Semiconductors", "stockIds": ["NVDA", "AMD", "AVGO", "QCOM", "MU"] },
+    { "name": "Cloud & Software", "stockIds": ["MSFT", "AMZN", "GOOGL", "ORCL", "CRM"] },
+    { "name": "Consumer", "stockIds": ["AAPL", "TSLA", "COST", "NKE", "MCD"] },
+    { "name": "Financials", "stockIds": ["JPM", "BAC", "GS", "MS", "V"] }
+  ],
+  "stocks": [
+    { "id": "NVDA", "name": "NVIDIA" }, { "id": "AMD", "name": "Advanced Micro Devices" }, { "id": "AVGO", "name": "Broadcom" }, { "id": "QCOM", "name": "Qualcomm" }, { "id": "MU", "name": "Micron Technology" },
+    { "id": "MSFT", "name": "Microsoft" }, { "id": "AMZN", "name": "Amazon" }, { "id": "GOOGL", "name": "Alphabet" }, { "id": "ORCL", "name": "Oracle" }, { "id": "CRM", "name": "Salesforce" },
+    { "id": "AAPL", "name": "Apple" }, { "id": "TSLA", "name": "Tesla" }, { "id": "COST", "name": "Costco" }, { "id": "NKE", "name": "Nike" }, { "id": "MCD", "name": "McDonald's" },
+    { "id": "JPM", "name": "JPMorgan Chase" }, { "id": "BAC", "name": "Bank of America" }, { "id": "GS", "name": "Goldman Sachs" }, { "id": "MS", "name": "Morgan Stanley" }, { "id": "V", "name": "Visa" }
+  ]
+}
