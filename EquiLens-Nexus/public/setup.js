@@ -111,6 +111,37 @@ function stepGroups(cfg) {
   ${st.groups?.length ? groupManager() : ''}`;
 }
 
+/* ---------- 遠端存取：手機版的連線方式與網域、推播聯絡信箱、電腦版遠端存取（Cloudflare Access） ---------- */
+const TUNNELS = [
+  ['auto', '自動（有 Cloudflare 固定網域設定檔時用固定網域，否則用臨時網址）'],
+  ['cloudflare-quick', 'Cloudflare 臨時網址（免帳號，每次重新啟動網址會變）'],
+  ['cloudflare-named', 'Cloudflare 固定網域（Named Tunnel）'],
+  ['custom', '自行處理（ngrok、Tailscale Funnel、自架 Caddy／Nginx 等）'],
+  ['off', '不對外開放（只在這台電腦使用）'],
+];
+const TUNNEL_HINTS = {
+  auto: '手機版資料夾有 .local/cloudflared.yml 時使用 Cloudflare 固定網域，否則自動開啟 https://xxxx.trycloudflare.com 臨時網址。',
+  'cloudflare-quick': '啟動手機版時自動開啟 https://xxxx.trycloudflare.com 臨時網址（需安裝 cloudflared）。',
+  'cloudflare-named': '在手機版資料夾的 .local/cloudflared.yml 設定 Named Tunnel（見手機版說明），並把網域填在下方的手機版網址。',
+  custom: '用你自己的通道或反向代理，把 https 網址轉到這台電腦的 http://127.0.0.1:4340，並轉送 X-Forwarded-For 與 X-Forwarded-Proto 標頭；網域填在下方。衡析不會啟動任何通道。',
+  off: '手機版只接受這台電腦本機的連線。',
+};
+function remotePanel(cfg) {
+  const r = cfg.remote, a = r.access;
+  return `<section class="panel contentpad"><h2>遠端存取</h2><p class="fine">手機版透過你選擇的通道或反向代理連回這台電腦，並以密碼保護；只有下方列出的網域可以連線。</p>
+  <form id="setup-remote"><h3>手機版（Pocket）</h3><div class="formgrid">
+    <label class="field full">連線方式<select name="tunnel" data-remote-tunnel>${TUNNELS.map(([v, n]) => `<option value="${v}" ${r.tunnel === v ? 'selected' : ''}>${n}</option>`).join('')}</select><small id="remote-hint">${esc(TUNNEL_HINTS[r.tunnel] || '')}</small></label>
+    <label class="field">手機版網址<input name="publicUrl" type="url" placeholder="https://pocket.example.com" value="${esc(r.publicUrl || '')}"><small>你的固定網址，也作為推播通知的聯絡網址；使用臨時網址時可留空。</small></label>
+    <label class="field">其他允許的網域<input name="pocketHosts" placeholder="m.example.com" value="${esc(r.pocketHosts.join(' '))}"><small>以空白或逗號分隔；同一個手機版有多個網址時填寫。</small></label>
+    <label class="field">推播聯絡信箱（選填）<input name="contact" type="email" placeholder="you@example.com" value="${esc(r.contact)}"><small>沒有手機版網址時，推播服務（例如 Apple）以這個信箱作為聯絡方式。</small></label></div>
+    <h3 style="margin-top:22px">電腦版（遠端使用完整功能）</h3><p class="fine">電腦版可以變更金鑰與所有設定，因此只接受經 Cloudflare Access 驗證的遠端連線；三項都填好才會啟用，本機使用不受影響。</p><div class="formgrid">
+    <label class="field">允許的網域<input name="accessHosts" placeholder="nexus.example.com" value="${esc(a.hosts.join(' '))}"></label>
+    <label class="field">Team domain<input name="teamDomain" placeholder="your-team.cloudflareaccess.com" value="${esc(a.teamDomain)}" translate="no"></label>
+    <label class="field full">Application Audience (AUD) Tag<input name="aud" value="${esc(a.aud)}" autocomplete="off" translate="no"></label></div>
+    <div class="form-actions"><button class="primary" type="submit">儲存遠端存取設定</button><span class="tag ${a.ready ? 'cyan' : 'amber'}">${a.ready ? '電腦版遠端存取：已啟用' : '電腦版遠端存取：未啟用'}</span></div>
+    <p class="fine">變更連線方式後，請停止再重新啟動手機版（Windows：停止衡析手機版.cmd → 啟動衡析手機版.cmd；macOS／Linux：EquiLens-Pocket/stop.sh → start.sh）。網域與信箱的變更會自動生效。</p></form></section>`;
+}
+
 /* ---------- 「資料與設定」頁：系統設定 ---------- */
 export function systemSettings() {
   const cfg = S.cfg;
@@ -119,8 +150,8 @@ export function systemSettings() {
   return `<section class="panel contentpad"><h2>市場與語言</h2><div class="formgrid">
     <label class="field">介面語言<select data-setup-cfg="language">${[['zh-TW', '繁體中文'], ['en', 'English']].map(([v, n]) => `<option value="${v}" ${c.language === v ? 'selected' : ''} translate="no">${n}</option>`).join('')}</select></label>
     <label class="field">研究市場<select data-setup-cfg="market">${cfg.markets.map(x => `<option value="${x.id}" ${c.market === x.id ? 'selected' : ''}>${esc(nameOf(x.name))} (${x.id})</option>`).join('')}</select><small>切換後，目前市場的族群、自選與紀錄會收起來保存，切回時恢復。</small></label>
-    <label class="field">漲跌配色<select data-setup-cfg="upColor"><option value="" ${!c.upColor ? 'selected' : ''}>依市場慣例（${m.upColor === 'green' ? '綠漲紅跌' : '紅漲綠跌'}）</option><option value="red" ${c.upColor === 'red' ? 'selected' : ''}>紅漲綠跌</option><option value="green" ${c.upColor === 'green' ? 'selected' : ''}>綠漲紅跌</option></select></label>
-    <label class="field">手機版對外網址<input data-setup-cfg="publicUrl" type="url" placeholder="https://pocket.example.com" value="${esc(c.publicUrl || '')}"><small>用於手機推播通知的聯絡網址；不使用推播可留空。</small></label></div></section>
+    <label class="field">漲跌配色<select data-setup-cfg="upColor"><option value="" ${!c.upColor ? 'selected' : ''}>依市場慣例（${m.upColor === 'green' ? '綠漲紅跌' : '紅漲綠跌'}）</option><option value="red" ${c.upColor === 'red' ? 'selected' : ''}>紅漲綠跌</option><option value="green" ${c.upColor === 'green' ? 'selected' : ''}>綠漲紅跌</option></select></label></div></section>
+  ${remotePanel(cfg)}
   <section class="panel contentpad"><h2>資料來源</h2><p class="fine">金鑰由作業系統加密保存在這台電腦（${esc({ dpapi: 'Windows DPAPI', keychain: 'macOS 鑰匙圈', 'secret-tool': 'Secret Service', file: '僅限本人讀取的檔案' }[cfg.secretBackend] || cfg.secretBackend)}），頁面不會讀回或顯示。</p>
     <div class="setup-providers">${providerList(cfg)}</div>${preferPanel(cfg)}<h3>目前可用的功能</h3>${featureList(cfg)}</section>
   <section class="panel contentpad"><h2>推理模型（AI 盤後日報）</h2>${llmPanel(cfg)}</section>
@@ -175,6 +206,7 @@ document.addEventListener('change', async e => {
     if (ds.setupPrefer) { const cfg = await loadConfig(), prefer = { ...cfg.config.providers.prefer }; if (el.value) prefer[ds.setupPrefer] = el.value; else delete prefer[ds.setupPrefer]; S.cfg = await C.api('providers', { enabled: cfg.config.providers.enabled, prefer }); await C.reload(); return; }
     if (ds.setupCfg) { await changeConfig(ds.setupCfg, el.value); return; }
     if ('llmProvider' in ds) { S.llmDraft = { provider: el.value }; C.redraw(); return; }
+    if ('remoteTunnel' in ds) { const h = document.getElementById('remote-hint'); if (h) h.textContent = t(TUNNEL_HINTS[el.value] || ''); return; }
     if ('setupImport' in ds) { await importFile(el.files?.[0]); el.value = ''; return; }
     if ('sgName' in ds) { const id = el.closest('[data-sg]').dataset.sg; await C.api('groups/rename', { groupId: id, name: el.value }); await C.reload(); C.toast(t('族群名稱已更新')); return; }
   } catch (err) { C.toast(err.message); if (ds.setupEnable) el.checked = !el.checked; }
@@ -182,11 +214,16 @@ document.addEventListener('change', async e => {
 document.addEventListener('submit', async e => {
   const f = e.target; if (!C) return;
   const key = f.dataset.setupKey, add = f.dataset.sgAdd;
-  if (!key && !add && !['setup-llm', 'setup-group'].includes(f.id)) return;
+  if (!key && !add && !['setup-llm', 'setup-group', 'setup-remote'].includes(f.id)) return;
   e.preventDefault(); const btn = f.querySelector('button[type=submit]'); if (btn) btn.disabled = true;
   try {
     if (key) { S.cfg = await C.api('provider-key', { id: key, key: f.elements.key.value.trim() }); f.reset(); await C.reload(); C.toast(t('金鑰已驗證並加密儲存')); }
     else if (add) { const st = C.state(); let n = 0, bad = []; for (const id of splitIds(f.elements.ids.value)) { try { const r = await C.api('group-stocks', { groupId: add, stockId: id }); if (r.added) n++; } catch (err) { bad.push(id); } } await C.reload(); C.toast(bad.length ? t('已加入 {n} 檔；無法加入：{ids}', { n, ids: bad.join(', ') }) : t('已加入 {n} 檔', { n })); void st; }
+    else if (f.id === 'setup-remote') {
+      const v = Object.fromEntries(new FormData(f)), list = s => String(s || '').split(/[\s,，、;；]+/).map(x => x.trim()).filter(Boolean);
+      const r = await C.api('remote', { tunnel: v.tunnel, publicUrl: v.publicUrl.trim(), pocketHosts: list(v.pocketHosts), contact: v.contact.trim(), access: { hosts: list(v.accessHosts), teamDomain: v.teamDomain.trim(), aud: v.aud.trim() } });
+      S.cfg = { ...S.cfg, remote: r.remote, config: { ...S.cfg.config, publicUrl: r.remote.publicUrl } }; await C.reload(); C.toast(t('遠端存取設定已儲存'));
+    }
     else if (f.id === 'setup-group') { const ids = splitIds(f.elements.ids.value), r = await C.api('groups/import', { groups: [{ name: f.elements.name.value.trim(), stockIds: ids }] }); f.reset(); await C.reload(); C.toast(r.skipped ? t('族群已建立；{n} 個代號格式不符目前市場，已略過', { n: r.skipped }) : t('族群已建立')); }
     else if (f.id === 'setup-llm') {
       const v = Object.fromEntries(new FormData(f)), info = S.cfg.llm.providers.find(p => p.id === v.provider);

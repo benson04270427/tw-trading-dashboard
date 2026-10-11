@@ -105,16 +105,26 @@ node scripts/set-password.mjs     # at least 10 characters
 ./start.sh                        # Windows: 啟動衡析手機版.cmd
 ```
 
-`start.sh` starts Nexus if needed, starts Pocket and opens a temporary `https://….trycloudflare.com` address with
-`cloudflared`. For a fixed address use a Cloudflare *named tunnel* (see `EquiLens-Pocket/README.md`) and set the
-address under *Data & Settings → Market & language → Mobile public URL* so push notifications have a valid contact.
-Add Pocket to your home screen to receive push notifications (iPhone: iOS 16.4+).
+`start.sh` starts Nexus if needed, starts Pocket and then opens the public address according to the **connection
+mode** chosen under *Data & Settings → Remote access*. You decide the domain and the way traffic reaches your computer:
+
+| Connection mode | What happens | You provide |
+|---|---|---|
+| Automatic (default) | Cloudflare fixed domain when `EquiLens-Pocket/.local/cloudflared.yml` exists, otherwise a temporary URL | – |
+| Cloudflare temporary URL | a random `https://….trycloudflare.com` address (changes on restart) | `cloudflared` |
+| Cloudflare fixed domain | your domain through a Cloudflare Named Tunnel | a domain on Cloudflare, `cloudflared.yml` |
+| Self-managed | EquiLens starts no tunnel; you forward an HTTPS address to `http://127.0.0.1:4340` with ngrok, Tailscale Funnel, Caddy, Nginx… | any domain and HTTPS certificate |
+| Off | Pocket only answers on this computer | – |
+
+Enter your domain(s) under *Remote access*: only those hosts are accepted, and the main address is also the contact
+for push notifications. See `EquiLens-Pocket/README.md` for step-by-step examples. Add Pocket to your home screen to
+receive push notifications (iPhone: iOS 16.4+).
 
 ## Configuration
 
 | Where | What |
 |---|---|
-| *Data & Settings* page | market, language, up/down colors, data sources and keys, AI model, research groups, update schedule, score weights, radar and news push |
+| *Data & Settings* page | market, language, up/down colors, remote access (connection mode, domains, push contact, desktop remote access), data sources and keys, AI model, research groups, update schedule, score weights, radar and news push |
 | `EquiLens-Nexus/.local/` | all Nexus data (`config.json`, groups, watchlist, cached prices, records) – never commit it |
 | `EquiLens-Pocket/.local/` | password hash, sessions, push subscriptions, tunnel settings – never commit it |
 | Settings file | *Data & Settings → Settings file* exports groups, watchlist and settings **without keys** for another computer |
@@ -128,9 +138,11 @@ Environment variables (optional): `PORT`, `EQUITY_DATA_DIR` (Nexus data folder),
 - Servers listen on `127.0.0.1` only; write APIs require a CSRF token and same-origin requests.
 - API keys are stored with the operating system's protection: **Windows DPAPI**, **macOS Keychain**, or
   **Secret Service** on Linux (a file readable only by you as a fallback). The web pages never read keys back.
-- Pocket uses a scrypt password hash, login rate limiting, HttpOnly/SameSite cookies, a host allow-list and a strict CSP.
-- Optional remote access to the full desktop app goes through Cloudflare Access, and Nexus verifies every request's
-  Access JWT itself (see `EquiLens-Nexus/README.md`).
+- Pocket uses a scrypt password hash, login rate limiting, HttpOnly/SameSite cookies, a strict CSP and a host
+  allow-list built from the domains you enter. Client IPs and HTTPS are read only from the headers of the connection
+  mode you chose (Cloudflare or your own proxy), so headers from other sources can't bypass the login limits.
+- Remote access to the full desktop app requires Cloudflare Access (it can change keys and every setting), and Nexus
+  verifies every request's Access JWT itself; configure it under *Data & Settings → Remote access*.
 - Your data stays on your computer. The only outbound requests go to the data sources and AI service you configure,
   plus public news and calendar feeds used by *Today's Brief*.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # EquiLens Pocket (macOS / Linux): set a password if needed, make sure Nexus runs, start the mobile server,
-# then open a public HTTPS address through Cloudflare Tunnel (cloudflared) unless --no-tunnel is given.
-#   Named tunnel: put your config in .local/cloudflared.yml (see README); otherwise a temporary trycloudflare.com URL is used.
+# then open the public HTTPS address according to the connection mode set in EquiLens Nexus (Remote access),
+# unless --no-tunnel is given. Cloudflare modes use cloudflared; 'custom' means you run your own tunnel or reverse proxy.
 set -e
 cd "$(dirname "$0")"
 PORT="${PORT:-4340}"
@@ -33,10 +33,21 @@ if ! health; then
 fi
 echo "EquiLens Pocket is running locally: $URL"
 
-# 4. Public URL through Cloudflare Tunnel.
+# 4. Public URL, following the connection mode set in EquiLens Nexus (Data & Settings -> Remote access):
+#    auto | cloudflare-quick | cloudflare-named | custom (your own tunnel / reverse proxy) | off (local only)
 [ "$1" = "--no-tunnel" ] && exit 0
+MODE=$(curl -fsS --max-time 3 "$NEXUS_URL/api/profile" 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).remote?.tunnel||'')}catch{}})" || true)
+[ -n "$MODE" ] || MODE=$(node -e "try{process.stdout.write(require('./.local/remote-cache.json').tunnel||'')}catch{}" 2>/dev/null || true)
+[ -n "$MODE" ] || MODE=auto
+case "$MODE" in
+  custom) echo "Remote access: your own tunnel or reverse proxy (custom). Forward your HTTPS address to $URL and add its domain in EquiLens Nexus -> Remote access."; exit 0 ;;
+  off) echo "Remote access is off (local only). No tunnel is started."; exit 0 ;;
+esac
 command -v cloudflared >/dev/null 2>&1 || { echo "Install cloudflared to reach Pocket from your phone: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"; exit 0; }
-if [ -f .local/cloudflared.yml ]; then
+if [ "$MODE" = "cloudflare-named" ] && [ ! -f .local/cloudflared.yml ]; then
+  echo "Connection mode is 'Cloudflare fixed domain', but .local/cloudflared.yml was not found. See README.md."; exit 1
+fi
+if [ -f .local/cloudflared.yml ] && [ "$MODE" != "cloudflare-quick" ]; then
   nohup cloudflared tunnel --config .local/cloudflared.yml run >> .local/tunnel.log 2>&1 &
   echo $! > .local/tunnel.pid
   echo "Named tunnel started (see .local/cloudflared.yml for your hostname)."

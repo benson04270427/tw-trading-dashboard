@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { ROOT, LOCAL, read, write, readStocks, safeSymbol } from './lib/storage.mjs';
 import { getSecret, saveSecret, secretConfigured, deleteSecret, secretBackend } from './lib/secrets.mjs';
-import { config, saveConfig, activeMarket, language, upColor, LANGUAGES, LLM_PROVIDERS } from './lib/config.mjs';
+import { config, saveConfig, activeMarket, language, upColor, LANGUAGES, LLM_PROVIDERS, TUNNEL_MODES, HOST_RE, EMAIL_RE } from './lib/config.mjs';
 import { MARKETS, MARKET_IDS, localParts, closeHM, clientMarket } from './lib/markets.mjs';
 import { t, UserError, isUserError } from './lib/i18n.mjs';
 import { data, PROVIDERS, CAPABILITIES, capabilityMap, providerInfo, setProviderInfo, setInterval_, hasKey, supports } from './lib/providers/index.mjs';
@@ -510,7 +510,32 @@ function configInfo(){
   return{config:{market:c.market,language:c.language,setupDone:c.setupDone,publicUrl:c.publicUrl,upColor:c.upColor,providers:c.providers},
     market:clientMarket(M()),markets:MARKET_IDS.map(id=>({id,name:MARKETS[id].name,tz:MARKETS[id].tz,currency:MARKETS[id].currency,sample:MARKETS[id].sample,providers:Object.values(PROVIDERS).filter(p=>p.markets.includes(id)).map(p=>p.id)})),
     languages:LANGUAGES,upColor:upColor(),providers:providerStatus(),capabilities:capabilityMap(),capabilityLabels:Object.fromEntries(Object.entries(CAPABILITIES).map(([k,v])=>[k,t(v)])),
-    llm:llmStatus(),secretBackend:secretBackend(),groups:researchScope.groups.length};
+    llm:llmStatus(),secretBackend:secretBackend(),groups:researchScope.groups.length,remote:remoteInfo()};
+}
+/* ---------- 遠端存取：手機版網域與通道方式、推播聯絡信箱、電腦版遠端存取（Cloudflare Access） ---------- */
+const hostOf=u=>{try{return new URL(u).host.toLowerCase();}catch{return'';}};
+// 手機版允許的網域＝對外網址的主機＋其他網域（提供給 Pocket 作為主機名稱白名單）
+function remoteInfo(){
+  const c=config(),r=c.remote;
+  return{tunnel:r.tunnel,publicUrl:c.publicUrl,pocketHosts:r.pocketHosts,hosts:[...new Set([hostOf(c.publicUrl),...r.pocketHosts].filter(Boolean))],contact:r.contact,
+    access:{hosts:r.access.hosts,teamDomain:r.access.teamDomain,aud:r.access.aud,ready:!!(r.access.hosts.length&&r.access.teamDomain&&r.access.aud)}};
+}
+const cleanHost=h=>String(h).trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*$/,'');
+function saveRemote(b){
+  const c=config(),r=c.remote,a=b.access||{},bad=[];
+  const list=v=>{if(v===undefined)return undefined;if(!Array.isArray(v)||v.length>10)throw new UserError('網域格式錯誤：{list}',{list:String(v).slice(0,80)});return [...new Set(v.map(cleanHost).filter(Boolean))].filter(h=>{if(HOST_RE.test(h))return true;bad.push(h.slice(0,60));return false;});};
+  const tunnel=b.tunnel??r.tunnel;if(!TUNNEL_MODES.includes(tunnel))throw new UserError('設定無效');
+  const pocketHosts=list(b.pocketHosts)??r.pocketHosts,accessHosts=list(a.hosts)??r.access.hosts;
+  if(bad.length)throw new UserError('網域格式錯誤：{list}',{list:bad.join(', ')});
+  const contact=b.contact===undefined?r.contact:String(b.contact||'').trim();if(contact&&!EMAIL_RE.test(contact))throw new UserError('推播聯絡信箱格式錯誤');
+  const teamDomain=a.teamDomain===undefined?r.access.teamDomain:cleanHost(a.teamDomain||'');if(teamDomain&&!/^[a-z0-9-]+\.cloudflareaccess\.com$/.test(teamDomain))throw new UserError('Team domain 格式應為 xxx.cloudflareaccess.com');
+  const aud=a.aud===undefined?r.access.aud:String(a.aud||'').trim();if(aud&&!/^[A-Za-z0-9-]{8,128}$/.test(aud))throw new UserError('Application Audience (AUD) Tag 格式錯誤');
+  let publicUrl=c.publicUrl;if(b.publicUrl!==undefined){if(b.publicUrl&&(!safeURL(b.publicUrl)||!/^https:/.test(b.publicUrl)))throw new UserError('對外網址必須是 https:// 開頭的有效網址');publicUrl=b.publicUrl?b.publicUrl.replace(/\/+$/,''):'';}
+  // 手機版與電腦版是不同的服務，同一個網域只能指向其中一個
+  const pocketAll=new Set([hostOf(publicUrl),...pocketHosts].filter(Boolean)),clash=accessHosts.filter(h=>pocketAll.has(h));
+  if(clash.length)throw new UserError('同一個網域不能同時給手機版與電腦版使用：{list}',{list:clash.join(', ')});
+  saveConfig({publicUrl,remote:{tunnel,pocketHosts,contact,access:{hosts:accessHosts,teamDomain,aud}}});
+  return remoteInfo();
 }
 // 資料源或金鑰變更後：重新評估可用因子、清除暫停狀態
 function providersChanged(){invalidate();calendarCache={date:'',dates:[]};monitorPauseUntil=0;monitorError='';kbarDenied={until:0,error:''};newsPauseUntil=0;}
@@ -543,7 +568,7 @@ function exportBundle(){
   return{app:'equilens',kind:'settings',version:1,exportedAt:new Date().toISOString(),market:c.market,language:c.language,
     groups:researchScope.groups.map(g=>({name:g.name,stockIds:g.stockIds})),watchlist,watchGroups,
     settings:Object.fromEntries(SETTINGS_KEYS.filter(k=>settings[k]!==undefined).map(k=>[k,settings[k]])),
-    providers:c.providers,llm:{provider:c.llm.provider,model:c.llm.model,baseUrl:c.llm.baseUrl,effort:c.llm.effort},upColor:c.upColor,publicUrl:c.publicUrl};
+    providers:c.providers,llm:{provider:c.llm.provider,model:c.llm.model,baseUrl:c.llm.baseUrl,effort:c.llm.effort},upColor:c.upColor,publicUrl:c.publicUrl,remote:c.remote};
 }
 // 匯入設定檔（不含金鑰）：族群合併、自選與分組取代、各項設定逐項檢查後套用；其他市場的族群不匯入
 function importBundle(b,parts){
@@ -565,7 +590,7 @@ function importBundle(b,parts){
     if(s.report)next.report=normalizeReportSettings(s.report);
     settings=next;saveSettings();setInterval_('finmind',settings.interval);invalidate();out.settings=true;
   }
-  if(want('config')){const patch={};if(b.providers)patch.providers=b.providers;if(b.llm)patch.llm={...config().llm,...b.llm};if(b.upColor!==undefined)patch.upColor=b.upColor;if(b.publicUrl!==undefined)patch.publicUrl=b.publicUrl;if(LANGUAGES.includes(b.language))patch.language=b.language;saveConfig(patch);providersChanged();out.config=true;}
+  if(want('config')){const patch={};if(b.providers)patch.providers=b.providers;if(b.llm)patch.llm={...config().llm,...b.llm};if(b.upColor!==undefined)patch.upColor=b.upColor;if(b.publicUrl!==undefined)patch.publicUrl=b.publicUrl;if(b.remote&&typeof b.remote==='object')patch.remote=b.remote;if(LANGUAGES.includes(b.language))patch.language=b.language;saveConfig(patch);providersChanged();out.config=true;}
   return out;
 }
 
@@ -605,6 +630,7 @@ const server = http.createServer(async (req,res) => {
       if(b.language!==undefined)invalidate();
       return json(res,200,{ok:true,...configInfo()});
     }
+    if(route==='/api/remote'&&req.method==='POST'){const b=await body(req);return json(res,200,{ok:true,remote:saveRemote(b)});}
     if(route==='/api/providers'&&req.method==='POST'){
       const b=await body(req);
       if(!Array.isArray(b.enabled)||b.enabled.length>20||!b.enabled.every(id=>PROVIDERS[id])||new Set(b.enabled).size!==b.enabled.length)throw new UserError('資料源設定格式錯誤');
@@ -797,7 +823,7 @@ const server = http.createServer(async (req,res) => {
     }
     if (route === '/api/health') return json(res,200,{ ok:true, app:'equilens-nexus',version:APP_VERSION, market:config().market, language:language() });
     // 手機版（Pocket）用：市場、語言、配色與可用功能（不含任何金鑰）
-    if (route === '/api/profile' && req.method === 'GET') { const c = config(); return json(res,200,{ language:c.language, market:clientMarket(M()), upColor:upColor(), capabilities:capabilityMap(), publicUrl:c.publicUrl, setupDone:c.setupDone, llmConfigured:llmConfigured(), dataConfigured:Object.values(capabilityMap()).some(Boolean) }); }
+    if (route === '/api/profile' && req.method === 'GET') { const c = config(); return json(res,200,{ language:c.language, market:clientMarket(M()), upColor:upColor(), capabilities:capabilityMap(), publicUrl:c.publicUrl, remote:(({tunnel,hosts,contact})=>({tunnel,hosts,contact}))(remoteInfo()), setupDone:c.setupDone, llmConfigured:llmConfigured(), dataConfigured:Object.values(capabilityMap()).some(Boolean) }); }
     if (route === '/api/job' && req.method === 'GET') return json(res,200,{ job, busy:flowBusy||heatBusy });
     if (route === '/api/detail') { const s = market().stocks.find(s => s.id === url.searchParams.get('id')); return s ? json(res,200,{ ...s, news:raw[s.id]?.news || [], evidence:evidence.filter(e => e.stockId === s.id) }) : json(res,404,{ error:t('找不到此股票') }); }
     if (route === '/api/update' && req.method === 'POST') {

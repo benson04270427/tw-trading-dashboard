@@ -90,15 +90,24 @@ node scripts/set-password.mjs     # 至少 10 個字元
 ./start.sh                        # Windows：啟動衡析手機版.cmd
 ```
 
-`start.sh` 會在需要時啟動 Nexus、啟動 Pocket，並用 `cloudflared` 開一個臨時的 `https://….trycloudflare.com` 網址。
-需要固定網址時改用 Cloudflare Named Tunnel（見 `EquiLens-Pocket/README.md`），並在「資料與設定 → 市場與語言 → 手機版對外網址」填入該網址，推播通知才有有效的聯絡網址。
+`start.sh` 會在需要時啟動 Nexus、啟動 Pocket，再依「資料與設定 → 遠端存取」選擇的**連線方式**開啟對外網址。網域與連線方式都由你決定：
+
+| 連線方式 | 衡析會做什麼 | 你需要準備 |
+|---|---|---|
+| 自動（預設） | 有 `EquiLens-Pocket/.local/cloudflared.yml` 時用 Cloudflare 固定網域，否則開臨時網址 | – |
+| Cloudflare 臨時網址 | 隨機的 `https://….trycloudflare.com`（每次重啟會變） | `cloudflared` |
+| Cloudflare 固定網域 | 透過 Cloudflare Named Tunnel 使用你的網域 | 託管在 Cloudflare 的網域、`cloudflared.yml` |
+| 自行處理 | 衡析不啟動任何通道；你用 ngrok、Tailscale Funnel、Caddy、Nginx 等把 https 網址轉到 `http://127.0.0.1:4340` | 任何網域與 https 憑證 |
+| 不對外開放 | 手機版只接受這台電腦本機的連線 | – |
+
+在「遠端存取」填入你的網域：只有這些網域可以連線，主要網址也會作為推播通知的聯絡網址。各種方式的設定步驟見 `EquiLens-Pocket/README.md`。
 把手機版加入主畫面即可收到推播（iPhone 需 iOS 16.4 以上）。
 
 ## 設定與資料位置
 
 | 位置 | 內容 |
 |---|---|
-| 「資料與設定」頁 | 市場、語言、漲跌配色、資料源與金鑰、AI 模型、研究族群、更新排程、評分權重、雷達與新聞推播 |
+| 「資料與設定」頁 | 市場、語言、漲跌配色、遠端存取（連線方式、網域、推播聯絡信箱、電腦版遠端存取）、資料源與金鑰、AI 模型、研究族群、更新排程、評分權重、雷達與新聞推播 |
 | `EquiLens-Nexus/.local/` | Nexus 所有資料（`config.json`、族群、自選、行情快取、紀錄）——**不要上傳** |
 | `EquiLens-Pocket/.local/` | 密碼雜湊、登入紀錄、推播訂閱、通道設定——**不要上傳** |
 | 設定檔 | 「資料與設定 → 設定檔」可匯出族群、自選與各項設定（**不含金鑰**），在另一台電腦匯入 |
@@ -110,8 +119,8 @@ node scripts/set-password.mjs     # 至少 10 個字元
 
 - 服務只監聽 `127.0.0.1`；寫入類 API 需要 CSRF 權杖並檢查同源。
 - API 金鑰由作業系統保護：**Windows DPAPI**、**macOS 鑰匙圈**、Linux 的 **Secret Service**（沒有時改存僅限本人讀取的檔案）。網頁不會讀回金鑰。
-- Pocket 使用 scrypt 密碼雜湊、登入限速、HttpOnly／SameSite Cookie、主機名稱白名單與嚴格的 CSP。
-- 選用的電腦版遠端存取經 Cloudflare Access，Nexus 也會自行驗證每個請求的 Access JWT（見 `EquiLens-Nexus/README.md`）。
+- Pocket 使用 scrypt 密碼雜湊、登入限速、HttpOnly／SameSite Cookie、嚴格的 CSP，以及由你填入的網域組成的主機名稱白名單。來源 IP 與 https 只依你選的連線方式（Cloudflare 或你自己的代理）讀取對應標頭，其他來源的標頭無法繞過登入限速。
+- 電腦版能變更金鑰與所有設定，遠端使用必須經過 Cloudflare Access，Nexus 也會自行驗證每個請求的 Access JWT；在「資料與設定 → 遠端存取」設定。
 - 資料留在你的電腦。對外連線只有你設定的資料源與 AI 服務，以及「今日焦點」使用的公開新聞與行事曆。
 
 ## 開發

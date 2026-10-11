@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
+import http from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {marketProfile,tickSize,roundTick,limitPrices,limitNearPct,bucketEnd,elapsedTrading,liveWindow,localParts,clientMarket} from '../lib/markets.mjs';
 import {normalizeConfig} from '../lib/config.mjs';
@@ -42,6 +43,38 @@ test('research groups: import merges by name, filters symbols; rename, remove an
   scope=reorderGroups(scope,[cloud,ai]);assert.equal(scope.groups[0].id,cloud);assert.throws(()=>reorderGroups(scope,[ai]));
   const r=removeStock(scope,ai,'AMD');assert.equal(r.removed,true);assert.ok(!r.scope.stockMetadata.some(s=>s.id==='AMD'));
   scope=removeGroup(r.scope,ai);assert.equal(scope.groups.length,1);assert.equal(scope.stockMetadata.length,0);
+});
+
+test('remote access settings: validation, domain clash, profile for Pocket, legacy remote.json migration',async()=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'equilens-remote-'));
+  // 舊版：config.json 沒有 remote、另有 .local/remote.json
+  fs.writeFileSync(path.join(directory,'config.json'),JSON.stringify({version:1,setupDone:true,market:'TW',language:'zh-TW',providers:{enabled:[],prefer:{}},llm:{provider:'anthropic'},publicUrl:'https://pocket.example.com'}));
+  fs.writeFileSync(path.join(directory,'remote.json'),JSON.stringify({hosts:['nexus.example.com'],teamDomain:'team.cloudflareaccess.com',aud:'a'.repeat(64)}));
+  const child=spawn(process.execPath,['server.mjs'],{cwd:root,env:{...process.env,PORT:'4397',EQUITY_DATA_DIR:directory,FINMIND_API_TOKEN:''},windowsHide:true,stdio:['ignore','pipe','pipe']});
+  try{
+    await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',c=>reject(new Error(`Server exited ${c}`)));setTimeout(()=>reject(new Error('Server startup timeout')),10000).unref();});
+    const base='http://127.0.0.1:4397/api/',get=async p=>(await fetch(base+p)).json();
+    // fetch 不允許自訂 Host 標頭，遠端主機的請求用 http.request 模擬
+    const asHost=(host,p)=>new Promise((resolve,reject)=>{const r=http.request(base+p,{headers:{Host:host}},res=>{res.resume();res.on('end',()=>resolve(res.statusCode));});r.on('error',reject);r.end();});
+    const s=await get('state'),post=(p,b)=>fetch(base+p,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf},body:JSON.stringify(b)});
+    let c=await get('config');
+    assert.deepEqual(c.remote.access,{hosts:['nexus.example.com'],teamDomain:'team.cloudflareaccess.com',aud:'a'.repeat(64),ready:true},'remote.json migrated');
+    assert.equal(c.remote.tunnel,'auto');assert.deepEqual(c.remote.hosts,['pocket.example.com']);
+    // 遠端主機：沒有 Access 憑證時拒絕，本機不受影響
+    assert.equal(await asHost('nexus.example.com','health'),403);assert.equal(await asHost('unknown.example.com','health'),403);
+    assert.equal((await post('remote',{tunnel:'magic'})).status,400);
+    assert.equal((await post('remote',{pocketHosts:['bad host!']})).status,400);
+    assert.equal((await post('remote',{contact:'not-an-email'})).status,400);
+    assert.equal((await post('remote',{access:{teamDomain:'evil.example.com'}})).status,400);
+    assert.equal((await post('remote',{publicUrl:'http://insecure.example.com'})).status,400);
+    assert.equal((await post('remote',{access:{hosts:['pocket.example.com']}})).status,400,'one domain cannot serve both apps');
+    const r=await(await post('remote',{tunnel:'custom',publicUrl:'https://m.example.org/',pocketHosts:['HTTPS://Alt.Example.org/path','alt.example.org'],contact:'me@example.org',access:{hosts:[],teamDomain:'',aud:''}})).json();
+    assert.deepEqual(r.remote.hosts,['m.example.org','alt.example.org']);assert.equal(r.remote.publicUrl,'https://m.example.org');assert.equal(r.remote.access.ready,false);
+    const p=await get('profile');assert.deepEqual(p.remote,{tunnel:'custom',hosts:['m.example.org','alt.example.org'],contact:'me@example.org'});
+    assert.equal(await asHost('nexus.example.com','health'),403,'removed remote host is no longer accepted');
+    const saved=JSON.parse(fs.readFileSync(path.join(directory,'config.json'),'utf8'));assert.equal(saved.remote.tunnel,'custom');assert.equal(saved.publicUrl,'https://m.example.org');
+    const bundle=await get('export');assert.equal(bundle.remote.tunnel,'custom');
+  }finally{child.kill();await new Promise(r=>child.once('close',r));fs.rmSync(directory,{recursive:true,force:true});}
 });
 
 test('fresh install: setup APIs switch markets without mixing data, keep keys out of responses',async()=>{

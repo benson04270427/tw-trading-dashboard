@@ -14,7 +14,7 @@ mobile UI and Web Push relay. There is no database and no build step: plain ES m
 | Module | Role |
 |---|---|
 | `server.mjs` | HTTP server, API routes, schedulers (intraday monitor, close records, news push, AI report, daily update), market switching |
-| `lib/config.mjs` | `.local/config.json`: market, language, enabled data sources and preferences, AI model, public URL, up/down colors. Legacy single-market installs are migrated automatically |
+| `lib/config.mjs` | `.local/config.json`: market, language, enabled data sources and preferences, AI model, up/down colors, and remote access (Pocket connection mode and domains, push contact, desktop Cloudflare Access settings). Legacy installs and `remote.json` are migrated automatically |
 | `lib/markets.mjs` | Market profiles: time zone, sessions (with lunch breaks), settle minutes, lot size, tick tables, price limits, symbol format, replay scales. All time / price rules come from here |
 | `lib/secrets.mjs` | API keys via Windows DPAPI, macOS Keychain or Secret Service (file fallback); environment variables take priority |
 | `lib/i18n.mjs` | Server-side translation with the same dictionaries as the UI; `UserError` marks messages safe to show |
@@ -83,7 +83,16 @@ target market's files move back.
 
 `server.mjs` serves the PWA and proxies `/m/api/*` to Nexus after password login (`lib/auth.mjs`). It relays new radar,
 news and report events as Web Push notifications (`lib/push.mjs`, RFC 8291/8292 with Node's crypto). The interface
-language, market profile and colors come from Nexus `/api/profile`; translations are served from Nexus `/locales/`.
+language, market profile, colors and remote-access settings come from Nexus `/api/profile`; translations are served from
+Nexus `/locales/`.
+
+Remote access (`lib/remote.mjs`): Pocket binds to `127.0.0.1`, so every external request arrives through a local tunnel or
+reverse proxy. The connection mode chosen in Nexus (`auto`, `cloudflare-quick`, `cloudflare-named`, `custom`, `off`) decides
+which hosts are allowed (the domains entered in Nexus, plus `*.trycloudflare.com` only for quick tunnels) and which headers
+are trusted for the client IP and HTTPS (`CF-Connecting-IP` / `CF-Visitor` for Cloudflare, `X-Real-IP` or the last
+`X-Forwarded-For` entry / `X-Forwarded-Proto` for a self-managed proxy). The latest settings are cached in
+`.local/remote-cache.json`; an unknown host triggers at most one settings refresh every 15 seconds. The start scripts read
+the same mode to decide whether to run `cloudflared`.
 
 ## Extending
 

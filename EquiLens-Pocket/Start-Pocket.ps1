@@ -46,5 +46,5 @@ if (-not $running) {
 }
 Write-Host "EquiLens Pocket is running locally: $pocketUrl"
 
-# 4. Public URL through Cloudflare Tunnel.
+# 4. Public URL according to the connection mode set in EquiLens Nexus (Remote access); Start-Tunnel.ps1 decides.
 if (-not $NoTunnel) { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'Start-Tunnel.ps1') }

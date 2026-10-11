@@ -1,10 +1,10 @@
-// 遠端存取（例如 https://nexus.example.com）：只接受經 Cloudflare Access 驗證過的請求。
-// 設定檔 .local/remote.json：{ "hosts": ["nexus.example.com"], "teamDomain": "xxx.cloudflareaccess.com", "aud": "<Application Audience Tag>" }
-// 未設定 teamDomain/aud 時，所有外部主機的請求一律拒絕；本機 127.0.0.1／localhost 不受影響。
+// 電腦版遠端存取（例如 https://nexus.example.com）：只接受經 Cloudflare Access 驗證過的請求。
+// 設定在「資料與設定 → 遠端存取」（config.remote.access：允許的主機、team domain、Application Audience Tag）；
+// 舊版的 .local/remote.json 第一次啟動新版時自動轉入。未設定 teamDomain/aud 時，所有外部主機的請求一律拒絕；本機不受影響。
 import crypto from 'node:crypto';
-import { read } from './storage.mjs';
+import { config } from './config.mjs';
 
-export const remoteConfig = () => { const c = read('remote.json', {}); return { hosts: (c.hosts || []).map(h => String(h).toLowerCase()), teamDomain: String(c.teamDomain || '').replace(/^https?:\/\//, '').replace(/\/+$/, ''), aud: String(c.aud || '') }; };
+export const remoteConfig = () => { const a = config().remote?.access || {}; return { hosts: (a.hosts || []).map(h => String(h).toLowerCase()), teamDomain: String(a.teamDomain || ''), aud: String(a.aud || '') }; };
 export const isRemoteHost = host => remoteConfig().hosts.includes(String(host || '').toLowerCase());
 
 let jwks = { team: '', at: 0, keys: [] };

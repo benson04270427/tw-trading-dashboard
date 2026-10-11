@@ -8,6 +8,7 @@ import * as auth from './lib/auth.mjs';
 import * as nexus from './lib/nexus.mjs';
 import * as push from './lib/push.mjs';
 import { setLanguage, getLanguage } from './public/i18n.js';
+import { loadRemote, storeRemote, allowHost, clientIp as ipOf, isHttps as httpsOf } from './lib/remote.mjs';
 
 export const APP_VERSION = '2.0.0';
 const PORT = Number(process.env.PORT || 4340);
@@ -32,14 +33,11 @@ export function buildId() {
 }
 // 前端模組的相對 import（靜態與動態）加上 ?v=版本號
 export const versionImports = (src, v) => src.replace(/(\bfrom\s*|\bimport\s*\(\s*)(['"])(\.\/[\w-]+\.js)\2/g, `$1$2$3?v=${v}$2`);
-export function hostAllowed(host) {
-  const h = String(host || '').toLowerCase();
-  if ([`127.0.0.1:${PORT}`, `localhost:${PORT}`].includes(h)) return true;
-  if (/^[a-z0-9-]+\.trycloudflare\.com$/.test(h)) return true;
-  return extraHosts.includes(h);
-}
-const isHttps = req => req.headers['x-forwarded-proto'] === 'https' || /"scheme":"https"/.test(String(req.headers['cf-visitor'] || ''));
-const clientIp = req => String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'local').slice(0, 64);
+// 允許的網域：本機、電腦版「遠端存取」設定的手機版網域、本資料夾 .local/config.json 的 hosts 與環境變數 MOBILE_HOSTS（防 DNS rebinding）
+let remote = loadRemote();
+export function hostAllowed(host) { return allowHost(host, { port: PORT, extra: extraHosts, remote }); }
+const isHttps = req => httpsOf(req, remote?.tunnel);
+const clientIp = req => ipOf(req, remote?.tunnel);
 function cookies(req) { return Object.fromEntries(String(req.headers.cookie || '').split(';').map(p => p.trim().split('=')).filter(p => p.length === 2)); }
 function send(req, res, code, body, type = 'application/json; charset=utf-8', extra = {}) {
   let buf = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
@@ -56,13 +54,15 @@ const todayTW = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei'
 const minusDays = (d, n) => new Date(Date.parse(d) - n * 864e5).toISOString().slice(0, 10);
 
 // Nexus 的市場、語言與配色（5 分鐘更新一次）：手機版畫面與推播文字依此顯示
-let profileCache = { at: 0, data: null };
+let profileCache = { at: 0, data: null }, hostRefreshAt = 0;
 async function profile(force = false) {
   if (!force && profileCache.data && Date.now() - profileCache.at < 300000) return profileCache.data;
   try {
     const p = await nexus.profile(); profileCache = { at: Date.now(), data: p };
     if (p.language !== getLanguage()) await setLanguage(p.language, nexus.NEXUS_URL);
-    if (p.publicUrl) push.setSubject(p.publicUrl);
+    if (p.remote) remote = storeRemote(p.remote);
+    // 推播聯絡方式：手機版網址優先，否則用推播聯絡信箱
+    if (p.publicUrl) push.setSubject(p.publicUrl); else if (p.remote?.contact) push.setSubject(`mailto:${p.remote.contact}`);
   } catch { }
   return profileCache.data;
 }
@@ -172,7 +172,11 @@ export const server = http.createServer(async (req, res) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
-  if (!hostAllowed(req.headers.host)) return send(req, res, 403, { error: '不允許的主機名稱' });
+  if (!hostAllowed(req.headers.host)) {
+    // 剛在電腦版新增的網域：最多每 15 秒向 Nexus 重新讀取一次設定後再判斷
+    if (Date.now() - hostRefreshAt > 15000) { hostRefreshAt = Date.now(); await profile(true); }
+    if (!hostAllowed(req.headers.host)) return send(req, res, 403, { error: '不允許的主機名稱' });
+  }
   try {
     const url = new URL(req.url, 'http://localhost'), route = url.pathname;
     if (req.method === 'POST') {

@@ -26,7 +26,7 @@
 | 型態選股 | 90 個交易日、10 種型態，條件式進場與防守 |
 | 法人／期貨籌碼 | 台股＋FinMind 才顯示：三大法人、外資期權部位、個股買賣超排行與 9:16 圖卡 |
 | 話題追蹤／自選追蹤 | 人工判讀的事件證據、自選分組 |
-| 資料與設定 | 市場與語言、資料來源與金鑰、推理模型、研究族群管理、設定檔匯出入、更新排程、評分權重 |
+| 資料與設定 | 市場與語言、遠端存取、資料來源與金鑰、推理模型、研究族群管理、設定檔匯出入、更新排程、評分權重 |
 
 資料源不支援的功能會自動隱藏或改用研究名單的本機資料（例如沒有全市場單日行情時，熱浪圖以研究族群為範圍）。
 
@@ -41,19 +41,16 @@
 
 ## 遠端使用完整電腦版（選用）
 
-可透過 Cloudflare Tunnel＋Cloudflare Access 從外部使用電腦版，採雙層保護：
+手機版的連線方式與網域在「資料與設定 → 遠端存取」設定，步驟見 `../EquiLens-Pocket/README.md`。
+
+電腦版可以變更金鑰與所有設定，因此遠端使用**只支援 Cloudflare Access**，採雙層保護：
 
 1. **Cloudflare Access**：在 Zero Trust → Access → Applications 為你的主機名稱（例如 `nexus.example.com`）建立應用程式，Policy 只允許指定的信箱。
 2. **Nexus 自行驗證**每個遠端請求的 `Cf-Access-Jwt-Assertion`（RS256 簽章、簽發者、AUD、有效期限），不符即回 403。
 
-設定檔 `.local/remote.json`：
-
-```json
-{ "hosts": ["nexus.example.com"], "teamDomain": "your-team.cloudflareaccess.com", "aud": "<Application Audience Tag>" }
-```
-
-`aud` 是應用程式設定頁的 Application Audience (AUD) Tag（64 位十六進位）。`teamDomain` 或 `aud` 為空時，所有遠端請求一律拒絕；
-本機 http://127.0.0.1:4330 不受影響。通道設定可與手機版共用同一個 `cloudflared` 設定檔（見 `../EquiLens-Pocket/README.md`）。
+在「資料與設定 → 遠端存取 → 電腦版」填入：允許的網域、Team domain（`your-team.cloudflareaccess.com`）、Application Audience (AUD) Tag（應用程式設定頁的 64 位十六進位值）。
+三項都填好才會啟用；本機 http://127.0.0.1:4330 不受影響。同一個網域不能同時給手機版與電腦版使用。
+把網域轉到 `127.0.0.1:4330` 的通道可與手機版共用同一個 `cloudflared` 設定檔（在 `ingress` 多加一條規則）。舊版的 `.local/remote.json` 會在第一次啟動新版時自動轉入設定。
 
 ## 開發
 

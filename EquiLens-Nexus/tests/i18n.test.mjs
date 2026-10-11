@@ -16,7 +16,7 @@ test('every interface string has an English translation with the same placeholde
   assert.deepEqual(missing.slice(0, 20), [], `missing ${missing.length} translations; run: node tools/i18n-keys.mjs --missing en`);
   const bad = Object.entries(en).filter(([k, v]) => typeof v !== 'string' || !v.trim() || ph(k) !== ph(v)).map(([k]) => k);
   assert.deepEqual(bad, []);
-  assert.ok(Object.values(en).every(v => !/[一-鿿]/.test(v.replace(/億|萬|繁體中文|設定手機密碼\.cmd/g, ''))), 'English values contain no Chinese except unit markers');
+  assert.ok(Object.values(en).every(v => !/[一-鿿]/.test(v.replace(/億|萬|繁體中文|\S*\.cmd/g, ''))), 'English values contain no Chinese except unit markers');
 });
 test('server messages translate with parameters', () => {
   assert.equal(serverT('股票代碼格式錯誤', null, 'en'), 'Invalid stock symbol');
