@@ -72,8 +72,8 @@ plan than the one detected when you saved the key.
 ## Quick start
 
 ```bash
-git clone <this repository>
-cd <repository>/EquiLens-Nexus
+git clone https://github.com/wakin61043/equilens_nexus.git
+cd equilens_nexus/EquiLens-Nexus
 npm install --omit=dev
 ```
 

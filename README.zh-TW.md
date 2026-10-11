@@ -59,8 +59,8 @@
 ## 快速開始
 
 ```bash
-git clone <本專案網址>
-cd <專案資料夾>/EquiLens-Nexus
+git clone https://github.com/wakin61043/equilens_nexus.git
+cd equilens_nexus/EquiLens-Nexus
 npm install --omit=dev
 ```
 
