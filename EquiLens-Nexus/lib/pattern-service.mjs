@@ -32,15 +32,15 @@ export async function updatePatternData(universe,options){
   for(const key of ['price','adjusted'])for(const date of dates){const dataset=key==='price'?'TaiwanStockPrice':'TaiwanStockPriceAdj',stamp=key==='price'?date:cutoff,token=`${dataset}:${date}`;if(ledger[token]!==stamp)tasks.push({key,date,dataset,stamp,token});}
   let done=0,empty=0;const dirty=new Set(ids);
   const flush=()=>{for(const id of dirty)write(`${directory}/${id}.json`,{price:raw[id].price,adjusted:raw[id].adjusted,adjustedSnapshot:raw[id].adjustedSnapshot});dirty.clear();write(`${directory}/ledger.json`,ledger);};
-  try{for(const t of tasks){
+  try{for(const task of tasks){
     if(options.signal?.aborted)break;
-    options.onProgress?.({done,total:tasks.length,current:t.date,dataset:t.dataset,message:t('型態資料準備中 {done}/{total} 批次；仍顯示上次完整快照',{done,total:tasks.length})});
-    const rows=fetcher?await fetcher(t.dataset,{start_date:t.date,end_date:t.date},options):t.key==='price'?await data.dailyAll(t.date,options):await data.dailyAllAdjusted(t.date,options);
+    options.onProgress?.({done,total:tasks.length,current:task.date,dataset:task.dataset,message:t('型態資料準備中 {done}/{total} 批次；仍顯示上次完整快照',{done,total:tasks.length})});
+    const rows=fetcher?await fetcher(task.dataset,{start_date:task.date,end_date:task.date},options):task.key==='price'?await data.dailyAll(task.date,options):await data.dailyAllAdjusted(task.date,options);
     for(const r of rows){if(!known.has(r.stock_id))continue;const id=r.stock_id;
-      if(t.key==='adjusted'&&raw[id].adjustedSnapshot!==cutoff){raw[id].adjusted=[];raw[id].adjustedSnapshot=cutoff;}
-      const merged=new Map((raw[id][t.key]||[]).map(x=>[x.date,x]));merged.set(r.date,r);raw[id][t.key]=[...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-300);dirty.add(id);
+      if(task.key==='adjusted'&&raw[id].adjustedSnapshot!==cutoff){raw[id].adjusted=[];raw[id].adjustedSnapshot=cutoff;}
+      const merged=new Map((raw[id][task.key]||[]).map(x=>[x.date,x]));merged.set(r.date,r);raw[id][task.key]=[...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-300);dirty.add(id);
     }
-    if(rows.length)ledger[t.token]=t.stamp;else empty++;
+    if(rows.length)ledger[task.token]=task.stamp;else empty++;
     done++;if(done%10===0)flush();
   }}finally{flush();options.onProgress?.({done,total:tasks.length});}
   const complete=done===tasks.length&&!empty&&!options.signal?.aborted;

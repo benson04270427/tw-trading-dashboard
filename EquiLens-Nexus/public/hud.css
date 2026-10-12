@@ -76,9 +76,13 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) sepia(1) h
 .sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:22px 14px 16px;background:linear-gradient(180deg,rgba(6,12,22,.96),rgba(4,8,15,.96));border-right:1px solid var(--line);overflow-y:auto}
 .sidebar::before{content:"";position:absolute;right:-1px;top:0;width:1px;height:38%;background:linear-gradient(180deg,var(--cyan),transparent);opacity:.6}
 .brand{display:flex;align-items:center;gap:12px;padding:2px 8px 22px}
-.brand-mark{width:38px;height:38px;flex:none}
-.brand strong{display:block;font-size:1.12rem;letter-spacing:.2em;font-weight:700}
-.brand span{display:block;font-family:var(--mono);font-size:.64rem;letter-spacing:.34em;color:var(--cyan);margin-top:3px}
+/* 品牌：電光青 #2EE6FF、深墨 #07101C；字體 Noto Sans TC（粗）＋ Barlow Condensed（未安裝時用系統的窄體字） */
+:root{--mark-hex:#2EE6FF;--mark-line:#07101C;--brand-cyan:#2EE6FF}
+:root[data-theme=light]{--mark-hex:#07101C;--mark-line:#2EE6FF;--brand-cyan:#0a7fbf}
+.mk-hex{fill:var(--mark-hex);stroke:var(--mark-hex)}.mk-line{stroke:var(--mark-line)}
+.brand-mark{width:40px;height:40px;flex:none}
+.brand strong{display:block;font-family:"Noto Sans TC","Noto Sans CJK TC","Microsoft JhengHei",var(--sans);font-size:1.3rem;font-weight:900;letter-spacing:.06em;line-height:1.05}
+.brand span{display:block;font-family:"Barlow Condensed","Roboto Condensed","Arial Narrow","Bahnschrift Condensed",sans-serif;font-stretch:condensed;font-weight:700;font-size:.78rem;letter-spacing:.3em;color:var(--brand-cyan);margin-top:2px}
 .nav-label{font-family:var(--mono);font-size:.64rem;letter-spacing:.26em;color:var(--soft);padding:16px 12px 8px;display:flex;align-items:center;gap:8px}
 .nav-label::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line2),transparent)}
 .nav{display:grid;gap:2px}

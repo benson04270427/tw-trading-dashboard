@@ -32,7 +32,7 @@ const S = { tab: 'brief', brief: { news: { 0: null, 1: null }, offset: 0, sectio
   list: { mode: 'watch', group: '', sort: 'score', q: '', limit: 40 }, moverSide: 'up', flows: { data: null, date: '', loading: false, error: '', market: '上市', inv: 'total', side: 'buy', contract: null, page: 0 }, loading: false };
 
 /* ---------- theme ---------- */
-function applyTheme() { let t = null; try { t = localStorage.getItem('pocket.theme'); } catch { } if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name=theme-color]')?.setAttribute('content', t === 'light' ? '#f2f5f9' : '#070b14'); }
+function applyTheme() { let t = null; try { t = localStorage.getItem('pocket.theme'); } catch { } if (!t) t = 'dark'; /* 預設深色主題（可在設定或右上角切換） */ document.documentElement.dataset.theme = t; document.querySelector('meta[name=theme-color]')?.setAttribute('content', t === 'light' ? '#f2f5f9' : '#070b14'); }
 applyTheme();
 /* ---------- 字型大小（存在這支手機） ---------- */
 const FONT_SIZES = [[14, '小'], [16, '標準'], [18, '大'], [20, '特大']];
@@ -445,7 +445,8 @@ function flowPage() {
 }
 
 /* ---------- login / setup ---------- */
-const LOGO = `<svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="10" fill="#070b14"/><path d="M20 5l13 7.5v15L20 35 7 27.5v-15z" fill="none" stroke="#2ee6ff" stroke-width="2.2"/><path d="M12.5 24.5l5-6 4 3 6-8" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+// 衡析 App 圖示：深墨圓角方形＋電光青六角形（與 icon.svg 相同，由 tools/make-icons.mjs 產生）
+const LOGO = `<svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#07101C"/><polygon points="50,23.6 72.86,36.8 72.86,63.2 50,76.4 27.14,63.2 27.14,36.8" fill="#2EE6FF" stroke="#2EE6FF" stroke-width="6.6" stroke-linejoin="round"/><polyline points="35.48,61.22 46.04,50 53.96,56.6 65.84,39.44" fill="none" stroke="#07101C" stroke-width="5.94" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 function showLogin() {
   document.body.innerHTML = `<form class="login" id="login">${LOGO}<h1>衡析 Pocket</h1><p>台股研究戰情室 · 手機版</p><label class="sr" for="pw">密碼</label><input id="pw" type="password" autocomplete="current-password" placeholder="輸入密碼" required minlength="10"><button class="btn primary" type="submit">登入</button><div class="err" id="login-err" role="alert"></div><div class="foot">登入後此裝置可保持 30 天。<br>密碼在電腦上執行「設定手機密碼.cmd」設定。</div></form><div id="toast"></div>`;
   $('#pw').focus();
