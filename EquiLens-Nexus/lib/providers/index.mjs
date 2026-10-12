@@ -14,7 +14,7 @@ export const PROVIDERS = { finmind, twse, fugle, twelvedata, alphavantage };
 // 能力名稱（介面顯示用繁中原文，翻譯在 locales）
 export const CAPABILITIES = {
   universe: '股票清單', calendar: '交易日曆', daily: '日 K 歷史', adjusted: '還原股價', dailyAll: '全市場單日行情', snapshot: '盤中即時報價', intraday: '分 K',
-  news: '個股新聞', marketNews: '全市場新聞', valuation: '本益比／股價淨值比', revenue: '營收', institutional: '法人買賣超', brokers: '券商分點', holders: '股權分散', flows: '法人籌碼總覽', futures: '期貨與選擇權', margin: '融資融券',
+  news: '個股新聞', marketNews: '全市場新聞', valuation: '本益比／股價淨值比', revenue: '營收', institutional: '法人買賣超', brokers: '券商分點', holders: '股權分散', flows: '法人籌碼總覽', futures: '期貨與選擇權', margin: '融資融券', stream: '盤中即時推播', dayTrade: '當沖資格與參考價',
 };
 
 // 方案等級（驗證金鑰時記錄）：.local/provider-info.json { finmind: { tier, plan, checkedAt } }
@@ -58,6 +58,8 @@ export const data = {
   pick, has, source: cap => pick(cap)?.id || null,
   snapshotMode: () => pick('snapshot')?.snapshotMode || null,
   snapshotLimit: () => { const p = pick('snapshot'); return p ? (p.snapshotLimit?.(providerInfo()[p.id]) ?? null) : null; },
+  // 即時推播的補資料（REST）：由提供推播的資料源執行
+  streamBackfill: async (id, opts) => { const p = pick('stream'); if (!p?.streamBackfill) return null; return p.streamBackfill(id, await ctxOf(p, opts)); },
   universe: (opts) => call('universe', [], opts),
   // 交易日曆；沒有支援的資料源時以平日代替（假日由「當天沒有行情」判斷）
   calendar: async (from, opts) => has('calendar') ? call('calendar', [from], opts) : weekdays(from || addDays(new Date().toISOString().slice(0, 10), -400), addDays(new Date().toISOString().slice(0, 10), 7)),
@@ -66,6 +68,7 @@ export const data = {
   dailyAllAdjusted: (date, opts) => { const p = pick('dailyAll'); return p?.dailyAllAdjusted ? ctxOf(p, opts).then(ctx => p.dailyAllAdjusted(date, ctx)) : call('dailyAll', [date], opts); },
   snapshot: (ids, opts) => call('snapshot', [ids], opts),
   intraday: (id, date, opts) => call('intraday', [id, date], opts),
+  dayTrade: (date, opts) => call('dayTrade', [date], opts),
   news: (id, date, opts) => call('news', [id, date], opts),
   marketNews: (date, opts) => call('marketNews', [date], opts),
   valuation: (id, from, to, opts) => call('valuation', [id, from, to], opts),

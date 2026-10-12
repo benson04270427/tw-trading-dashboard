@@ -5,7 +5,7 @@ research, shows where money is flowing, watches the market during the session, r
 writes an after-market report with the AI model of your choice. You bring your own data sources and API keys;
 nothing is sent to anyone else.
 
-[繁體中文說明](README.zh-TW.md) · [Architecture](docs/ARCHITECTURE.md)
+[繁體中文說明](README.zh-TW.md) · [Architecture](docs/ARCHITECTURE.md) · [Day-trade monitoring (zh-TW)](docs/DAYTRADE.zh-TW.md)
 
 > EquiLens is a research tool. Scores rank research, they are not trading signals, price targets or return
 > predictions. Nothing here is investment advice.
@@ -29,7 +29,14 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
 - **Sector heatmap** – turnover-sized, change-colored treemap of the whole market (or of your research groups when the
   data source has no whole-market data), live during the session, with a per-minute **time machine** replay.
 - **Intraday radar** – volume spikes, surges and plunges, price-limit touches, pattern entries and stop breaks for your
-  watchlist and research groups, plus a live board with daily / 5-minute candles.
+  watchlist and research groups, plus a live board with daily / 5-minute candles. With a Fugle key the radar runs on a
+  WebSocket live stream (watchlist first, up to your plan's limit) instead of periodic snapshots.
+- **Day-trade monitoring** (Taiwan, FinMind + Fugle) – FinMind screens after the close and supplies the pre-market
+  day-trade list, suspensions and reference prices; Fugle streams trades, 1-minute bars and the order book for your
+  watchlist and research list. Every stock gets a live day-trade score (volume vs the same time of day, VWAP and
+  breakout structure, order-book imbalance, strength vs its group and the market), a top-20 list, three long signals
+  (volume breakout, VWAP continuation, sustained bid strength) pushed to your phone, and an after-close review of each
+  signal's net return after slippage, fees and tax. See [docs/DAYTRADE.zh-TW.md](docs/DAYTRADE.zh-TW.md).
 - **Group ranking** – your research groups ranked by turnover-weighted gain, with daily close records.
 - **Pattern scanner** – 10 classic patterns over 90 sessions with conditional entry and stop levels.
 - **AI after-market report** – written by Claude, OpenAI, Gemini or any OpenAI-compatible endpoint (including local
@@ -50,14 +57,18 @@ Australia, Singapore, India.**
 | Data source | Markets | Key | Provides |
 |---|---|---|---|
 | [TWSE / TPEx open data](https://openapi.twse.com.tw) | TW | none | stock list, trading calendar, daily bars, whole-market daily data, institutional flows (whole market by day), P/E, monthly revenue |
-| [FinMind](https://finmindtrade.com) | TW | free / Sponsor | daily and adjusted bars, institutional flows, revenue, P/E, news, shareholding, futures, margin; **Sponsor** adds live snapshots, minute bars, whole-market data and broker branches |
-| [Fugle](https://developer.fugle.tw) | TW | free / paid | daily (adjusted) and minute bars; paid plans add a whole-market live snapshot |
+| [FinMind](https://finmindtrade.com) | TW | free / Sponsor | daily and adjusted bars, institutional flows, revenue, P/E, news, shareholding, futures, margin; **Sponsor** adds live snapshots, minute bars, whole-market data, broker branches and the pre-market day-trade list, suspensions and reference prices |
+| [Fugle](https://developer.fugle.tw) | TW | free / paid | daily (adjusted) and minute bars; WebSocket live stream for the intraday radar and day-trade monitoring (subscriptions: Basic 5, Developer 300, Advanced 2,000 — full mode uses trades + 1-minute bars + order book, 3 per stock; otherwise aggregates, 1 per stock); paid plans add a whole-market live snapshot |
 | [Twelve Data](https://twelvedata.com) | all 12 markets | free / paid | stock list, daily bars, live quotes, minute bars |
 | [Alpha Vantage](https://www.alphavantage.co) | US, GB, CA, DE, IN | free / premium | daily bars, quotes, news sentiment, P/E, quarterly revenue |
 
 Enable several sources and EquiLens picks a source per capability (in your order, or as you specify under
 *Data & Settings → Data sources → Advanced*). Features a source can't support are hidden or fall back to your
 research list's local data — the settings page shows exactly which features are available.
+
+A live-stream source (Fugle) only drives the intraday radar, live board and day-trade monitoring; the heatmap, time machine, research
+updates and everything else keep using the snapshot and daily sources. Stocks beyond the stream plan's limit stay on
+snapshots, and without a stream key nothing changes.
 
 Free plans have tight quotas. EquiLens rate-limits every source, resumes interrupted updates and never assumes a higher
 plan than the one detected when you saved the key.

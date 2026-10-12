@@ -29,6 +29,22 @@ h1,h2,h3,p{margin:0}
 a{color:var(--cyan);text-decoration:none}a:hover{text-decoration:underline}
 small{font-size:.78rem}
 .num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+/* 當沖掃描 */
+.dt-panel{margin-bottom:18px}
+.dt-status{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.8rem;color:var(--muted);margin-bottom:6px}
+.dt-status .warn,.dt-foot .warn,b.warn{color:var(--amber)}
+.dt-table{overflow-x:auto;margin-top:8px}
+.dt-table table{width:100%;border-collapse:collapse;font-size:.82rem}
+.dt-table th{font-weight:500;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.dt-table td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.dt-table tr[data-kbar-row]{cursor:pointer}.dt-table tr[data-kbar-row]:hover td{background:rgba(34,230,255,.05)}
+.dt-table tr.dim td{opacity:.55}
+.dt-score{display:flex;align-items:center;gap:8px}
+.dt-bar{display:inline-flex;width:100px;height:7px;background:rgba(80,200,255,.08);border-radius:4px;overflow:hidden}.dt-bar i{display:block;height:100%}
+.dt-foot{font-size:.76rem;color:var(--muted);margin:8px 0 0}
+.dt-field{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:.84rem;color:var(--muted);margin:8px 0}.dt-field.sub{margin-left:26px}
+.dt-day{margin-top:8px;font-size:.82rem}.dt-day summary{cursor:pointer;color:var(--muted)}
+.dt-sig{display:flex;flex-wrap:wrap;gap:4px 12px;padding:4px 0;border-bottom:1px solid var(--line)}
 .up{color:var(--up)}.down{color:var(--down)}.muted{color:var(--muted)}.soft{color:var(--soft)}.cyan{color:var(--cyan)}.amber,.gold{color:var(--amber)}.violet{color:var(--violet)}
 .skip{position:fixed;left:10px;top:-100px;background:var(--panel);padding:12px;z-index:100}.skip:focus{top:10px}
 

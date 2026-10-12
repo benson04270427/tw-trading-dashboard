@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseTwseDaily, parseTpexDaily, parseTwseInstitutional, parseTpexInstitutional } from '../lib/providers/twse.mjs';
 import { parseQuotes } from '../lib/providers/twelvedata.mjs';
-import { parseSnapshot } from '../lib/providers/fugle.mjs';
+import fugle, { parseSnapshot, aggregateRow } from '../lib/providers/fugle.mjs';
 import { parseNews } from '../lib/providers/alphavantage.mjs';
 import { httpError, DataError, rocDate, weekdays } from '../lib/providers/common.mjs';
 import { marketProfile } from '../lib/markets.mjs';
@@ -48,6 +48,28 @@ test('Fugle snapshot: volume unit is detected (lots or shares) and normalized to
   const shares = { ...base, data: [{ ...base.data[0], tradeVolume: 12345000 }] };
   assert.equal(parseSnapshot(shares)[0].total_volume, 12345, 'shares converted to lots');
   assert.match(parseSnapshot(base)[0].date, /^2026-10-08 \d{2}:\d{2}:\d{2}$/);
+});
+
+test('Fugle WebSocket aggregates: snapshot row with bid/ask volumes, units and timestamps normalized', () => {
+  const at = Date.UTC(2026, 9, 8, 2, 30, 5); // 台北 10:30:05
+  const d = { date: '2026-10-08', symbol: '2330', openPrice: 1450, highPrice: 1465, lowPrice: 1445, closePrice: 1460, lastPrice: 1460, change: 10, changePercent: 0.69, previousClose: 1450,
+    bids: [{ price: 1455, size: 120 }], asks: [{ price: 1460, size: 80 }],
+    total: { tradeValue: 1460 * 20000 * 1000, tradeVolume: 20000, tradeVolumeAtBid: 8000, tradeVolumeAtAsk: 12000, transaction: 30000 }, lastUpdated: at * 1000 };
+  const r = aggregateRow(d);
+  assert.deepEqual([r.stock_id, r.date, r.close, r.change_price, r.total_volume, r.buy_price, r.sell_price, r.volume_at_bid, r.volume_at_ask],
+    ['2330', '2026-10-08 10:30:05', 1460, 10, 20000, 1455, 1460, 8000, 12000]);
+  assert.equal(aggregateRow({ ...d, lastUpdated: at }).date, '2026-10-08 10:30:05', 'millisecond timestamps too');
+  const shares = aggregateRow({ ...d, total: { ...d.total, tradeVolume: 20000000, tradeVolumeAtBid: 8000000, tradeVolumeAtAsk: 12000000 } });
+  assert.deepEqual([shares.total_volume, shares.volume_at_bid, shares.volume_at_ask], [20000, 8000, 12000], 'shares converted to lots');
+  const { change, ...noChange } = d;
+  assert.equal(aggregateRow(noChange).change_price, 10, 'change derived from previous close');
+  assert.equal(aggregateRow({ ...d, closePrice: null, lastPrice: null }), null);
+  const tw = { tz: 'Asia/Taipei', lot: 1000 };
+  assert.equal(fugle.stream.parse({ event: 'data', channel: 'aggregates', data: d }, tw).row.stock_id, '2330');
+  assert.equal(fugle.stream.parse({ event: 'heartbeat', data: { time: 1 } }, tw), null);
+  assert.equal(fugle.stream.parse({ event: 'data', channel: 'indices', data: d }, tw), null);
+  assert.deepEqual(fugle.stream.subscribe(['2330']), { event: 'subscribe', data: { channel: 'aggregates', symbols: ['2330'] } });
+  assert.deepEqual([fugle.stream.plans.basic.limit, fugle.stream.plans.developer.limit, fugle.stream.plans.advanced.limit], [5, 300, 2000]);
 });
 
 test('Alpha Vantage news: market suffix removed, optional single-symbol filter', () => {

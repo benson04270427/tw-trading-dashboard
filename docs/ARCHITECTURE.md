@@ -23,11 +23,13 @@ mobile UI and Web Push relay. There is no database and no build step: plain ES m
 | `lib/engine.mjs` | Four-factor scoring; factors the current sources can't provide are excluded and weights renormalized |
 | `lib/heatmap.mjs` | Sector heatmap from whole-market daily data, live snapshots or local research data |
 | `lib/radar.mjs`, `lib/replay.mjs` | Intraday alerts and the per-minute time-machine recorder |
+| `lib/stream.mjs` | Live-stream client (WebSocket): auth, per-channel batched subscriptions, heartbeat check, reconnect with backoff, events flushed in batches; `createStreamPool` spreads symbols over several connections |
+| `lib/daytrade.mjs` | Day-trade engine (pure): per-stock state from trades / 1-minute bars / order book (or aggregates), VWAP, same-time volume baseline from the time machine, order-book imbalance, score, three signals, exclusions, backfill, after-close evaluation and review statistics |
 | `lib/patterns.mjs`, `lib/pattern-service.mjs` | Pattern detection and the whole-market pattern snapshot |
 | `lib/grouprank.mjs` | Research-group ranking (turnover-weighted gain) |
 | `lib/llm.mjs`, `lib/report.mjs` | AI providers (structured JSON output) and the after-market report |
 | `lib/flows.mjs`, `lib/market-card.mjs`, `lib/insight.mjs` | Taiwan-specific modules built on FinMind datasets (institutional/options overview, report card, brokers, shareholding) |
-| `lib/briefing.mjs`, `lib/newswatch.mjs` | Today's Brief (news, economic and earnings calendars) and news push |
+| `lib/briefing.mjs`, `lib/newswatch.mjs` | Today's Brief (news, economic and earnings calendars) and news push (the data source's market news plus, for Taiwan, the cnyes news list via `lib/providers/cnyes.mjs`; the same article on both sources pushes once, a newly added source is recorded silently the first time) |
 | `lib/scope.mjs`, `lib/watchgroups.mjs`, `lib/access.mjs` | Research groups, watchlist groups, Cloudflare Access JWT verification |
 
 Front end (`public/`): `app.js` (shell and pages), `setup.js` (setup wizard and system settings), `market.js`
@@ -47,6 +49,8 @@ Every provider module (`lib/providers/*.mjs`) exports an object:
   interval,                          // minimum milliseconds between requests
   caps: { daily: 1, snapshot: 'paid', universe: ['US'], institutional: 'bulk', ... },
   snapshotMode: 'market' | 'symbols',// whole-market snapshot or per-symbol quotes
+  stream: { url, plans, plan(info, setting), channels: { full, lite }, auth(key), subscribe(symbols, channel), batch, parse(msg, market) }, // optional live stream
+  streamBackfill(id, ctx),           // REST catch-up after a reconnect (quote + 1-minute bars)
   async validate(key) { return { plan, tier: 'free' | 'paid' | 'sponsor', ... } },
   daily(id, from, to, ctx), snapshot(ids, ctx), ...   // one function per capability
 }
@@ -57,8 +61,25 @@ some markets, `'bulk'` (institutional) means research updates use whole-market d
 provider per capability (preferred source first, then the enabled order), injects the key, interval and market into
 `ctx`, and exposes `data.<capability>()` to the rest of the app. `capabilityMap()` tells the UI which features exist.
 
-Capabilities: `universe, calendar, daily, adjusted, dailyAll, snapshot, intraday, news, marketNews, valuation, revenue,
-institutional, institutionalAll, brokers, holders, flows, futures, margin`.
+Capabilities: `universe, calendar, daily, adjusted, dailyAll, snapshot, stream, dayTrade, intraday, news, marketNews,
+valuation, revenue, institutional, institutionalAll, brokers, holders, flows, futures, margin`.
+
+`stream` (Fugle WebSocket) only drives the intraday radar and live board. During the session `server.mjs` opens it for
+the watchlist first, then the research list, up to `stream.limit` for the verified plan, and refreshes the list when it
+changes. Stream rows use the live-snapshot format plus `volume_at_bid` / `volume_at_ask`; the radar takes stream rows
+for subscribed stocks and snapshot rows for the rest, and quotes use whichever row is newer. The heatmap and time machine
+keep using snapshots. The key is sent only in the auth message, never in the URL.
+
+Day-trade monitoring (Taiwan): with day-trade monitoring on and enough subscriptions (e.g. Fugle Advanced), the stream
+runs in full mode — trades, 1-minute bars and order book per stock, split over two connections by sorted symbol — and
+`lib/daytrade.mjs` turns the events into snapshot rows (so the radar and board keep working) plus scores and signals.
+Otherwise it runs in lite mode (aggregates). `auto` plan tries full mode and falls back to lite for the day when the
+subscriptions come up short. Pre-market data comes from the `dayTrade` capability (FinMind: day-trade list,
+suspensions, sell-first bans, reference prices) and TWSE/TPEx disposition lists. After a reconnect (or a mid-session
+start) every stock is backfilled through `streamBackfill` before it can signal again. Signals go to the radar
+(`dt-*` alert types) and push; after the close they are evaluated against 1-minute bars and stored in
+`.local/daytrade/<date>.json`. APIs: `GET /api/daytrade`, `GET /api/daytrade/review`, `POST /api/daytrade/settings`.
+Details and formulas: [DAYTRADE.zh-TW.md](DAYTRADE.zh-TW.md).
 
 All providers return the internal row format (FinMind field names, so scoring and patterns work unchanged):
 

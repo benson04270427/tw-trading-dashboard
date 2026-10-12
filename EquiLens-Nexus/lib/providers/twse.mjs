@@ -20,6 +20,33 @@ async function get(url, { signal, interval = 2500 } = {}) {
   } finally { release(); }
 }
 const rwdTable = (body, re) => (body?.tables || []).find(t => re.test(t.title || '')) || null;
+
+// 處置有價證券（上市：證交所公告；上櫃：櫃買開放資料）：處置期間涵蓋 date 的股票代號。期間為民國日期
+const roc = s => { const m = /^(\d{2,3})\/?(\d{2})\/?(\d{2})$/.exec(String(s).trim()); return m ? `${Number(m[1]) + 1911}-${m[2]}-${m[3]}` : null; };
+const inPeriod = (period, date) => { const [a, b] = String(period || '').split(/[～~]/).map(roc); return !!a && a <= date && (!b || b >= date); };
+export function parseTwseDisposition(body, date) {
+  const f = body?.fields || [], code = f.indexOf('證券代號'), per = f.indexOf('處置起迄時間');
+  return [...new Set((body?.data || []).filter(r => COMMON.test(String(r[code]).trim()) && inPeriod(r[per], date)).map(r => String(r[code]).trim()))];
+}
+export function parseTpexDisposition(list, date) {
+  return [...new Set((Array.isArray(list) ? list : []).filter(r => COMMON.test(String(r.SecuritiesCompanyCode).trim()) && inPeriod(r.DispositionPeriod, date)).map(r => String(r.SecuritiesCompanyCode).trim()))];
+}
+// 上櫃現股當沖交易標的（櫃買中心，盤前公布）：可當沖代號，以及暫停先賣後買的代號
+export function parseTpexDayTrade(body) {
+  const t = (body?.tables || []).find(x => /當沖/.test(x.title || '')) || body?.tables?.[0]; if (!t?.data?.length) return null;
+  const f = t.fields || [], code = Math.max(0, f.indexOf('證券代號')), mark = f.findIndex(x => /註記/.test(x));
+  const rows = t.data.map(r => [String(r[code]).trim(), mark >= 0 ? String(r[mark] ?? '').trim() : '']).filter(([id]) => id);
+  return { eligible: rows.map(r => r[0]), sellFirstOff: rows.filter(r => r[1]).map(r => r[0]) };
+}
+export async function tpexDayTrade(date, { signal } = {}) {
+  return parseTpexDayTrade(await get(`https://www.tpex.org.tw/www/zh-tw/intraday/list?date=${date.replace(/-/g, '%2F')}&response=json`, { signal }));
+}
+export async function dispositions(date, { signal } = {}) {
+  const from = addDays(date, -30).replace(/-/g, ''), to = date.replace(/-/g, ''), out = new Set(), errors = [];
+  try { for (const id of parseTwseDisposition(await get(`https://www.twse.com.tw/rwd/zh/announcement/punish?response=json&startDate=${from}&endDate=${to}`, { signal }), date)) out.add(id); } catch (e) { errors.push(e.message); }
+  try { for (const id of parseTpexDisposition(await get('https://www.tpex.org.tw/openapi/v1/tpex_disposal_information', { signal }), date)) out.add(id); } catch (e) { errors.push(e.message); }
+  return { ids: [...out], errors };
+}
 const sign = (s, v) => /-|green/.test(String(s)) ? -Math.abs(v ?? 0) : Math.abs(v ?? 0);
 const tpexDate = d => d.replace(/-/g, '%2F');
 

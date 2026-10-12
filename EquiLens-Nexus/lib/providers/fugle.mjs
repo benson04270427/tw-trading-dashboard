@@ -1,8 +1,18 @@
-// 富果 Fugle 行情 API（台股，需金鑰）：盤中全市場快照（開發者／進階方案）、分 K（盤中與歷史）、日 K 歷史（含還原）。
+// 富果 Fugle 行情 API（台股，需金鑰）：WebSocket 即時推播（逐筆成交、1 分 K、五檔，或聚合行情；盤中雷達與當沖監控）、
+// 盤中全市場快照（開發者／進階方案）、分 K（盤中與歷史）、日 K 歷史（含還原）。
 // 沒有法人、分點、新聞等籌碼資料，可搭配證交所開放資料或 FinMind。
 import { DataError, fetchJSON, limiter, num, addDays, httpError } from './common.mjs';
 
 const BASE = 'https://api.fugle.tw/marketdata/v1.0/stock';
+const WS = 'wss://api.fugle.tw/marketdata/v1.0/stock/streaming';
+// 方案：WebSocket 訂閱數（1 檔 × 1 個頻道 = 1 個）、同時連線數、盤中 REST 每分鐘次數（官方方案表，2026-10）
+export const PLANS = { basic: { limit: 5, connections: 1, perMinute: 60 }, developer: { limit: 300, connections: 2, perMinute: 600 }, advanced: { limit: 2000, connections: 2, perMinute: 2000 } };
+export const STREAM_LIMITS = { free: PLANS.basic.limit, paid: PLANS.developer.limit };
+// 目前方案：金鑰驗證為免費 → 基本；使用者指定的方案優先；自動時付費方案先當開發者（伺服器會嘗試進階並在訂閱不足時退回）
+export function planOf(info, setting = 'auto') {
+  if (info?.tier === 'free') return 'basic';
+  return PLANS[setting] ? setting : 'developer';
+}
 const LABEL = 'Fugle 富果';
 const queue = limiter(150);
 async function get(path, ctx) {
@@ -31,17 +41,65 @@ export function parseSnapshot(body, lot = 1000) {
   return out;
 }
 
+// WebSocket aggregates 頻道（每檔的累計行情、五檔、內外盤）→ 衡析快照列。
+// 時間戳可能是微秒／毫秒／秒；量可能是張或股（以成交金額 ÷（量 × 價）判斷：≈ 1000 為張、≈ 1 為股）
+const ts2time = (ts, tz) => { const n = Number(ts); return n > 0 ? new Date(n > 1e14 ? n / 1000 : n > 1e11 ? n : n * 1000).toLocaleTimeString('en-GB', { timeZone: tz, hour12: false }) : null; };
+export function aggregateRow(d, tz = 'Asia/Taipei', lot = 1000) {
+  const close = num(d?.closePrice) ?? num(d?.lastPrice);
+  if (!d?.symbol || !d?.date || !(close > 0)) return null;
+  const prev = num(d.previousClose) ?? num(d.referencePrice), t = d.total || {};
+  const vol = num(t.tradeVolume), val = num(t.tradeValue), k = lot > 1 && vol > 0 && val > 0 && val / (vol * close) < lot / 10 ? 1 / lot : 1;
+  const lots = v => v == null ? null : Math.round(v * k * 1000) / 1000;
+  return {
+    stock_id: String(d.symbol), date: `${d.date} ${ts2time(d.lastUpdated ?? t.time, tz) || '00:00:00'}`,
+    open: num(d.openPrice), high: num(d.highPrice), low: num(d.lowPrice), close,
+    change_price: num(d.change) ?? (prev > 0 ? Math.round((close - prev) * 1e4) / 1e4 : null), change_rate: num(d.changePercent),
+    total_volume: lots(vol) ?? 0, total_amount: val ?? 0, yesterday_volume: null,
+    buy_price: num(d.bids?.[0]?.price), sell_price: num(d.asks?.[0]?.price),
+    volume_at_bid: lots(num(t.tradeVolumeAtBid)), volume_at_ask: lots(num(t.tradeVolumeAtAsk)), transactions: num(t.transaction),
+  };
+}
+
+// WebSocket 資料訊息 → 推播事件：逐筆成交、五檔、1 分 K、聚合行情。時間一律換成毫秒；量為張（上市櫃普通股）
+const ms = v => { const n = Number(v); return n > 1e14 ? n / 1000 : n > 1e11 ? n : n > 0 ? n * 1000 : 0; };
+const levels = a => (Array.isArray(a) ? a : []).map(l => ({ price: num(l?.price), size: num(l?.size) ?? 0 })).filter(l => l.price > 0);
+export function streamEvent(msg, market) {
+  const d = msg?.data; if (msg?.event !== 'data' || !d?.symbol) return null;
+  const id = String(d.symbol);
+  switch (msg.channel) {
+    case 'trades': return { kind: 'trade', id, time: ms(d.time), price: num(d.price), size: num(d.size) ?? 0, volume: num(d.volume), bid: num(d.bid), ask: num(d.ask), serial: num(d.serial), trial: !!d.isTrial, limitUp: !!d.isLimitUpPrice, halted: !!(d.isLimitUpHalt || d.isLimitDownHalt) };
+    case 'books': return { kind: 'book', key: 'b:' + id, id, time: ms(d.time), bids: levels(d.bids), asks: levels(d.asks), trial: !!d.isTrial };
+    case 'candles': { const t = Date.parse(d.date); return t > 0 ? { kind: 'candle', key: `c:${id}:${t}`, id, time: t, open: num(d.open), high: num(d.high), low: num(d.low), close: num(d.close), volume: num(d.volume) ?? 0 } : null; }
+    case 'aggregates': { const row = aggregateRow(d, market?.tz, market?.lot); return row ? { kind: 'agg', key: 'a:' + id, id, time: ms(d.lastUpdated ?? d.total?.time), row, book: { bids: levels(d.bids), asks: levels(d.asks) } } : null; }
+    default: return null;
+  }
+}
+
 export default {
   id: 'fugle', name: 'Fugle 富果行情', site: 'https://developer.fugle.tw', docs: 'https://developer.fugle.tw/docs/data/intro', markets: ['TW'],
   key: 'required', keyEnv: 'FUGLE_API_KEY', interval: 150,
-  caps: { snapshot: 'paid', intraday: 1, daily: 1, adjusted: 1 },
+  caps: { snapshot: 'paid', intraday: 1, daily: 1, adjusted: 1, stream: 1 },
   snapshotMode: 'market',
+  // 盤中即時推播（WebSocket）：完整模式訂閱逐筆成交＋1 分 K＋五檔（每檔 3 個訂閱），精簡模式只訂閱聚合行情（每檔 1 個）
+  stream: {
+    url: WS, plans: PLANS, plan: planOf,
+    channels: { full: ['trades', 'candles', 'books'], lite: ['aggregates'] },
+    auth: key => ({ event: 'auth', data: { apikey: key } }),
+    subscribe: (symbols, channel = 'aggregates') => ({ event: 'subscribe', data: { channel, symbols } }),
+    batch: 50,
+    parse: streamEvent,
+  },
+  // 斷線重連後補資料：最新報價（累計量、內外盤、均價、五檔、參考價）與當日 1 分 K
+  async streamBackfill(id, ctx) {
+    const quote = await get(`/intraday/quote/${id}`, ctx), candles = await get(`/intraday/candles/${id}?timeframe=1`, ctx);
+    return { quote, candles: candles?.data || [] };
+  },
   async validate(key) {
     const r = await fetchJSON(`${BASE}/intraday/quote/2330`, { headers: { 'X-API-KEY': key }, label: LABEL });
     if (!r.ok) throw new DataError('Fugle 未接受此金鑰');
     // 快照需開發者以上方案；試一次就知道
     const s = await fetchJSON(`${BASE}/snapshot/quotes/TSE?type=COMMONSTOCK`, { headers: { 'X-API-KEY': key }, label: LABEL });
-    return { plan: s.ok ? 'developer+' : 'basic', tier: s.ok ? 'paid' : 'free' };
+    return { plan: s.ok ? 'developer+' : 'basic', tier: s.ok ? 'paid' : 'free', streamLimit: s.ok ? PLANS.developer.limit : PLANS.basic.limit };
   },
   snapshot: async (ids, ctx) => {
     const [a, b] = [await get('/snapshot/quotes/TSE?type=COMMONSTOCK', ctx), await get('/snapshot/quotes/OTC?type=COMMONSTOCK', ctx)];

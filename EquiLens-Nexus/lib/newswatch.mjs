@@ -1,5 +1,6 @@
-// 新聞推播：每分鐘取 FinMind 全市場當日新聞（TaiwanStockNews 不帶 data_id，一次一天），
-// 找出研究名單成分股「第一次出現」的新聞。FinMind 的新聞時間部分來源為 UTC，不能用時間判斷新舊，改以「是否看過」判斷。
+// 新聞推播：每分鐘取 FinMind 全市場當日新聞（TaiwanStockNews 不帶 data_id，一次一天；約每 2 小時更新一批），
+// 台股另加鉅亨網最新新聞（幾分鐘內就有），找出研究名單成分股「第一次出現」的新聞；同一篇在兩個來源只推一次。
+// FinMind 的新聞時間部分來源為 UTC，不能用時間判斷新舊，改以「是否看過」判斷。
 export const NEWS_DEFAULTS = { enabled: false, scope: 'all', quiet: false };
 export function normalizeNews(v = {}) {
   return { enabled: v.enabled === true, scope: v.scope === 'watch' ? 'watch' : 'all', quiet: v.quiet === true };
@@ -33,9 +34,11 @@ export function collectArticles(rows, scope) {
   return out;
 }
 // state：{ seen: Map(key → 首次看到的時間), at }；第一次（或停掉超過 10 分鐘後）只記錄、不視為新聞，避免一次湧入大量舊聞
-export function createNewsState(saved) { return { seen: new Map(Object.entries(saved?.seen || {})), at: saved?.at || 0 }; }
-export function scanNews(state, rows, { scope, now = Date.now() } = {}) {
+// sources：已經記錄過的新聞來源；新加入的來源第一次的文章（seedOnly）只記錄、不推播
+export function createNewsState(saved) { return { seen: new Map(Object.entries(saved?.seen || {})), at: saved?.at || 0, sources: new Set(saved?.sources || []) }; }
+export function scanNews(state, rows, { scope, now = Date.now(), seedOnly = [] } = {}) {
   const seed = !state.at || now - state.at > 10 * 60e3, fresh = [];
+  for (const a of collectArticles(seedOnly, scope)) for (const k of a.keys) if (!state.seen.has(k)) state.seen.set(k, now);
   for (const a of collectArticles(rows, scope)) {
     if (a.keys.some(k => state.seen.has(k))) { for (const k of a.keys) if (!state.seen.has(k)) state.seen.set(k, now); continue; }
     for (const k of a.keys) state.seen.set(k, now);
@@ -45,5 +48,5 @@ export function scanNews(state, rows, { scope, now = Date.now() } = {}) {
   for (const [k, t] of state.seen) if (now - t > 3 * 86400e3) state.seen.delete(k); // 只保留三天
   return { fresh, seeded: seed };
 }
-export const saveNewsState = s => ({ at: s.at, seen: Object.fromEntries(s.seen) });
+export const saveNewsState = s => ({ at: s.at, seen: Object.fromEntries(s.seen), sources: [...(s.sources || [])] });
 export const quietNow = (hour, on) => on && (hour >= QUIET_HOURS[0] || hour < QUIET_HOURS[1]);

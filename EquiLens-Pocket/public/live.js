@@ -31,14 +31,28 @@ export async function loadAlerts(reset = false) {
     L.latest = Math.max(L.latest, r.latest || 0);
   } catch (e) { if (!e.silent) L.error = e.message; }
 }
+// 當沖掃描：Top N、推播與盤前資料狀態、訊號檢討（設定在電腦版）
+const DT = { info: null, review: null, at: 0 };
+async function loadDaytrade() { try { DT.info = await C.api('api/daytrade'); DT.at = Date.now(); } catch (e) { if (!e.silent) L.error = e.message; } }
+async function loadDtReview() { try { DT.review = await C.api('api/daytrade/review'); } catch (e) { if (!e.silent) L.error = e.message; } }
 async function loadMonitor() { try { L.monitor = await C.api('api/monitor'); L.draft = structuredClone({ monitor: L.monitor.enabled, radar: L.monitor.radar }); } catch (e) { if (!e.silent) L.error = e.message; } }
-export async function loadLiveTab() { await Promise.all([loadBoard(), loadAlerts(!L.alertDate), L.monitor ? null : loadMonitor(), checkPush()]); }
+export async function loadLiveTab() { await Promise.all([loadBoard(), loadAlerts(!L.alertDate), L.monitor ? null : loadMonitor(), checkPush(), DT.info ? null : loadDaytrade()]); }
 setInterval(async () => {
   if (!C || document.hidden) return;
   const S = C.S;
-  if (S.tab === 'live' && (marketOpen() || Date.now() - L.boardAt > 60000)) { await Promise.all([loadBoard(), loadAlerts()]); if (S.tab === 'live' && !sheetOpen()) redrawLive(); }
+  if (S.tab === 'live' && (marketOpen() || Date.now() - L.boardAt > 60000)) { await Promise.all([loadBoard(), loadAlerts(), L.view === 'daytrade' || Date.now() - DT.at > 300e3 ? loadDaytrade() : null]); if (S.tab === 'live' && !sheetOpen()) redrawLive(); }
   if (S.tab === 'brief' && L.report?.busy) { await loadReport(); if (S.tab === 'brief') C.draw(); }
+  if (S.tab === 'live' && marketOpen() && ++streamTick % 3 === 0) await refreshStream(); // 盤中每 30 秒確認即時推播狀態
 }, 10000);
+// 即時推播（例如富果 WebSocket）運作時，盤中分頁的看板與異動每 3 秒更新
+let streamTick = 0;
+const streamOn = () => !!L.monitor?.stream?.active;
+async function refreshStream() { try { const m = await C.api('api/monitor'); if (L.monitor) { L.monitor.stream = m.stream; L.monitor.error = m.error; } } catch { } }
+setInterval(async () => {
+  if (!C || document.hidden || C.S.tab !== 'live' || !streamOn() || !marketOpen()) return;
+  await Promise.all([L.view === 'daytrade' ? loadDaytrade() : null, loadAlerts()]); // 看板固定用快照，每 10 秒更新
+  if (C.S.tab === 'live' && !sheetOpen()) redrawLive();
+}, 3000);
 const sheetOpen = () => C.$('#sheet')?.classList.contains('open');
 function redrawLive() { // 重繪時保留頁面與族群切換列的捲動位置
   const keep = window.scrollY, chips = C.$('.lv-gchips')?.scrollLeft; C.draw(); window.scrollTo(0, keep);
@@ -46,12 +60,38 @@ function redrawLive() { // 重繪時保留頁面與族群切換列的捲動位�
 }
 
 /* ---------- 盤中分頁 ---------- */
+// 即時推播狀態：運作中顯示檔數（超過方案上限時自選優先），未連線顯示原因
+function streamPill(st) {
+  if (!st?.capable) return '';
+  if (st.active) return `<span class="pill" title="${st.total > st.symbols ? `方案上限 ${fmt(st.limit)} 檔，自選優先` : ''}">⚡ 即時推播 ${fmt(st.symbols)} 檔</span>`;
+  return st.error ? `<span class="pill warn">即時推播未連線：${esc(st.authFailed ? '金鑰無效或方案不支援（10 分鐘後重試）' : st.error === 'no-heartbeat' ? '連線逾時，重新連線中' : st.error)}</span>` : '<span class="pill">即時推播連線中…</span>';
+}
 export function livePage() {
   const m = L.monitor, open = marketOpen();
-  const status = `<div class="statusline"><span class="pill"><span class="dot ${open && m?.enabled ? 'live' : ''}"></span>${!m ? '讀取中' : !m.enabled ? '監控已關閉' : open ? `監控中 ${esc(L.board?.asOf?.slice(11, 19) || '')}` : '非盤中'}</span>${m?.error ? `<span class="pill warn">${esc(m.error)}</span>` : ''}<span class="pill">今日異動 ${L.alerts.filter(isMove).length}</span>${m?.news?.enabled ? `<span class="pill">🗞️ 新聞 ${L.alerts.filter(a => a.type === 'news').length}</span>` : ''}</div>`;
-  const seg = `<div class="seg" style="margin-bottom:12px">${[['board', '看板'], ['radar', '雷達'], ['groups', '族群排名'], ['settings', '設定']].map(([v, l]) => `<button class="${L.view === v ? 'on' : ''}" data-lview="${v}">${l}</button>`).join('')}</div>`;
+  const status = `<div class="statusline"><span class="pill"><span class="dot ${open && m?.enabled ? 'live' : ''}"></span>${!m ? '讀取中' : !m.enabled ? '監控已關閉' : open ? `監控中 ${esc(L.board?.asOf?.slice(11, 19) || '')}` : '非盤中'}</span>${m?.error ? `<span class="pill warn">${esc(m.error)}</span>` : ''}${open ? streamPill(m?.stream) : ''}<span class="pill">今日異動 ${L.alerts.filter(isMove).length}</span>${m?.news?.enabled ? `<span class="pill">🗞️ 新聞 ${L.alerts.filter(a => a.type === 'news').length}</span>` : ''}</div>`;
+  const seg = `<div class="seg" style="margin-bottom:12px">${[['board', '看板'], ...(DT.info?.capable ? [['daytrade', '當沖']] : []), ['radar', '雷達'], ['groups', '族群排名'], ['settings', '設定']].map(([v, l]) => `<button class="${L.view === v ? 'on' : ''}" data-lview="${v}">${l}</button>`).join('')}</div>`;
   const err = L.error ? `<div class="notice err">${esc(L.error)}</div>` : '';
-  return status + seg + err + (L.view === 'board' ? boardView() : L.view === 'radar' ? radarView() : L.view === 'groups' ? groupsView() : settingsView());
+  return status + seg + err + (L.view === 'board' ? boardView() : L.view === 'daytrade' ? daytradeView() : L.view === 'radar' ? radarView() : L.view === 'groups' ? groupsView() : settingsView());
+}
+/* ---------- 當沖掃描 ---------- */
+const DT_SIG = { 'dt-breakout': '💥 爆量突破', 'dt-vwap': '📈 VWAP 延續', 'dt-bid': '🟢 買盤增強' };
+const DT_FILTERS = { noDayTrade: '不可當沖', disposition: '處置', suspended: '暫停交易', spread: '價差過大', liquidity: '流動性不足', limitUp: '已漲停' };
+const DT_PARTS = [['volume', 'var(--amber, #f5b942)'], ['structure', 'var(--accent, #22c3e6)'], ['book', '#9b8cff'], ['relative', '#ff6ad5']];
+function daytradeView() {
+  const d = DT.info; if (!d) return '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
+  const f = d.feed || {}, p = d.prep, n = v => v == null ? '—' : fmt(v, 1);
+  const feed = !f.window ? '非盤中 · 平日開盤前 10 分鐘自動連線' : !f.connected ? (f.authFailed ? '金鑰無效或方案不支援（10 分鐘後重試）' : f.error ? `即時推播未連線：${esc(f.error === 'no-heartbeat' ? '連線逾時，重新連線中' : f.error)}` : '即時推播連線中…')
+    : `⚡ ${f.mode === 'full' ? '完整模式（逐筆＋分 K＋五檔）' : '精簡模式（聚合行情）'} · 訂閱 ${fmt(f.subscribed)}／${fmt(f.expected)}${f.backfill?.busy ? ` · 補資料中 ${f.backfill.done}／${f.backfill.total}` : ''}`;
+  const prep = p ? `${p.eligible == null ? '可當沖清單未取得' : `可當沖 ${fmt(p.eligible)} 檔`} · 處置 ${p.disposition} · 暫停交易 ${p.suspended}` : '盤前資料於開盤前 30 分鐘取得';
+  const head = `<section class="card dt-head"><div>${esc(d.phaseName || '')}${d.phaseName ? ' · ' : ''}${feed}</div><small>${prep}${d.baselineDays != null && d.baselineDays < 3 ? ' · 時光機紀錄不足 3 天，同時段量以近 20 日均量推估' : ''}</small></section>`;
+  if (!d.enabled) return head + '<div class="empty">當沖監控已關閉（可在電腦版「盤中雷達 → 當沖掃描 → 設定」開啟）。</div>';
+  const list = d.top.map((x, i) => `<button class="dt-card ${cls(x.change)}" data-kbar="${esc(x.id)}"><span class="dt-rank num">${i + 1}</span><span class="dt-main"><b>${esc(x.name)}<small class="num"> ${esc(x.id)}</small></b><span class="dt-bar">${DT_PARTS.map(([k, c]) => `<i style="width:${x.part?.[k] || 0}%;background:${c}"></i>`).join('')}</span>
+    <small class="num">VWAP ${x.vwapDist == null ? '—' : pct(x.vwapDist)} · 量比 ${n(x.rvol)} · OBI ${x.obi == null ? '—' : fmt(x.obi, 2)} · 外盤 ${x.outer5 == null ? '—' : x.outer5 + '%'}${x.last ? ` · ${DT_SIG[x.last.type] || ''} ${esc(x.last.t?.slice(0, 5))}` : ''}</small></span>
+    <span class="dt-px num"><b class="${cls(x.change)}">${fmt(x.price, 2)}</b><small class="${cls(x.change)}">${pct(x.change)}</small><em>${n(x.score)}</em></span></button>`).join('');
+  const ex = Object.entries(d.excluded || {}).filter(([, v]) => v).map(([k, v]) => `${DT_FILTERS[k] || k} ${v}`);
+  const r = DT.review, review = !r ? '<div class="empty"><button class="btn" data-dtreview>載入訊號檢討</button></div>' : !r.signals ? '<p class="foot">尚無訊號紀錄，收盤後會自動檢討當天的訊號。</p>'
+    : `<section class="card"><h3>訊號檢討（${r.days} 天、${r.signals} 則）</h3>${r.types.map(t => `<div class="dt-rv"><span>${DT_SIG[t.type] || esc(t.title)}</span><span class="num">${t.n} 則 · 15 分勝率 ${t.win15 ?? '—'}% · 平均 ${t.r15 == null ? '—' : (t.r15 > 0 ? '+' : '') + fmt(t.r15, 2) + '%'}</span></div>`).join('')}<p class="foot">已扣除滑價、手續費與證交稅（來回約 ${fmt(r.cost, 3)}%）</p></section>`;
+  return head + (list ? `<div class="dt-list">${list}</div>` : `<div class="empty">${f.window ? '尚無報價，開盤後開始計算。' : '盤中才會計算當沖分數。'}</div>`) + (ex.length ? `<p class="foot">已排除：${ex.join(' · ')}</p>` : '') + `<p class="foot">分數＝量能 35＋結構 30＋五檔 20＋族群與大盤 15（研究用初始權重，尚未回測）。訊號只做提醒，請自行下單並設定停損。</p>` + review;
 }
 /* ---------- 即時看板：自選或研究總覽任一族群 ---------- */
 const BOARD_SORTS = [['default', '預設'], ['chg', '漲幅'], ['amt', '成交值']];
@@ -72,19 +112,35 @@ function boardView() {
   if (!b.stocks.length) return chips + bar + `<div class="empty">${b.group === 'watch' ? '尚無自選股。在「個股」分頁點選股票後按 ☆ 加入，或在上方切換到任一族群看板。' : '此族群沒有成分股。'}</div>`;
   return chips + bar + `<div class="lv-grid">${sortStocks(b.stocks).map(s => {
     const q = s.quote, chg = chgOf(s), price = q?.close ?? s.daily?.price;
-    const ratio = q?.volume && q?.yesterdayVolume && elapsed(q.time) >= 5 ? q.volume / (elapsed(q.time) / 270) / q.yesterdayVolume : null;
+    const ratio = q?.volume && q?.yesterdayVolume && elapsed(q.time) >= 5 ? q.volume / (elapsed(q.time) / MK.sessionLength()) / q.yesterdayVolume : null;
+    // 外盤比（即時推播才有）：外盤成交量 ÷（內盤＋外盤），高代表買方積極
+    const outer = q?.volumeAtAsk != null && q?.volumeAtBid != null && q.volumeAtAsk + q.volumeAtBid > 0 ? q.volumeAtAsk / (q.volumeAtAsk + q.volumeAtBid) * 100 : null;
     return `<button class="lv-card ${cls(chg)}" data-kbar="${s.id}"><div class="lv-top"><b>${esc(s.name)}<small class="num">${s.id}</small></b>${s.score != null ? `<span class="score ${s.score >= 75 ? 'hi' : s.score >= 55 ? 'mid' : ''}">${fmt(s.score)}</span>` : ''}</div>
       <div class="lv-px"><span class="num big ${cls(chg)}">${fmt(price, 2)}</span><span class="chg num ${cls(chg)}">${pct(chg)}</span></div>
-      ${sparkSVG(s.spark, s.prev)}
-      <div class="lv-meta num"><span>${q?.volume ? `${fmt(q.volume)} 張` : q?.time ? `收盤 ${q.time}` : s.daily?.asOf ? `日資料 ${s.daily.asOf.slice(5)}` : '—'}</span><span>${q?.amount ? `${yi(q.amount)} 億` : ''}</span><span class="${ratio >= 2 ? 'up' : ''}">${ratio ? `量比 ${fmt(ratio, 1)}` : ''}</span></div></button>`;
-  }).join('')}</div><p class="foot">${b.live ? '盤中每 10 秒更新' : b.date ? `顯示 ${esc(b.date)} 最後狀態` : '開盤後自動顯示即時報價'} · 點卡片看日 K／5 分 K<br>族群旁的數字為量能加權漲幅（與「族群排名」同算法）</p>`;
+      ${sparkSVG(s.spark, s.prev, { xs: s.sparkX })}
+      <div class="lv-meta num"><span>${q?.volume ? `${fmt(q.volume)} 張` : q?.time ? `收盤 ${q.time}` : s.daily?.asOf ? `日資料 ${s.daily.asOf.slice(5)}` : '—'}</span><span>${q?.amount ? `${yi(q.amount)} 億` : ''}</span><span class="${ratio >= 2 ? 'up' : ''}">${ratio ? `量比 ${fmt(ratio, 1)}` : ''}</span>${outer != null ? `<span class="${outer >= 60 ? 'up' : outer <= 40 ? 'down' : ''}">外盤 ${fmt(outer, 0)}%</span>` : ''}</div></button>`;
+  }).join('')}</div><p class="foot">${b.live ? (b.stream ? '即時推播（每 3 秒更新畫面）' : '盤中每 10 秒更新') : b.date ? `顯示 ${esc(b.date)} 最後狀態` : '開盤後自動顯示即時報價'} · 點卡片看日 K／5 分 K<br>族群旁的數字為量能加權漲幅（與「族群排名」同算法）</p>`;
 }
+// 衡析專用通知音效：Android 的網頁通知無法由 App 指定音效，下載後在系統通知設定把衡析的通知音換成它
+const SOUNDS = [['chime', '標準', '上行雙音鐘聲'], ['alert', '醒目', '快速三連音，適合吵雜環境'], ['soft', '柔和', '木琴般單音，適合辦公室']];
+function soundCard() {
+  if (!/Android/i.test(navigator.userAgent)) return '';
+  return `<section class="card lv-sound"><div class="card-b"><b>🔔 衡析通知音效</b><p>Android 的網頁通知只能使用系統設定的音效。下載專用音效後，把衡析的通知音換成它，就能一聽就知道是衡析。</p>
+    ${SOUNDS.map(([k, name, desc]) => `<div class="snd-row"><span><b>${name}</b><small>${desc}</small></span><button class="btn" data-sound-play="${k}">▶ 試聽</button><a class="btn" href="/sound-${k}.wav" download="衡析通知音-${name}.wav">下載</a></div>`).join('')}
+    <details class="snd-help"><summary>如何設定為通知音</summary><ol>
+      <li>按「下載」，檔案會存到手機的「下載」資料夾。</li>
+      <li>三星手機：設定 → 通知 → 應用程式通知 → 衡析（若是用瀏覽器開啟則選 Chrome）→ 通知類別 → 選擇衡析的類別 → 音效 → 右上角「＋」或從「我的檔案」選擇下載的音效。清單中找不到時，用「我的檔案」把檔案移到 Notifications 資料夾再選。</li>
+      <li>其他 Android 手機：設定 → 應用程式 → 衡析 → 通知 → 通知類別 → 音效 → 從裝置選擇檔案。</li>
+      <li>設定好後按上方「發送測試」確認。</li>
+    </ol><p>iPhone 的網頁通知只能使用系統預設音效。</p></details></div></section>`;
+}
+let soundPlayer = null;
 function radarView() {
   const p = L.push, list = L.alerts.filter(a => alertMatch(a, L.group)).slice().reverse();
   const pushCard = `<section class="card lv-push"><div class="card-b"><b>📲 手機通知</b><p>${p.state === 'on' ? `已開啟 · 共 ${p.count} 台裝置` : p.state === 'unsupported' || p.state === 'denied' ? pushHelp(p.state) : '開啟後，盤中異動與 AI 日報會直接推到這支手機。'}</p>
     <div class="upd-row">${p.state === 'on' ? '<button class="btn" data-push="test">發送測試</button><button class="btn" data-push="off">關閉通知</button>' : p.state === 'unsupported' || p.state === 'denied' ? '' : '<button class="btn primary" data-push="on" style="grid-column:1/-1">開啟通知</button>'}</div></div></section>`;
   const chips = `<div class="chips" style="margin-bottom:10px">${ALERT_GROUPS.map(([k, l]) => `<button class="chip ${L.group === k ? 'on' : ''}" data-agroup="${k}">${l} ${L.alerts.filter(a => alertMatch(a, k)).length}</button>`).join('')}</div>`;
-  return pushCard + chips + `<section class="card ix-alerts">${list.map(alertRow).join('') || `<div class="empty">${marketOpen() ? '目前沒有符合條件的異動。' : '今日尚無異動紀錄。開盤後雷達會自動掃描。'}</div>`}</section>`;
+  return pushCard + soundCard() + chips + `<section class="card ix-alerts">${list.map(alertRow).join('') || `<div class="empty">${marketOpen() ? '目前沒有符合條件的異動。' : '今日尚無異動紀錄。開盤後雷達會自動掃描。'}</div>`}</section>`;
 }
 function settingsView() {
   const d = L.draft; if (!d) return '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
@@ -144,7 +200,7 @@ export function newsSettingsCard() {
   const n = L.monitor.news || { enabled: false, scope: 'all', quiet: false }, s = n.status || {};
   const status = !n.enabled ? '目前關閉' : s.error ? `⚠ ${esc(s.error)}` : s.at ? `上次掃描 ${hhmmss(s.at)} · 今日新聞 ${s.today || 0} 則` : '即將開始第一次掃描';
   return `<section class="card" id="news-set"><div class="card-h"><h2>🗞️ 新聞推播</h2></div><div class="card-b">
-    <div class="lv-rule"><label class="lv-sw"><input type="checkbox" data-npush="enabled" ${n.enabled ? 'checked' : ''}><span></span></label><div><b>新聞推播</b><small>每分鐘掃描一次研究族群成分股的個股新聞，有新新聞立即推播（點通知直接開原文）。論壇貼文與重複轉載會自動略過；剛開啟時，已有的新聞只記錄不推播。</small></div></div>
+    <div class="lv-rule"><label class="lv-sw"><input type="checkbox" data-npush="enabled" ${n.enabled ? 'checked' : ''}><span></span></label><div><b>新聞推播</b><small>每分鐘掃描一次研究族群成分股的個股新聞（FinMind＋台股的鉅亨網），有新新聞立即推播（點通知直接開原文）。論壇貼文與重複轉載會自動略過；剛開啟時，已有的新聞只記錄不推播。</small></div></div>
     <div class="lv-rule"><div style="flex:1"><b>推播範圍</b><div class="seg" style="margin-top:8px">${[['all', '全部研究族群'], ['watch', '只推自選股']].map(([v, l]) => `<button class="${n.scope === v ? 'on' : ''}" data-npush-scope="${v}">${l}</button>`).join('')}</div></div></div>
     <div class="lv-rule"><label class="lv-sw"><input type="checkbox" data-npush="quiet" ${n.quiet ? 'checked' : ''}><span></span></label><div><b>夜間勿擾</b><small>23:00–07:00 只記錄到雷達、不推播</small></div></div>
     <p class="set-p muted">狀態：${status}${L.push.state !== 'on' ? `<br>${['unsupported', 'denied'].includes(L.push.state) ? pushHelp(L.push.state) : '這支手機的通知尚未開啟：請到「盤中 → 雷達」按「開啟通知」'}` : ''}</p></div></section>`;
@@ -255,7 +311,9 @@ export async function fillStockExtras(id) {
 document.addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b || !C) return; const ds = b.dataset;
   try {
-    if (ds.lview) { L.view = ds.lview; if (ds.lview === 'radar') checkPush().then(() => C.S.tab === 'live' && C.draw()); if (ds.lview === 'groups') loadGroupRank(); return C.draw(); }
+    if (ds.lview) { L.view = ds.lview; if (ds.lview === 'radar') checkPush().then(() => C.S.tab === 'live' && C.draw()); if (ds.lview === 'groups') loadGroupRank(); if (ds.lview === 'daytrade') loadDaytrade().then(() => C.S.tab === 'live' && L.view === 'daytrade' && C.draw()); return C.draw(); }
+    if ('dtreview' in ds) { await loadDtReview(); return C.draw(); }
+    if (ds.soundPlay) { try { soundPlayer?.pause(); soundPlayer = new Audio(`/sound-${ds.soundPlay}.wav`); await soundPlayer.play(); } catch { C.toast('無法播放音效'); } return; }
     if ('grQuery' in ds) { GR.view = 'live'; return queryGroupRank(); }
     if (ds.grGroup) { GR.open.has(ds.grGroup) ? GR.open.delete(ds.grGroup) : GR.open.add(ds.grGroup); return C.draw(); }
     if (ds.grStock) return C.inScope(ds.grStock) ? C.openStock(ds.grStock) : openChart(ds.grStock);

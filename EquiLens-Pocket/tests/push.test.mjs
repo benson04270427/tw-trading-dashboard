@@ -63,4 +63,7 @@ test('alerts become concise notifications, batching bursts', () => {
   assert.deepEqual(push.notificationsFor([n(1), n(2, { quiet: true }), a(0)]).map(x => [x.title, x.body, x.url]), [['🗞️ 台積電 2330', '標題1（經濟日報）', 'https://news.example/1'], ['🚀 股0 2330 急拉', '100（+2.5%）· 5 分鐘內 +2.5%', '/#live']]);
   const burst = push.notificationsFor(Array.from({ length: 6 }, (_, i) => n(i)));
   assert.equal(burst.length, 1); assert.equal(burst[0].title, '🗞️ 個股新聞 6 則'); assert.equal(burst[0].url, '/#live');
+  // 當沖：個股訊號照一般格式；不屬於個股的提醒（停止新增部位）只顯示標題與說明
+  const dt = push.notificationsFor([a(0, { type: 'dt-breakout', title: '爆量突破' }), { type: 'dt-stop', stockId: '', name: '', title: '停止新增部位', detail: '13:10 起不再發出當沖訊號' }]);
+  assert.deepEqual(dt.map(x => [x.title, x.body]), [['💥 股0 2330 爆量突破', '100（+2.5%）· 5 分鐘內 +2.5%'], ['⏰ 停止新增部位', '13:10 起不再發出當沖訊號']]);
 });

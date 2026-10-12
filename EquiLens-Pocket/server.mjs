@@ -21,6 +21,7 @@ const STATIC = {
   '/heatmap.js': ['heatmap.js', 'text/javascript; charset=utf-8'], '/flow-cards.js': ['flow-cards.js', 'text/javascript; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json'], '/icon.svg': ['icon.svg', 'image/svg+xml'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/live.js': ['live.js', 'text/javascript; charset=utf-8'], '/insight-ui.js': ['insight-ui.js', 'text/javascript; charset=utf-8'], '/report-card.js': ['report-card.js', 'text/javascript; charset=utf-8'], '/save-image.js': ['save-image.js', 'text/javascript; charset=utf-8'], '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'], '/market.js': ['market.js', 'text/javascript; charset=utf-8'],  '/icon-192.png': ['icon-192.png', 'image/png'], '/badge-96.png': ['badge-96.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'], '/apple-touch-icon.png': ['icon-192.png', 'image/png'],
+  '/sound-chime.wav': ['sound-chime.wav', 'audio/wav'], '/sound-alert.wav': ['sound-alert.wav', 'audio/wav'], '/sound-soft.wav': ['sound-soft.wav', 'audio/wav'],
 };
 
 // 前端版本號：public 內檔案的修改時間雜湊（改了網頁檔即變更，手機 App 回到前景時會自動重新載入）
@@ -106,6 +107,8 @@ async function api(req, res, url) {
     if (route === 'heatmap') { const date = q.get('date') || 'latest'; if (date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.heatmap(date)); }
     if (route === 'heatmap/live') return send(req, res, 200, await nexus.heatmapLive());
     if (route === 'monitor') return send(req, res, 200, { ...(await nexus.monitor()), pushCount: push.subscriptionCount() });
+    if (route === 'daytrade') return send(req, res, 200, await nexus.daytrade());
+    if (route === 'daytrade/review') return send(req, res, 200, await nexus.daytradeReview());
     if (route === 'alerts') { const date = q.get('date'); if (date && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.alerts(Number(q.get('since') || 0), date)); }
     if (route === 'board') { const ids = q.get('ids') ? q.get('ids').split(',') : null, group = q.get('group') || null; if ((ids && (ids.length > 60 || !ids.every(validId))) || (group && !/^[\w-]{1,40}$/.test(group))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.board(ids, group)); }
     if (route === 'replay/days') return send(req, res, 200, await nexus.replayDays());
@@ -221,7 +224,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.join(ROOT, 'server
   server.listen(PORT, '127.0.0.1', () => console.log(`EquiLens Pocket ready: http://127.0.0.1:${PORT}`));
   server.on('error', e => { console.error(e.code === 'EADDRINUSE' ? `連接埠 ${PORT} 已使用` : '手機版服務啟動失敗'); process.exit(1); });
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => server.close(() => process.exit(0)));
-  // 推播轉送：每 5 秒向 Nexus 取新的雷達／日報事件，推到已開啟通知的手機；只推 10 分鐘內的事件，避免重啟後補發舊訊息。
+  // 推播轉送：每 2 秒向 Nexus（本機）取新的雷達／日報事件，推到已開啟通知的手機；只推 10 分鐘內的事件，避免重啟後補發舊訊息。
   let relayBusy = false;
   setInterval(async () => {
     if (relayBusy) return; relayBusy = true;
@@ -234,5 +237,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.join(ROOT, 'server
         push.setLastSeq(r.latest);
       }
     } catch { } finally { relayBusy = false; }
-  }, 5000).unref();
+  }, 2000).unref();
 }

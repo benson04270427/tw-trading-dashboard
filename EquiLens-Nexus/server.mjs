@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { ROOT, LOCAL, read, write, readStocks, safeSymbol } from './lib/storage.mjs';
 import { getSecret, saveSecret, secretConfigured, deleteSecret, secretBackend } from './lib/secrets.mjs';
 import { config, saveConfig, activeMarket, language, upColor, LANGUAGES, LLM_PROVIDERS, TUNNEL_MODES, HOST_RE, EMAIL_RE } from './lib/config.mjs';
-import { MARKETS, MARKET_IDS, localParts, closeHM, clientMarket } from './lib/markets.mjs';
+import { MARKETS, MARKET_IDS, localParts, closeHM, clientMarket, minuteOf, elapsedTrading } from './lib/markets.mjs';
 import { t, UserError, isUserError } from './lib/i18n.mjs';
 import { data, PROVIDERS, CAPABILITIES, capabilityMap, providerInfo, setProviderInfo, setInterval_, hasKey, supports } from './lib/providers/index.mjs';
 import { LLM_INFO, listModels } from './lib/llm.mjs';
@@ -20,6 +20,10 @@ import { fetchStock, fetchNews, isBulkInstitutional, bulkInstitutions, defaultSo
 import { buildGroupRanking, compareRanks, quotesFromSnapshot, quotesFromReplay, quotesFromDaily, RANK_RULES } from './lib/grouprank.mjs';
 import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGroup, removeGroup, reorderGroups, addStock, removeStock, importGroups, selectedUpdateIds } from './lib/scope.mjs';
 import { patternSnapshot, clearPatterns, updatePatternData } from './lib/pattern-service.mjs';
+import { createStreamPool, splitSymbols } from './lib/stream.mjs';
+import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffset, evaluateSignal, reviewStats, DT_TITLES } from './lib/daytrade.mjs';
+import { dispositions, tpexDayTrade } from './lib/providers/twse.mjs';
+import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
 import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
 import { focusNews, weekAgenda } from './lib/briefing.mjs';
@@ -41,6 +45,10 @@ let settings = { ...defaults, ...read('settings.json', {}) };
 let researchScope, universe, raw, evidence, watchlist, watchGroups, job, controller, marketCache, scopeError='';
 let flowBusy=false,heatBusy=false,reportBusy=false;
 let liveHeat=null,livePending=null,lastSnap=null,monitorPauseUntil=0,monitorError='';
+// 盤中即時推播（WebSocket）：連線、狀態與各股最新一筆資料
+let stream=null,streamState={provider:null,connected:false,symbols:0,subscribed:0,limit:0,lastAt:0,error:'',since:0},streamRows=new Map(),streamDate='',streamAsOf='',yvCache={date:'',map:new Map()};
+// 當沖監控：引擎（每日一個）、股票資料、盤前資料、斷線補資料進度、今天是否因訂閱數不足改用精簡模式
+let dt=null,dtMeta=new Map(),dtPrep={date:'',busy:false,data:null,at:0},dtSaved='',dtFallback='',backfill={busy:false,again:false,started:0,done:0,total:0,error:''};
 let uniCache={ref:null,scope:null,ids:new Set(),meta:new Map(),list:[]};
 let radarState=null,radarPlans={at:0,map:new Map()},alertsBox={date:'',list:[]},alertSeq=Date.now();
 let replayCache={key:'',data:null},boardGroupCache={key:'',data:null},calendarCache={date:'',dates:[]},heatSummaryCache=null;
@@ -65,13 +73,15 @@ function loadMarketState(){
   liveHeat=null;lastSnap=null;monitorPauseUntil=0;monitorError='';radarState=null;radarPlans={at:0,map:new Map()};alertsBox={date:'',list:[]};
   replayCache={key:'',data:null};boardGroupCache={key:'',data:null};calendarCache={date:'',dates:[]};heatSummaryCache=null;grLive={at:0,data:null};grAttempt={date:'',at:0};
   newsState=null;newsStatus={at:0,error:'',found:0,seeded:false};newsPauseUntil=0;kbarMiss.clear();kbarDenied={until:0,error:''};
+  if(stream){stream.close();stream=null;}streamRows=new Map();streamDate='';streamAsOf='';streamState={...streamState,connected:false};
+  dt=null;dtMeta=new Map();dtSaved='';dtFallback='';{const p=read('daytrade-prep.json',null);dtPrep={date:p?.date||'',busy:false,data:p,at:0};}
   resetReplayCache();invalidate();
 }
 loadMarketState();
 
 // 換市場：把目前市場的資料（股票清單、族群、自選、行情、紀錄）收進 .local/markets/<市場>/，再把目標市場先前收起來的資料搬回來
-const MARKET_FILE=/^(universe|groups|watchlist|watch-groups|evidence|last-job|news-seen|pattern-active|pattern-calendar|pattern-ledger|bulk-ledger)\.json$|^(heatmap|flows|grouprank|alerts|index|card)-\d{4}-\d{2}-\d{2}\.json$/;
-const MARKET_DIRS=['stocks','replay','reports','kbar','daily','brokers','holders','institutions','pattern-snapshots','pattern-stocks'];
+const MARKET_FILE=/^(universe|groups|watchlist|watch-groups|evidence|last-job|news-seen|pattern-active|pattern-calendar|pattern-ledger|bulk-ledger|daytrade-prep)\.json$|^(heatmap|flows|grouprank|alerts|index|card)-\d{4}-\d{2}-\d{2}\.json$/;
+const MARKET_DIRS=['stocks','replay','reports','kbar','daily','brokers','holders','institutions','pattern-snapshots','pattern-stocks','daytrade'];
 function switchMarket(next){
   const cur=config().market;if(next===cur)return;
   if(job.running||flowBusy||heatBusy||reportBusy||livePending)throw new UserError('請等待更新完成或停止後，再切換市場');
@@ -132,13 +142,174 @@ function onSnapshot(rows,heat){
   if(lastSnap?.date!==heat.date)try{compactReplay(heat.date);}catch{}
   lastSnap={at:Date.now(),date:heat.date,asOf:heat.asOf,rows:day,byId:new Map(day.map(r=>[r.stock_id,r]))};
   try{if(recordFrame(heat.date,String(heat.asOf||'').slice(11,16),day,ids,{all:rows})&&M().id==='TW'){const ix=id=>rows.find(r=>r.stock_id===id&&String(r.date).slice(0,10)===heat.date);write(`index-${heat.date}.json`,{twse:indexRow(ix('001')),tpex:indexRow(ix('101'))});}}catch(e){console.error(t('時光機記錄失敗：')+e.message);}
-  try{runRadar(heat.date,day);}catch(e){console.error(t('異動雷達失敗：')+e.message);}
+  // 有即時推播的股票由推播資料判斷異動，快照只負責其餘股票（避免兩份不同時間的報價混在一起）
+  try{runRadar(heat.date,streamFresh()?day.filter(r=>!streamRows.has(r.stock_id)):day);}catch(e){console.error(t('異動雷達失敗：')+e.message);}
 }
 setInterval(()=>{
   if(settings.monitor===false||!liveWindow()||!data.has('snapshot')||Date.now()<monitorPauseUntil||livePending)return;
   if(liveHeat&&Date.now()-liveHeat.at<snapPlan().every-1500)return;
   liveHeatmap().catch(e=>{monitorError=e.message;if(e.code==='no-live')monitorPauseUntil=Date.now()+10*60e3;else if(blocked(e))monitorPauseUntil=Date.now()+30*60e3;});
 },2000).unref();
+
+/* ---------- 盤中即時推播（WebSocket，例如富果）＋當沖監控 ---------- */
+// 完整模式（例如富果進階方案）：每檔訂閱逐筆成交、1 分 K、五檔（3 個訂閱），依代號分成兩條連線，由當沖引擎整理成每檔的即時狀態；
+// 精簡模式（開發者／基本方案，或訂閱數不足）：每檔 1 個聚合行情訂閱。兩種模式都驅動異動雷達與即時看板；熱浪圖、時光機仍用上面的快照。
+// 訂閱順序：自選股優先，再來是研究名單；超過方案上限時只訂閱前面的股票。
+// 連線且最近 75 秒內收過訊息（資料或伺服器心跳）才算運作中；個股沒成交時沿用最後一筆
+const streamFresh=()=>!!stream&&streamState.connected&&Date.now()-(streamState.alive||0)<75e3;
+const streamFor=id=>streamFresh()?streamRows.get(id):null;
+// 行情時間：快照與推播取較新者
+const liveAsOf=()=>{const a=lastSnap?.asOf||'',b=streamFresh()?streamAsOf:'';return(a>b?a:b)||null;};
+// 某股某日最新的盤中資料：推播與快照取時間較新的一筆
+function liveRow(id,date){
+  const s=streamFor(id),f=lastSnap&&(!date||lastSnap.date===date)?lastSnap.byId.get(id):null;
+  return s&&(!date||String(s.date).slice(0,10)===date)&&(!f||String(s.date)>=String(f.date))?s:f;
+}
+// 推播資料沒有昨量：用快照的昨量，或本機日 K 前一交易日的量（爆量判斷用）
+function yesterdayVolume(id,date){
+  if(yvCache.date!==date)yvCache={date,map:new Map()};
+  if(!yvCache.map.has(id)){let v=Number(lastSnap?.byId.get(id)?.yesterday_volume);if(!(v>0)){const d=localDaily(id).filter(r=>r[0]<date).at(-1);v=d?Number(d[5]):0;}yvCache.map.set(id,v>0?v:null);}
+  return yvCache.map.get(id);
+}
+function onStreamRows(rows){
+  const date=today(),fresh=rows.filter(r=>String(r.date).slice(0,10)===date);
+  if(streamDate!==date){streamDate=date;streamRows=new Map();streamAsOf='';}
+  for(const r of fresh){r.yesterday_volume=yesterdayVolume(r.stock_id,date);streamRows.set(r.stock_id,r);if(String(r.date)>streamAsOf)streamAsOf=String(r.date);}
+  streamState={...streamState,lastAt:Date.now()};
+  if(fresh.length)try{runRadar(date,fresh);}catch(e){console.error(t('異動雷達失敗：')+e.message);}
+}
+const streamUniverse=()=>[...new Set([...watchlist,...scopeIds(researchScope)])];
+// 開盤前 10 分鐘先連線並確認訂閱（台股 08:50），收盤集合競價結束後關閉
+const feedWindow=()=>{const p=M(),x=clock();return x.weekday>=1&&x.weekday<=5&&x.minute>=p.open-10&&x.minute<p.close+p.settle;};
+const dtSettings=()=>normalizeDaytrade(settings.daytrade);
+// 訂閱規劃：方案（自動時付費方案先試進階，訂閱不足則今天改用開發者）、模式、頻道、股票與連線分組
+function streamPlanNow(p,dtReady=true){
+  const s=dtSettings(),want=s.plan==='auto'?(dtFallback===today()?'developer':'advanced'):s.plan;
+  const planId=p.stream.plan?p.stream.plan(providerInfo()[p.id],want):'developer',plan=p.stream.plans?.[planId]||{limit:300,connections:1,perMinute:600},all=streamUniverse();
+  const full=s.enabled&&dtReady&&dtFallback!==today()&&!!p.stream.channels?.full&&all.length*p.stream.channels.full.length<=plan.limit;
+  const channels=full?p.stream.channels.full:(p.stream.channels?.lite||['aggregates']),ids=all.slice(0,Math.floor(plan.limit/channels.length));
+  const groups=full&&plan.connections>1&&ids.length>1?splitSymbols(ids,plan.connections):[ids];
+  return{planId,plan,full,channels,ids,total:all.length,groups:groups.map(symbols=>({symbols,channels}))};
+}
+async function streamTick(){
+  const p=data.pick('stream');
+  if(settings.monitor===false||!feedWindow()||!p){if(stream){stream.close();stream=null;}streamState={...streamState,connected:false,provider:p?.id||null};return;}
+  // 當沖引擎建立失敗時不影響推播：改用精簡模式（聚合行情）讓雷達與看板照常運作
+  let dtReady=false,dtError='';
+  if(dtSettings().enabled){try{ensureDt();refreshDtMeta(streamUniverse());dtReady=true;}catch(e){dtError=e.message;console.error(t('當沖監控計算失敗：')+e.message);}}
+  const plan=streamPlanNow(p,dtReady);
+  if(stream&&streamState.provider!==p.id){stream.close();stream=null;}
+  streamState={...streamState,dtError};
+  const meta={provider:p.id,mode:plan.full?'full':'lite',plan:plan.planId,limit:plan.plan.limit,perMinute:plan.plan.perMinute,total:plan.total};
+  if(!stream){
+    const key=await getSecret(p.id,p.keyEnv);if(!key)return;
+    streamState={...meta,connected:false,symbols:plan.ids.length,subscribed:0,expected:plan.ids.length*plan.channels.length,lastAt:0,alive:0,error:'',since:0,resumed:0,connections:[]};
+    stream=createStreamPool({spec:p.stream,key,market:M(),groups:plan.groups,flushMs:500,onEvents:onStreamEvents,onStatus:onStreamStatus});
+  }else{streamState={...streamState,...meta};stream.update(plan.groups);}
+  // 自動判斷方案：完整模式連線 15 秒後訂閱仍不足（方案上限不夠），今天改用精簡模式
+  if(plan.full&&dtSettings().plan==='auto'&&streamState.connected&&streamState.since&&Date.now()-streamState.since>15e3&&streamState.subscribed<streamState.expected){dtFallback=today();console.log(t('即時推播訂閱數不足，今天改用精簡模式（聚合行情）'));}
+}
+setInterval(()=>{streamTick().catch(e=>{streamState={...streamState,error:e.message};});},5000).unref();
+function onStreamStatus(s){
+  const prev=streamState.since;streamState={...streamState,...s};
+  // 盤中才連上或斷線重連：補資料完成前暫停訊號（盤前連線不需要）
+  if(s.since&&s.since!==prev&&dt?.date===today()&&dt.engine.phase(Date.now())!=='pre')backfillAll();
+}
+// 推播事件：有當沖引擎時由引擎整理成快照列；沒有時（精簡模式且未開啟當沖監控）直接用聚合行情
+function onStreamEvents(events){
+  const e=dt?.date===today()?dt.engine:null;
+  if(e){const changed=e.ingest(events);onStreamRows([...changed].map(id=>e.row(id)).filter(Boolean));}
+  else onStreamRows(events.filter(x=>x.kind==='agg').map(x=>x.row));
+}
+const streamInfo=()=>({capable:data.has('stream'),provider:streamState.provider,active:streamFresh(),connected:streamState.connected,mode:streamState.mode||null,plan:streamState.plan||null,symbols:streamState.symbols,subscribed:streamState.subscribed,expected:streamState.expected||0,connections:streamState.connections||[],limit:streamState.limit,lastAt:streamState.lastAt||null,error:streamState.error,authFailed:!!streamState.authFailed,total:new Set([...watchlist,...scopeIds(researchScope)]).size});
+
+/* ---------- 當沖監控 ---------- */
+function refreshDtMeta(ids){
+  const {meta}=uniIndex(),groups=new Map();
+  for(const g of researchScope.groups)for(const id of g.stockIds){if(!groups.has(id))groups.set(id,[]);groups.get(id).push(g.id);}
+  for(const id of ids)dtMeta.set(id,{name:meta.get(id)?.name||id,groups:groups.get(id)||[]});
+}
+// 同時段歷史量：時光機最近 20 個交易日的每分鐘累計量
+function dtBaseline(ids,date){
+  try{const list=[];for(const d of listDays().filter(d=>d<date).slice(-20)){const x=loadDay(d);if(x)list.push({ids:x.ids,frames:x.frames});}return buildBaseline(list,ids,M());}
+  catch(e){console.error(t('當沖監控計算失敗：')+e.message);return{days:0,shape:null,stock:new Map()};} // 歷史量無法建立時以近 20 日均量推估
+}
+// 盤前資料＋本機日 K：近 20 日均量與均額（流動性）、參考價（FinMind 沒有時用前一日收盤）
+function dtPrepFor(date,ids){
+  const d=dtPrep.date===date?dtPrep.data:null,ref=new Map(Object.entries(d?.ref||{})),avgVolume=new Map(),avgAmount=new Map(),lot=M().lot;
+  for(const id of ids){const rows=localDaily(id).filter(r=>r[0]<date).slice(-20);if(!rows.length)continue;avgVolume.set(id,rows.reduce((a,r)=>a+(r[5]||0),0)/rows.length);avgAmount.set(id,rows.reduce((a,r)=>a+(r[5]||0)*(r[4]||0)*lot,0)/rows.length);if(!ref.has(id)&&rows.at(-1)[4]>0)ref.set(id,rows.at(-1)[4]);}
+  // FinMind 的可當沖清單只收錄上市股票：清單幾乎沒有收錄的市場別（例如上櫃）與市場別不明的股票，不套用「不可當沖」排除
+  let eligible=d?.eligible?new Set(d.eligible):null;
+  if(eligible){const {list,meta}=uniIndex(),tot=new Map(),hit=new Map();for(const s of list){const m=s.market||'';tot.set(m,(tot.get(m)||0)+1);if(eligible.has(s.id))hit.set(m,(hit.get(m)||0)+1);}for(const id of ids){const m=meta.get(id)?.market||'';if(!m||(hit.get(m)||0)<(tot.get(m)||0)*0.2)eligible.add(id);}}
+  return{eligible,disposition:new Set(d?.disposition||[]),suspended:new Set(d?.suspended||[]),sellFirstOff:new Set(d?.sellFirstOff||[]),ref,avgVolume,avgAmount};
+}
+function ensureDt(){
+  const date=today();if(dt?.date===date)return dt.engine;
+  const ids=streamUniverse();refreshDtMeta(ids);
+  const baseline=dtBaseline(ids,date),engine=createDayTrade({market:M(),date,ids,meta:dtMeta,watch:new Set(watchlist),baseline,prep:dtPrepFor(date,ids),settings:settings.daytrade,offset:tzOffset(M().tz),lang:language()});
+  engine.restore(read(`daytrade/${date}.json`,null)?.signals);
+  dt={date,engine,baselineDays:baseline.days,baselineStocks:baseline.stock.size};return engine;
+}
+// 盤前（台股 08:30 起）：FinMind 的可當沖標的、暫停交易、暫停先賣後買、參考價；證交所／櫃買的處置股
+async function dtPrepare(){
+  const date=today();if(dtPrep.busy)return;
+  dtPrep={...dtPrep,busy:true};const errors=[];let fin=null,disp=null,otc=null;
+  try{if(data.has('dayTrade'))fin=await data.dayTrade(date);}catch(e){errors.push(e.message);}
+  try{if(M().id==='TW')disp=await dispositions(date);}catch(e){errors.push(e.message);}
+  // 上櫃可當沖標的：FinMind 清單只有上市，另向櫃買中心取得（尚未公布時稍後重試）
+  try{if(M().id==='TW')otc=await tpexDayTrade(date);}catch(e){errors.push(e.message);}
+  const eligible=fin?.eligible||otc?.eligible?[...new Set([...(fin?.eligible||[]),...(otc?.eligible||[])])]:null;
+  const d={date,eligible,tpex:otc?otc.eligible.length:null,suspended:fin?.suspended||[],sellFirstOff:[...new Set([...(fin?.sellFirstOff||[]),...(otc?.sellFirstOff||[])])],ref:fin?.ref||{},disposition:disp?.ids||[],errors:[...errors,...(fin?.errors||[]),...(disp?.errors||[])],source:data.source('dayTrade'),at:new Date().toISOString()};
+  dtPrep={date,busy:false,data:d,at:Date.now()};write('daytrade-prep.json',d);
+  if(dt?.date===date)dt.engine.setPrep(dtPrepFor(date,dt.engine.ids));
+}
+// 斷線重連（或盤中才啟動）後以 REST 補資料：自選股優先；單一執行，兩條連線同時重連只補一次
+async function backfillAll(){
+  const e=dt?.engine;if(!e)return;
+  if(backfill.busy){if(Date.now()-backfill.started>30e3)backfill.again=true;return;}
+  const ids=[...new Set([...watchlist.filter(id=>e.ids.includes(id)),...e.ids])];
+  e.markGap(ids);backfill={busy:true,again:false,started:Date.now(),done:0,total:ids.length,error:''};
+  const interval=Math.ceil(60000/(streamState.perMinute||600))+10;
+  try{for(const id of ids){if(dt?.engine!==e||!feedWindow())break;try{e.backfill(id,await data.streamBackfill(id,{interval})||{});const r=e.row(id);if(r)onStreamRows([r]);}catch(x){backfill.error=x.message;e.backfill(id,{});if(blocked(x))break;}backfill.done++;}}
+  finally{for(const id of ids)e.gaps.delete(id);backfill.busy=false;if(backfill.again)setTimeout(()=>backfillAll().catch(()=>{}),1000).unref();}
+}
+function saveDtLog(extra={}){if(!dt)return;fs.mkdirSync(path.join(LOCAL,'daytrade'),{recursive:true});write(`daytrade/${dt.date}.json`,{date:dt.date,mode:streamState.mode||null,plan:streamState.plan||null,signals:dt.engine.signals,...extra});}
+// 收盤後：以分 K 檢討今天每個訊號（扣除滑價、手續費、證交稅）
+function dtClose(){
+  const costs=dtSettings().costs,e=dt.engine;
+  const signals=e.signals.map(s=>({...s,outcome:evaluateSignal(s,e.bars(s.id),M(),costs)}));
+  fs.mkdirSync(path.join(LOCAL,'daytrade'),{recursive:true});write(`daytrade/${dt.date}.json`,{date:dt.date,mode:streamState.mode||null,plan:streamState.plan||null,costs,signals,closedAt:new Date().toISOString()});dtSaved=dt.date;
+}
+// 每秒：更新分數與排名、偵測訊號（訊號進入異動雷達並推播到手機）
+setInterval(()=>{
+  if(!dt||dt.date!==today()||!feedWindow())return;
+  const e=dt.engine;e.setFeed(streamFresh());e.setWatch(new Set(watchlist));
+  let alerts=[];try{alerts=e.tick(Date.now());}catch(x){console.error(t('當沖監控計算失敗：')+x.message);}
+  if(alerts.length){addAlerts(today(),alerts);saveDtLog();}
+},1000).unref();
+// 每 20 秒：盤前準備（08:30 起；可當沖清單未公布時 10 分鐘後再試）、收盤後檢討
+setInterval(()=>{
+  const x=clock(),p=M();if(!data.has('stream')||!dtSettings().enabled||x.weekday<1||x.weekday>5)return;
+  const date=today();
+  if(x.minute>=p.open-30&&x.minute<p.close&&(dtPrep.date!==date||((!dtPrep.data?.eligible||(M().id==='TW'&&dtPrep.data?.tpex==null))&&Date.now()-dtPrep.at>10*60e3&&x.minute<p.open+30)))dtPrepare().catch(()=>{dtPrep={...dtPrep,busy:false};});
+  if(x.minute>=p.close+p.settle+1&&dt?.date===date&&dtSaved!==date)try{dtClose();}catch(e){console.error(t('當沖訊號檢討失敗：')+e.message);}
+},20e3).unref();
+const PHASES={pre:'盤前',opening:'開盤觀察',scan:'掃描中',stop:'停止新訊號',auction:'收盤集合競價',closed:'收盤'};
+function dtInfo(){
+  const s=dtSettings(),p=data.pick('stream'),n=streamUniverse().length,e=dt?.date===today()?dt.engine:null,r=e?.ranking(),pd=dtPrep.date===today()?dtPrep.data:null;
+  const plan=p?.stream?.plan?p.stream.plan(providerInfo()[p.id],s.plan==='auto'?(dtFallback===today()?'developer':'advanced'):s.plan):null;
+  return{enabled:s.enabled,capable:!!p,provider:p?.id||null,settings:s,cost:Math.round(roundTripCost(s.costs)*1000)/1000,
+    need:{symbols:n,full:n*(p?.stream?.channels?.full?.length||3),lite:n},plans:p?.stream?.plans||null,plan,fallback:dtFallback===today(),
+    feed:{...streamInfo(),window:feedWindow(),backfill:{busy:backfill.busy,done:backfill.done,total:backfill.total,error:backfill.error},pending:e?e.gaps.size:0},
+    prep:pd?{date:pd.date,eligible:pd.eligible?pd.eligible.length:null,tpex:pd.tpex??null,disposition:pd.disposition.length,suspended:pd.suspended.length,sellFirstOff:pd.sellFirstOff.length,ref:Object.keys(pd.ref||{}).length,errors:pd.errors,at:pd.at}:null,
+    baselineDays:dt?.baselineDays??null,baselineStocks:dt?.baselineStocks??null,phase:e&&feedWindow()?e.phase(Date.now()):null,phaseName:e&&feedWindow()?PHASES[e.phase(Date.now())]:null,
+    asOf:r?.at||null,marketChange:r?.marketChange??null,top:(r?.list||[]).filter(x=>!x.filters.length).slice(0,s.top),excluded:r?.counts||{},watched:(r?.list||[]).filter(x=>x.watch),total:r?.list?.length||0,signals:(e?.signals||[]).slice(-30).reverse()};
+}
+function dtReview(){
+  const dir=path.join(LOCAL,'daytrade');let files=[];try{files=fs.readdirSync(dir).filter(f=>/^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().slice(-60);}catch{}
+  const days=files.map(f=>read(`daytrade/${f}`,null)).filter(d=>d?.closedAt);
+  return{...reviewStats(days),cost:Math.round(roundTripCost(dtSettings().costs)*1000)/1000,recent:days.slice(-5).reverse().map(d=>({date:d.date,mode:d.mode,signals:d.signals.map(({type,id,name,t,price,score,outcome})=>({type,title:DT_TITLES[type]||type,id,name,t,price,score,outcome}))}))};
+}
 
 /* ---------- 異動雷達 ---------- */
 function alertsFor(date){if(alertsBox.date!==date)alertsBox={date,list:read(`alerts-${date}.json`,[])};return alertsBox;}
@@ -159,22 +330,29 @@ function runRadar(date,rows){
 }
 
 /* ---------- 即時看板 ---------- */
+// 看板與走勢圖（含點卡片開啟的日 K／5 分 K）只用資料源的盤中快照（例如 FinMind，每 10 秒）；即時推播只給異動雷達與當沖掃描。
 // 今日報價：盤中用最新快照；重新啟動後改用時光機最後一個畫格。
 function replayToday(){const days=listDays(),date=days.at(-1);return date?loadDay(date):null;}
-function quoteOf(id){
-  const r=lastSnap?.byId.get(id);
-  if(r){const close=Number(r.close),ch=Number(r.change_price),prev=close-ch;return{close,change:prev>0?Math.round(ch/prev*1e4)/100:null,changePrice:ch,open:Number(r.open),high:Number(r.high),low:Number(r.low),volume:Number(r.total_volume),amount:Number(r.total_amount),yesterdayVolume:Number(r.yesterday_volume),bid:Number(r.buy_price),ask:Number(r.sell_price),time:String(r.date).slice(11,19),date:lastSnap.date};}
+const snapRow=(id,date)=>lastSnap&&(!date||lastSnap.date===date)?lastSnap.byId.get(id)||null:null;
+// 時間（HH:MM 或 HH:MM:SS）在全日交易時段中的位置（0–1，扣除午休）
+const sessionPos=t=>{const m=minuteOf(t);if(m==null)return null;const p=M(),sec=Number(String(t).slice(6,8))||0;return Math.min(1,Math.max(0,(elapsedTrading(p,m)+sec/60)/(p.length||1)));};
+function quoteOf(id,{board=false}={}){
+  const r=board?snapRow(id):liveRow(id); // 看板只用快照；其他（例如新聞事件）用推播與快照中較新的一筆
+  if(r){const close=Number(r.close),ch=Number(r.change_price),prev=close-ch,n=v=>v==null||v===''?null:Number(v);return{close,change:prev>0?Math.round(ch/prev*1e4)/100:null,changePrice:ch,open:Number(r.open),high:Number(r.high),low:Number(r.low),volume:Number(r.total_volume),amount:Number(r.total_amount),yesterdayVolume:Number(r.yesterday_volume),bid:Number(r.buy_price),ask:Number(r.sell_price),volumeAtBid:n(r.volume_at_bid),volumeAtAsk:n(r.volume_at_ask),source:r===streamFor(id)?'stream':'snapshot',time:String(r.date).slice(11,19),date:String(r.date).slice(0,10)};}
   return null;
 }
 function boardData(ids){
   const day=replayToday(),idx=day?new Map(day.ids.map((id,i)=>[id,i])):new Map(),m=market(),{meta}=uniIndex();
   const stocks=ids.map(id=>{
-    const s=m.stocks.find(x=>x.id===id),q=quoteOf(id),i=idx.get(id),spark=i==null?[]:day.frames.map(f=>framePrice(day,f,i)).filter(v=>v>0);
+    const s=m.stocks.find(x=>x.id===id),q=quoteOf(id,{board:true}),i=idx.get(id);
+    // 全日走勢圖：時光機每分鐘一點，橫軸位置＝該時間在全日交易時段中的比例（0＝開盤、1＝收盤）；最後一點換成最新快照（每 10 秒移動）
+    const pts=i==null?[]:day.frames.map(f=>[sessionPos(f.t),framePrice(day,f,i)]).filter(([x,v])=>x!=null&&v>0);
+    if(q?.close>0&&day?.date===q.date&&pts.length){const pt=[sessionPos(q.time),q.close];if(q.time.slice(0,5)===day.frames.at(-1)?.t)pts[pts.length-1]=pt;else if(pt[0]>=pts.at(-1)[0])pts.push(pt);}
     let quote=q;if(!quote&&i!=null&&day.frames.length){const f=day.frames.at(-1),close=framePrice(day,f,i),prev=prevPrice(day,i);if(close>0)quote={close,change:prev>0?Math.round((close/prev-1)*1e4)/100:null,changePrice:prev>0?Math.round((close-prev)*1e4)/1e4:null,amount:frameAmount(day,f,i),time:f.t,date:day.date};}
-    const step=Math.max(1,Math.ceil(spark.length/120));
-    return{id,name:s?.name||meta.get(id)?.name||id,sector:s?.sector||meta.get(id)?.sector||'',score:s?.score??null,prev:i==null?null:prevPrice(day,i),quote,daily:s?{price:s.price,change:s.change,asOf:s.asOf}:null,spark:spark.filter((_,k)=>k%step===0||k===spark.length-1)};
+    const step=Math.max(1,Math.ceil(pts.length/135)),use=pts.filter((_,k)=>k%step===0||k===pts.length-1);
+    return{id,name:s?.name||meta.get(id)?.name||id,sector:s?.sector||meta.get(id)?.sector||'',score:s?.score??null,prev:i==null?null:prevPrice(day,i),quote,daily:s?{price:s.price,change:s.change,asOf:s.asOf}:null,spark:use.map(p=>p[1]),sparkX:use.map(p=>Math.round(p[0]*1e4)/1e4)};
   });
-  return{live:!!lastSnap&&liveWindow(),asOf:lastSnap?.asOf||null,date:lastSnap?.date||day?.date||null,stocks};
+  return{live:!!lastSnap&&liveWindow(),stream:false,asOf:lastSnap?.asOf||null,date:lastSnap?.date||day?.date||null,stocks};
 }
 // 看板族群切換列：研究總覽各族群目前的量能加權漲幅（與族群排名同算法；同一份快照只算一次）
 function boardGroups(){
@@ -230,7 +408,7 @@ async function minuteRows(id,date){
     kbarMiss.set(key,Date.now());
   }
   if(!error&&Date.now()<kbarDenied.until)error=kbarDenied.error;
-  const day=loadDay(date),r=lastSnap?.date===date?lastSnap.byId.get(id):null,tl=r?tickLabel(r.date):'';
+  const day=loadDay(date),r=snapRow(id,date),tl=r?tickLabel(r.date):'';
   const tick=tl?{t:tl,close:Number(r.close),volume:Number(r.total_volume),amount:Number(r.total_amount),high:Number(r.high),low:Number(r.low)}:null;
   const rows=day||tick?replayMinuteBars(day,id,{open:r?Number(r.open):null,tick}):[];
   return{rows,start:false,source:rows.length?'replay':'none',error};
@@ -244,7 +422,7 @@ function prevCloseOf(id,date,daily=localDaily(id)){
 }
 // 當日開高低收量：即時快照 → 本機日成交 → 5 分 K 彙總（時光機組成時開盤為第一個畫格，近似值）
 function sessionBar(id,date,bars5,daily=localDaily(id)){
-  const r=lastSnap?.date===date?lastSnap.byId.get(id):null;
+  const r=snapRow(id,date);
   if(r&&Number(r.open)>0)return[date,Number(r.open),Number(r.high),Number(r.low),Number(r.close),Math.round(Number(r.total_volume)||0)];
   const own=daily.find(x=>x[0]===date);if(own)return own;
   const xs=bars5.filter(b=>b[0].startsWith(date));return xs.length?[date,xs[0][1],Math.max(...xs.map(b=>b[2])),Math.min(...xs.map(b=>b[3])),xs.at(-1)[4],xs.reduce((a,b)=>a+b[5],0)]:null;
@@ -271,15 +449,15 @@ async function dailyHistory(id){
   return rows.length?rows:own;
 }
 async function chartDay(id){
-  let rows=await dailyHistory(id),bar=null;const lastDate=rows.at(-1)?.[0]||'',r=lastSnap?.byId.get(id);
-  if(r&&lastSnap.date>lastDate&&Number(r.close)>0){const c=Number(r.close);bar=[lastSnap.date,Number(r.open)||c,Number(r.high)||c,Number(r.low)||c,c,Math.round(Number(r.total_volume)||0)];}
+  let rows=await dailyHistory(id),bar=null;const lastDate=rows.at(-1)?.[0]||'',r=snapRow(id),rDate=r?String(r.date).slice(0,10):'';
+  if(r&&rDate>lastDate&&Number(r.close)>0){const c=Number(r.close);bar=[rDate,Number(r.open)||c,Number(r.high)||c,Number(r.low)||c,c,Math.round(Number(r.total_volume)||0)];}
   else{const day=replayToday();if(day&&day.date>lastDate)bar=replayDayBar(day,id);}
   if(bar)rows=[...rows,bar];
   return{bars:rows.slice(-160),today:bar?bar[0]:null,session:rows.at(-1)||null};
 }
 async function chartReport(id,period){
   const info=boardData([id]).stocks[0],result=period==='day'?await chartDay(id):await chart5m(id);
-  return{id,name:info.name,sector:info.sector,score:info.score,period,prev:info.prev,quote:info.quote,daily:info.daily,inScope:inScope(id),live:!!lastSnap&&liveWindow(),asOf:lastSnap?.asOf||null,...result};
+  return{id,name:info.name,sector:info.sector,score:info.score,period,prev:info.prev,quote:info.quote,daily:info.daily,inScope:inScope(id),live:!!lastSnap&&liveWindow(),stream:false,asOf:lastSnap?.asOf||null,...result};
 }
 
 /* ---------- 族群排名 ---------- */
@@ -334,23 +512,29 @@ function newsAlert(a,{meta,watch,quiet,time}){
   const names=a.ids.map(id=>meta.get(id)?.name||id),q=quoteOf(a.ids[0]),w=a.ids.some(id=>watch.has(id));
   return{type:'news',t:time,stockId:a.ids[0],ids:a.ids.slice(0,8),names:names.slice(0,8),name:a.ids.length>1?t('{name} 等 {n} 檔',{name:names[0],n:a.ids.length}):names[0],title:t('新聞'),detail:a.title,source:a.source,url:/^https?:\/\//i.test(a.link||'')?a.link:'',watch:w,level:w?'hi':'mid',quiet,close:q?.close??null,change:q?.change??null};
 }
+// 新聞來源：資料源的全市場新聞（例如 FinMind，額度或金鑰問題時暫停 30 分鐘）＋台股的鉅亨網（各自失敗不影響另一個）
+const cnyesOn=()=>M().id==='TW';
 async function scanNewsOnce(){
-  const x=clock(),dates=x.hour<8?[minusDays(x.date,1),x.date]:[x.date],rows=[];
-  for(const d of dates)rows.push(...await data.marketNews(d));
+  const x=clock(),dates=x.hour<8?[minusDays(x.date,1),x.date]:[x.date],rows=[],cn=[],errors=[];
+  if(data.has('marketNews')&&Date.now()>=newsPauseUntil)try{for(const d of dates)rows.push(...await data.marketNews(d));}catch(e){errors.push(e.message);if(blocked(e))newsPauseUntil=Date.now()+30*60e3;}
+  if(cnyesOn())try{cn.push(...await cnyesNews());}catch(e){errors.push(t('鉅亨網：')+e.message);}
+  if(!rows.length&&!cn.length&&errors.length)throw new Error(errors.join('；'));
   if(!newsState)newsState=createNewsState(read('news-seen.json',null));
-  // 一律以整個研究名單判斷「是否看過」，切換推播範圍時才不會把舊聞當新聞
-  const ns=normalizeNews(settings.news),watch=new Set(watchlist),{fresh,seeded}=scanNews(newsState,rows,{scope:new Set(scopeIds(researchScope))});
+  // 一律以整個研究名單判斷「是否看過」，切換推播範圍時才不會把舊聞當新聞；新加入的鉅亨網第一次只記錄
+  const first=cn.length&&!newsState.sources.has('cnyes');
+  const ns=normalizeNews(settings.news),watch=new Set(watchlist),{fresh,seeded}=scanNews(newsState,first?rows:[...rows,...cn],{scope:new Set(scopeIds(researchScope)),seedOnly:first?cn:[]});
+  if(first)newsState.sources.add('cnyes');
   write('news-seen.json',saveNewsState(newsState));
   const list=ns.scope==='watch'?fresh.filter(a=>a.ids.some(id=>watch.has(id))):fresh,quiet=quietNow(x.hour,ns.quiet),{meta}=uniIndex();
   if(list.length)addAlerts(x.date,list.map(a=>newsAlert(a,{meta,watch,quiet,time:x.hms})));
-  newsStatus={at:Date.now(),error:'',found:list.length,seeded};
+  newsStatus={at:Date.now(),error:errors.join('；'),found:list.length,seeded};
 }
 setInterval(()=>{
-  if(!normalizeNews(settings.news).enabled||!data.has('marketNews')||newsBusy||Date.now()<newsPauseUntil||Date.now()-newsStatus.at<58e3)return;
+  if(!normalizeNews(settings.news).enabled||!(data.has('marketNews')||cnyesOn())||newsBusy||Date.now()-newsStatus.at<58e3)return;
   newsBusy=true;
-  scanNewsOnce().catch(e=>{newsStatus={...newsStatus,at:Date.now(),error:e.message};if(blocked(e))newsPauseUntil=Date.now()+30*60e3;}).finally(()=>{newsBusy=false;});
+  scanNewsOnce().catch(e=>{newsStatus={...newsStatus,at:Date.now(),error:e.message};}).finally(()=>{newsBusy=false;});
 },5000).unref();
-const newsInfo=()=>({...normalizeNews(settings.news),capable:data.has('marketNews'),status:{at:newsStatus.at||null,error:newsStatus.error,found:newsStatus.found,seeded:newsStatus.seeded,today:alertsFor(today()).list.filter(a=>a.type==='news').length,pausedUntil:newsPauseUntil>Date.now()?newsPauseUntil:null}});
+const newsInfo=()=>({...normalizeNews(settings.news),capable:data.has('marketNews')||cnyesOn(),sources:[data.has('marketNews')?data.source('marketNews'):null,cnyesOn()?'cnyes':null].filter(Boolean),status:{at:newsStatus.at||null,error:newsStatus.error,found:newsStatus.found,seeded:newsStatus.seeded,today:alertsFor(today()).list.filter(a=>a.type==='news').length,pausedUntil:newsPauseUntil>Date.now()?newsPauseUntil:null}});
 
 /* ---------- 推理模型 ---------- */
 // 金鑰以服務代號保存（anthropic、openai、gemini、compatible）；OpenAI 相容端點（例如本機模型）可不設金鑰
@@ -595,7 +779,7 @@ function importBundle(b,parts){
 }
 
 /* ---------- HTTP ---------- */
-const STATIC = { '/':'index.html', '/app.js':'app.js', '/heatmap.js':'heatmap.js', '/briefing.js':'briefing.js','/flow-cards.js':'flow-cards.js', '/live.js':'live.js', '/insight-ui.js':'insight-ui.js', '/report-card.js':'report-card.js', '/save-image.js':'save-image.js', '/prefs.js':'prefs.js', '/grouprank.js':'grouprank.js', '/i18n.js':'i18n.js', '/setup.js':'setup.js', '/market.js':'market.js', '/hud.css':'hud.css', '/favicon.svg':'favicon.svg' };
+const STATIC = { '/':'index.html', '/app.js':'app.js', '/heatmap.js':'heatmap.js', '/briefing.js':'briefing.js','/flow-cards.js':'flow-cards.js', '/live.js':'live.js', '/insight-ui.js':'insight-ui.js', '/report-card.js':'report-card.js', '/save-image.js':'save-image.js', '/prefs.js':'prefs.js', '/grouprank.js':'grouprank.js', '/i18n.js':'i18n.js', '/setup.js':'setup.js', '/market.js':'market.js', '/daytrade.js':'daytrade.js', '/hud.css':'hud.css', '/favicon.svg':'favicon.svg' };
 // 舊版模組丟出的一般錯誤（尚未改成 UserError）中，可以直接顯示的訊息
 const LEGACY_MESSAGE=/FinMind|金鑰|股票|族群|設定|格式|請|更新|無效|內容|行情|休市|公布|日期|查無|日報|雷達|時光機|畫格|分組|自選/;
 const server = http.createServer(async (req,res) => {
@@ -681,12 +865,20 @@ const server = http.createServer(async (req,res) => {
       await saveLlmKey('anthropic',b.key);return json(res,200,{ok:true});
     }
     /* ----- 盤中監控、雷達、看板、時光機 ----- */
-    if(route==='/api/monitor'&&req.method==='GET')return json(res,200,{enabled:settings.monitor!==false,capable:data.has('snapshot'),mode:data.snapshotMode(),every:snapPlan().every,window:liveWindow(),lastAt:liveHeat?.at||null,asOf:liveHeat?.data?.asOf||null,error:monitorError,pausedUntil:monitorPauseUntil>Date.now()?monitorPauseUntil:null,radar:normalizeRadar(settings.radar),replayDays:listDays(),news:newsInfo()});
+    if(route==='/api/monitor'&&req.method==='GET')return json(res,200,{enabled:settings.monitor!==false,capable:data.has('snapshot'),mode:data.snapshotMode(),every:snapPlan().every,window:liveWindow(),lastAt:liveHeat?.at||null,asOf:liveHeat?.data?.asOf||null,error:monitorError,pausedUntil:monitorPauseUntil>Date.now()?monitorPauseUntil:null,radar:normalizeRadar(settings.radar),replayDays:listDays(),news:newsInfo(),stream:streamInfo()});
     if(route==='/api/news/settings'&&req.method==='POST'){
       const b=await body(req);if(!validNewsInput(b))throw new UserError('新聞推播設定格式錯誤');
       const was=normalizeNews(settings.news).enabled;settings={...settings,news:normalizeNews(b)};saveSettings();
       if(!was&&settings.news.enabled){newsStatus={...newsStatus,at:0,error:''};newsPauseUntil=0;} // 剛開啟：立即掃描（第一次只記錄現有新聞）
       return json(res,200,{ok:true,news:newsInfo()});
+    }
+    if(route==='/api/daytrade'&&req.method==='GET')return json(res,200,dtInfo());
+    if(route==='/api/daytrade/review'&&req.method==='GET')return json(res,200,dtReview());
+    if(route==='/api/daytrade/settings'&&req.method==='POST'){
+      const b=await body(req);if(!b||typeof b!=='object'||Array.isArray(b))throw new UserError('當沖監控設定格式錯誤');
+      settings={...settings,daytrade:normalizeDaytrade({...dtSettings(),...b,signals:{...dtSettings().signals,...b.signals},costs:{...dtSettings().costs,...b.costs}})};saveSettings();
+      if(dt)dt.engine.setSettings(settings.daytrade);
+      return json(res,200,{ok:true,settings:settings.daytrade});
     }
     if(route==='/api/monitor/settings'&&req.method==='POST'){
       const b=await body(req);if(typeof b.monitor!=='boolean'||!validRadarInput(b.radar))throw new UserError('雷達設定格式錯誤');

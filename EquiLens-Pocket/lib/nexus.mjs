@@ -53,6 +53,9 @@ export const cancel = () => call('cancel', { body: {} }).finally(invalidate);
 const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v != null && v !== '')).toString();
 export const monitor = () => call('monitor');
 export const monitorSettings = b => call('monitor/settings', { body: b });
+// 當沖掃描（設定只能在電腦版修改）
+export const daytrade = () => call('daytrade');
+export const daytradeReview = () => call('daytrade/review');
 export const newsSettings = b => call('news/settings', { body: b });
 export const alerts = (since = 0, date) => call('alerts?' + qs({ since, date }), { timeout: 8000 });
 export const board = (ids, group) => call('board?' + qs({ ids: ids?.join(','), group }));

@@ -2,14 +2,16 @@
 import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML } from './insight-ui.js';
 import { t, tx, translateTree } from './i18n.js';
 import * as MK from './market.js';
+import { initDaytrade, loadDaytrade, daytradePanel } from './daytrade.js';
 // 桌面通知的標題與內文依介面語言翻譯
-const Note = (title, o = {}) => Note(tx(title), { ...o, body: o.body ? tx(o.body) : o.body });
+const Note = (title, o = {}) => new Notification(tx(title), { ...o, body: o.body ? tx(o.body) : o.body });
 
 let C = null; // { api, toast, state, redraw, page, openStock, inScope }
 const pref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } }, savePref = (k, v) => { try { localStorage.setItem(k, v); } catch { } };
 const L = { board: null, bgroup: pref('nexus.boardGroup', ''), bsort: pref('nexus.boardSort', 'default'), alerts: [], latest: 0, date: '', group: 'all', monitor: null, draft: null, report: null, reportLoaded: false, notify: false, error: '' };
 export function initLive(ctx) {
   C = ctx; try { L.notify = localStorage.getItem('nexus.notify') === '1' && Notification.permission === 'granted'; } catch { }
+  initDaytrade({ api: ctx.api, toast: ctx.toast, repaint: () => repaint(), isLive: () => C.page() === 'live', openChart: id => C.inScope(id) ? C.openStock(id) : openChart(id) });
   refreshMonitor().then(() => { if (newsOn()) loadAlerts(!L.date); }); // 新聞推播開啟時，不論在哪一頁都要接收新聞
 }
 const marketOpen = () => MK.isOpen();
@@ -38,7 +40,7 @@ async function fetchAlerts(reset) {
 async function loadMonitor() { try { L.monitor = await C.api('monitor'); L.draft = structuredClone({ monitor: L.monitor.enabled, radar: L.monitor.radar }); } catch (e) { L.error = e.message; } }
 async function refreshMonitor() { try { const m = await C.api('monitor'); L.monitor = m; if (!L.draft) L.draft = structuredClone({ monitor: m.enabled, radar: m.radar }); } catch { } } // 不覆蓋編輯中的雷達設定
 const newsOn = () => !!L.monitor?.news?.enabled;
-export async function enterLive() { await Promise.all([loadBoard(), loadAlerts(!L.date), loadMonitor()]); repaint(); }
+export async function enterLive() { await Promise.all([loadBoard(), loadAlerts(!L.date), loadMonitor(), loadDaytrade()]); repaint(); }
 let tick = 0;
 setInterval(async () => {
   if (!C || document.hidden) return; tick++;
@@ -50,7 +52,17 @@ setInterval(async () => {
   } else if (!L.date && L.notify) await loadAlerts(true);
   if (C.page() === 'settings' && document.getElementById('news-status')) { await refreshMonitor(); const el = document.getElementById('news-status'); if (el) el.innerHTML = newsStatusHTML(); }
   if (C.page() === 'home' && L.report?.busy) { await loadReport(); C.redraw(); }
+  if (onPage && marketOpen() && tick % 3 === 0) await refreshMonitor(); // 盤中每 30 秒確認即時推播狀態
 }, 10000);
+// 即時推播（例如富果 WebSocket）運作時：盤中雷達頁的異動每 3 秒更新（看板固定用快照，隨上面每 10 秒更新）；開著桌面通知時，異動也每 3 秒取一次
+const streamOn = () => !!L.monitor?.stream?.active;
+setInterval(async () => {
+  if (!C || document.hidden || !streamOn() || !marketOpen()) return;
+  const onPage = C.page() === 'live';
+  if (!onPage && !L.notify) return;
+  await loadAlerts(!L.date);
+  if (onPage) repaint();
+}, 3000);
 /* ---------- 浮動雷達視窗（Document Picture-in-Picture：永遠浮在最上層；不支援時改用一般彈出視窗） ---------- */
 let pipWin = null, pipTimer = null, pipSeen = 0;
 const P = { group: 'all', sound: (() => { try { return localStorage.getItem('nexus.pipSound') === '1'; } catch { return false; } })() };
@@ -117,7 +129,7 @@ function notifyFresh(list) {
 }
 function notifyDesktop(list) {
   const items = list.filter(a => a.type === 'report' || a.watch || list.length <= 4).slice(0, 4);
-  for (const a of items) { try { Note(a.type === 'report' ? '📰 AI 盤後日報' : `${a.name} ${a.stockId} ${a.title}`, { body: a.type === 'report' ? a.detail : `${a.close}（${pct(a.change)}）· ${a.detail}`, tag: `${a.type}:${a.stockId}`, icon: '/favicon.svg' }); } catch { } }
+  for (const a of items) { try { Note(a.type === 'report' ? '📰 AI 盤後日報' : !a.stockId ? `⏰ ${a.title}` : `${a.name} ${a.stockId} ${a.title}`, { body: a.type === 'report' || !a.stockId ? a.detail : `${a.close}（${pct(a.change)}）· ${a.detail}`, tag: `${a.type}:${a.stockId}`, icon: '/favicon.svg' }); } catch { } }
   if (list.length > items.length) try { Note(`📡 盤中雷達：${list.length} 則異動`, { body: list.slice(0, 6).map(a => `${a.name}${a.title}`).join('、'), tag: 'radar-batch', icon: '/favicon.svg' }); } catch { }
 }
 
@@ -143,20 +155,28 @@ function boardCards(b) {
   return `<div class="lv-grid">${sortStocks(b.stocks).map(s => {
     const q = s.quote, chg = chgOf(s), price = q?.close ?? s.daily?.price;
     const ratio = q?.volume && q?.yesterdayVolume && elapsed(q.time) >= 5 ? q.volume / (elapsed(q.time) / MK.sessionLength()) / q.yesterdayVolume : null;
+    // 外盤比（即時推播才有）：外盤成交量 ÷（內盤＋外盤），高代表買方積極
+    const outer = q?.volumeAtAsk != null && q?.volumeAtBid != null && q.volumeAtAsk + q.volumeAtBid > 0 ? q.volumeAtAsk / (q.volumeAtAsk + q.volumeAtBid) * 100 : null;
     return `<button class="lv-card ${cls(chg)}" data-kbar="${s.id}"><div class="lv-top"><strong>${esc(s.name)} <span class="stockcode">${s.id}</span></strong>${s.score != null ? `<span class="tag ${s.score >= 75 ? 'amber' : 'cyan'}">${fmt(s.score)}</span>` : ''}</div>
-    <div class="lv-px"><span class="mono ${cls(chg)}">${fmt(price, 2)}</span><span class="mono ${cls(chg)}">${pct(chg)}</span></div>${sparkSVG(s.spark, s.prev, { w: 200, h: 46 })}
-    <div class="lv-meta mono"><span>${q?.volume ? `${fmt(q.volume)} 張` : q?.time ? `收盤 ${q.time}` : s.daily?.asOf ? `日資料 ${s.daily.asOf.slice(5)}` : '—'}</span><span>${q?.amount ? `${yi(q.amount)} 億` : ''}</span><span class="${ratio >= 2 ? 'up' : ''}">${ratio ? `量比 ${fmt(ratio, 1)}` : ''}</span></div></button>`;
+    <div class="lv-px"><span class="mono ${cls(chg)}">${fmt(price, 2)}</span><span class="mono ${cls(chg)}">${pct(chg)}</span></div>${sparkSVG(s.spark, s.prev, { w: 200, h: 46, xs: s.sparkX })}
+    <div class="lv-meta mono"><span>${q?.volume ? `${fmt(q.volume)} ${MK.unit()}` : q?.time ? `收盤 ${q.time}` : s.daily?.asOf ? `日資料 ${s.daily.asOf.slice(5)}` : '—'}</span><span>${q?.amount ? `${yi(q.amount)} 億` : ''}</span><span class="${ratio >= 2 ? 'up' : ''}">${ratio ? `量比 ${fmt(ratio, 1)}` : ''}</span>${outer != null ? `<span class="${outer >= 60 ? 'up' : outer <= 40 ? 'down' : ''}" title="外盤成交量占內外盤合計">外盤 ${fmt(outer, 0)}%</span>` : ''}</div></button>`;
   }).join('')}</div>`;
 }
 
 /* ---------- 盤中雷達頁 ---------- */
+// 即時推播狀態（雷達與看板）：檔數、方案上限、錯誤
+function streamText(st) {
+  if (!st?.capable) return '';
+  if (st.active) return `<span> · ⚡ 雷達即時推播 <b class="mono">${fmt(st.symbols)}</b> 檔</span>${st.total > st.symbols ? `<span>（方案上限 ${fmt(st.limit)} 檔，自選優先）</span>` : ''}`;
+  return st.error ? `<span> · 即時推播未連線：${esc(st.authFailed ? '金鑰無效或方案不支援（10 分鐘後重試）' : st.error === 'no-heartbeat' ? '連線逾時，重新連線中' : st.error)}</span>` : '<span> · 即時推播連線中…</span>';
+}
 export function livePage() {
   const m = L.monitor, open = marketOpen(), b = L.board;
-  const status = `<div class="notice ${m?.error ? 'warn' : ''}"><span><span class="pulse ${open && m?.enabled ? '' : 'off'}"></span> ${!m ? '讀取中…' : !m.enabled ? '盤中監控已關閉' : open ? `盤中監控中 · 行情時間 <b class="mono">${esc(b?.asOf?.slice(11, 19) || '—')}</b> · 每 10 秒` : `非盤中 · 平日 ${MK.market().sessions?.[0]?.[0] || ''} 自動開始`}${m?.error ? ` · ${esc(m.error)}` : ''} · ${alertDayLabel() || '今日'}異動 <b class="mono">${L.alerts.filter(isMove).length}</b> 則${m?.news?.enabled ? ` · 🗞️ 新聞 <b class="mono">${L.alerts.filter(a => a.type === 'news').length}</b> 則` : ''}</span><span class="actions"><button data-live="pip" title="開啟永遠置頂的浮動雷達視窗">🪟 浮動雷達視窗</button><button data-live="notify">${L.notify ? '🔔 桌面通知：開' : '🔕 開啟桌面通知'}</button></span></div>`;
+  const status = `<div class="notice ${m?.error ? 'warn' : ''}"><span><span class="pulse ${open && m?.enabled ? '' : 'off'}"></span> ${!m ? '讀取中…' : !m.enabled ? '盤中監控已關閉' : open ? `盤中監控中 · 行情時間 <b class="mono">${esc(b?.asOf?.slice(11, 19) || '—')}</b> · 每 10 秒` + streamText(m?.stream) : `非盤中 · 平日 ${MK.market().sessions?.[0]?.[0] || ''} 自動開始`}${m?.error ? ` · ${esc(m.error)}` : ''} · ${alertDayLabel() || '今日'}異動 <b class="mono">${L.alerts.filter(isMove).length}</b> 則${m?.news?.enabled ? ` · 🗞️ 新聞 <b class="mono">${L.alerts.filter(a => a.type === 'news').length}</b> 則` : ''}</span><span class="actions"><button data-live="pip" title="開啟永遠置頂的浮動雷達視窗">🪟 浮動雷達視窗</button><button data-live="notify">${L.notify ? '🔔 桌面通知：開' : '🔕 開啟桌面通知'}</button></span></div>`;
   const list = L.alerts.filter(a => alertMatch(a, L.group)).slice().reverse();
   const radar = `<div class="lv-chips">${ALERT_GROUPS.map(([k, l]) => `<button class="${L.group === k ? 'selected' : ''}" data-agroup="${k}">${l} <b class="mono">${L.alerts.filter(a => alertMatch(a, k)).length}</b></button>`).join('')}</div><div class="ix-alerts">${list.map(alertRow).join('') || `<div class="empty"><p>${open ? '目前沒有符合條件的異動。' : '今日尚無異動紀錄。'}</p></div>`}</div>`;
   const sorts = `<div class="segmented" title="卡片排序">${BOARD_SORTS.map(([v, l]) => `<button class="${L.bsort === v ? 'selected' : ''}" data-bsort="${v}">${l}</button>`).join('')}</div>`;
-  return `${status}${L.error ? `<div class="notice err"><span>${esc(L.error)}</span></div>` : ''}<div class="lv-layout"><section class="panel"><div class="panelhead"><div><h2><span class="idx">01</span>即時看板</h2><p>切換自選或研究總覽族群 · 盤中每 10 秒更新 · 虛線為昨收 · 點卡片看日 K／5 分 K</p></div>${sorts}</div>${boardGroupBar(b)}<div class="contentpad">${boardCards(b)}</div></section>
+  return `${status}${L.error ? `<div class="notice err"><span>${esc(L.error)}</span></div>` : ''}${daytradePanel()}<div class="lv-layout"><section class="panel"><div class="panelhead"><div><h2><span class="idx">01</span>即時看板</h2><p>切換自選或研究總覽族群 · 盤中每 10 秒更新 · 虛線為昨收 · 點卡片看日 K／5 分 K</p></div>${sorts}</div>${boardGroupBar(b)}<div class="contentpad">${boardCards(b)}</div></section>
   <aside class="rightcol"><section class="panel"><div class="panelhead"><div><h2><span class="idx">02</span>異動雷達</h2><p>爆量 · 急拉急殺 · 漲跌停 · 型態進場 · 跌破防守</p></div></div>${radar}</section>${settingsPanel()}</aside></div>`;
 }
 function settingsPanel() {
@@ -248,7 +268,7 @@ export function newsSettings() {
   if (!L.monitor) { refreshMonitor().then(() => C.page() === 'settings' && C.redraw()); return ''; }
   const n = L.monitor.news || { enabled: false, scope: 'all', quiet: false };
   return `<section class="panel contentpad" id="news-settings"><h2>🗞️ 新聞推播 <span class="tag ${n.enabled ? 'cyan' : ''}">${n.enabled ? 'ON' : 'OFF'}</span></h2>
-  <p>開啟後每分鐘掃描一次資料源的全市場新聞（以 FinMind 為例約 60 次請求／小時；當地時間 00:00–08:00 另查前一日，約 120 次／小時），研究族群的成分股一出現新新聞，就推播到手機、在電腦跳出通知，並列入盤中雷達的「新聞」分類。論壇貼文、個股概覽頁與同一則新聞的重複轉載會自動略過。</p>
+  <p>開啟後每分鐘掃描一次資料源的全市場新聞（以 FinMind 為例約 60 次請求／小時；當地時間 00:00–08:00 另查前一日，約 120 次／小時；FinMind 新聞約每 2 小時更新一批），台股另每分鐘查一次鉅亨網最新新聞（幾分鐘內就有）。研究族群的成分股一出現新新聞，就推播到手機、在電腦跳出通知，並列入盤中雷達的「新聞」分類。論壇貼文、個股概覽頁與同一則新聞在不同來源的重複轉載會自動略過。</p>
   <div class="news-set"><label class="checkbox"><input type="checkbox" data-npush="enabled" ${n.enabled ? 'checked' : ''}><b>開啟新聞推播</b></label>
   <label class="field">推播範圍<select data-npush="scope"><option value="all" ${n.scope === 'all' ? 'selected' : ''}>全部研究族群成分股</option><option value="watch" ${n.scope === 'watch' ? 'selected' : ''}>只推自選股</option></select></label>
   <label class="checkbox"><input type="checkbox" data-npush="quiet" ${n.quiet ? 'checked' : ''}>夜間勿擾（23:00–07:00 只記錄、不推播）</label></div>

@@ -12,6 +12,14 @@ test('local API persists watchlist/evidence, validates settings, blocks cross-or
   fs.writeFileSync(path.join(directory,'groups.json'),JSON.stringify({version:1,groups:[{id:'test',name:'測試族群',stockIds:['2330']}],stockMetadata:[]}));
   const catalog=JSON.parse(fs.readFileSync(path.join(directory,'universe.json'),'utf8'));catalog.push({id:'2454',name:'聯發科',sector:'半導體業',market:'上市'});fs.writeFileSync(path.join(directory,'universe.json'),JSON.stringify(catalog));
   const fixture=JSON.parse(fs.readFileSync(path.join(root,'tests/pattern-fixtures.json'),'utf8'))[0];const fixtureToday=new Date().toISOString().slice(0,10),shift=Date.parse(fixtureToday)-Date.parse(fixture.price.at(-1).date);for(const key of ['price','adjusted'])fixture[key]=fixture[key].map(r=>({...r,date:new Date(Date.parse(r.date)+shift).toISOString().slice(0,10)}));catalog.push(fixture.stock);fs.writeFileSync(path.join(directory,'universe.json'),JSON.stringify(catalog));fs.mkdirSync(path.join(directory,'stocks'),{recursive:true});fs.writeFileSync(path.join(directory,'stocks',fixture.stock.id+'.json'),JSON.stringify(fixture));
+  // 時光機紀錄（09:00、11:15、13:30 三個畫格）：看板走勢圖的橫軸位置應為全日的 0、0.5、1
+  fs.mkdirSync(path.join(directory,'replay'),{recursive:true});
+  fs.writeFileSync(path.join(directory,'replay','2026-10-07.ndjson'),[{v:2,date:'2026-10-07',ids:['2330'],prev:[100000],ps:100,as:1e6},{t:'09:00',p:[100500],a:[10],v:[5]},{t:'11:15',p:[101000],a:[20],v:[9]},{t:'13:30',p:[100800],a:[30],v:[12]}].map(x=>JSON.stringify(x)).join('\n')+'\n');
+  // 已收盤檢討過的當沖訊號紀錄（未檢討完的不計入）
+  fs.mkdirSync(path.join(directory,'daytrade'),{recursive:true});
+  const outcome={r5:0.3,r15:-0.2,r30:0.5,rClose:-1,mfe:1.2,mae:-0.4,cost:0.435};
+  fs.writeFileSync(path.join(directory,'daytrade','2026-10-06.json'),JSON.stringify({date:'2026-10-06',mode:'full',closedAt:'2026-10-06T05:36:00Z',signals:[{type:'dt-breakout',id:'2330',name:'台積電',t:'09:40:01',price:1450,score:72,outcome},{type:'dt-bid',id:'2330',name:'台積電',t:'10:05:00',price:1460,score:65,outcome:{...outcome,r15:0.4}}]}));
+  fs.writeFileSync(path.join(directory,'daytrade','2026-10-07.json'),JSON.stringify({date:'2026-10-07',signals:[{type:'dt-vwap',id:'2330',price:1,m:600}]}));
   const child=spawn(process.execPath,['server.mjs'],{cwd:root,env:{...process.env,PORT:'4399',EQUITY_DATA_DIR:directory,FINMIND_API_TOKEN:''},windowsHide:true,stdio:['ignore','pipe','pipe']});
   try{
     await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',c=>reject(new Error(`Server exited ${c}`)));setTimeout(()=>reject(new Error('Server startup timeout')),10000).unref();});
@@ -58,6 +66,18 @@ test('local API persists watchlist/evidence, validates settings, blocks cross-or
     assert.equal((await fetch(base+'heatmap/query',{method:'POST',headers,body:'{"date":"2026-02-30"}'})).status,400);
     assert.equal((await fetch('http://127.0.0.1:4399/heatmap.js')).status,200);assert.equal((await fetch('http://127.0.0.1:4399/hud.css')).status,200);assert.equal((await fetch('http://127.0.0.1:4399/style.css')).status,404);
     assert.equal((await(await fetch(base+'health')).json()).app,'equilens-nexus');
+    // 沒有支援即時推播的資料源金鑰時，雷達維持快照，狀態不顯示推播
+    const mon=await(await fetch(base+'monitor')).json();assert.deepEqual([mon.stream.capable,mon.stream.active,mon.stream.symbols],[false,false,0]);
+    // 當沖監控：沒有推播資料源時不啟動；設定需 CSRF、數值會被正規化；檢討在沒有紀錄時為空
+    const dtx=await(await fetch(base+'daytrade')).json();assert.deepEqual([dtx.capable,dtx.top.length,dtx.need.full,dtx.cost],[false,0,dtx.need.symbols*3,0.435]);
+    assert.equal((await fetch(base+'daytrade/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"plan":"advanced"}'})).status,403);
+    const dts=await(await fetch(base+'daytrade/settings',{method:'POST',headers,body:JSON.stringify({plan:'advanced',top:999,costs:{feeDiscount:0.28}})})).json();
+    assert.deepEqual([dts.settings.plan,dts.settings.top,dts.settings.costs.feeDiscount,dts.settings.costs.taxRate],['advanced',20,0.28,0.0015]);
+    assert.equal((await(await fetch(base+'daytrade')).json()).cost,0.23);
+    const rv=await(await fetch(base+'daytrade/review')).json();
+    assert.deepEqual([rv.days,rv.signals,rv.types.map(x=>[x.type,x.n,x.win15]).sort()],[1,2,[['dt-bid',1,100],['dt-breakout',1,0]]]);
+    assert.equal(rv.recent[0].signals[0].title,'爆量突破');
+    const bd=(await(await fetch(base+'board?ids=2330')).json()).stocks[0];assert.deepEqual([bd.spark,bd.sparkX,bd.prev],[[1005,1010,1008],[0,0.5,1],1000]);
     assert.equal((await fetch(base+'detail?id=999999')).status,404);
   }finally{child.kill();await new Promise(r=>child.once('close',r));fs.rmSync(directory,{recursive:true,force:true});}
 });

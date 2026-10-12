@@ -6,7 +6,7 @@ self.addEventListener('push', e => {
   e.waitUntil(self.registration.showNotification(d.title || '衡析', {
     body: d.body || '', tag: d.tag || undefined, renotify: !!d.tag, icon: '/icon-192.png', badge: '/badge-96.png', // badge：狀態列小圖示，Android 只取透明度，需為透明底單色剪影
     data: { url: d.url || '/' }, vibrate: [120, 60, 120],
-    silent: false, // 使用 Android 通知類別設定的提示音（可在三星「設定 → 通知」替衡析指定內建音效）
+    silent: false, // 使用 Android 通知類別設定的提示音（網頁通知無法指定音效；可在「盤中 → 雷達 → 衡析通知音效」下載專用音效，再到系統通知設定指定給衡析）
     timestamp: Date.now(),
   }));
 });

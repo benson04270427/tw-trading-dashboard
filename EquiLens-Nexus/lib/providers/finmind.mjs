@@ -3,7 +3,7 @@
 import { getSecret } from '../secrets.mjs';
 import { normalizeUniverse } from '../engine.mjs';
 import { kbarRows } from '../insight.mjs';
-import { DataError, stopped, sleep } from './common.mjs';
+import { DataError, stopped, sleep, addDays } from './common.mjs';
 
 export const DATASETS = { price: 'TaiwanStockPrice', adjusted: 'TaiwanStockPriceAdj', institutions: 'TaiwanStockInstitutionalInvestorsBuySell', revenue: 'TaiwanStockMonthRevenue', valuation: 'TaiwanStockPER' };
 const tokenOf = t => t ?? getSecret('finmind', 'FINMIND_API_TOKEN');
@@ -54,11 +54,30 @@ export async function universe(options = {}) {
 }
 const range = (id, from, to) => ({ ...(id ? { data_id: id } : {}), start_date: from, ...(to ? { end_date: to } : {}) });
 
+// 當沖盤前資料（Sponsor，全市場依日期）：當日可當沖標的（盤前公布）、暫停交易、暫停先賣後買、參考價。
+// 個別資料集失敗時該項留空並記下原因，其餘照用。
+export function parseDayTradePrep({ list, suspended, sellFirst, limits }, date) {
+  const ids = rows => [...new Set((rows || []).map(r => String(r.stock_id)))];
+  const eligible = list ? ids(list.filter(r => r.date === date)) : null;
+  const susp = ids((suspended || []).filter(r => r.date <= date && (!r.resumption_date || r.resumption_date > date)));
+  const off = ids((sellFirst || []).filter(r => r.date <= date && (!r.end_date || r.end_date >= date)));
+  const ref = Object.fromEntries((limits || []).filter(r => r.date === date && r.reference_price > 0).map(r => [String(r.stock_id), r.reference_price]));
+  return { eligible: eligible?.length ? eligible : null, suspended: susp, sellFirstOff: off, ref };
+}
+async function dayTradePrep(date, ctx) {
+  const errors = [], get = async (dataset, params) => { try { return await request(dataset, params, ctx); } catch (e) { errors.push(`${dataset}：${e.message}`); return null; } };
+  const list = await get('TaiwanStockDayTrading', { start_date: date, end_date: date });
+  const suspended = await get('TaiwanStockSuspended', { start_date: addDays(date, -30), end_date: date });
+  const sellFirst = await get('TaiwanStockDayTradingSuspension', { start_date: addDays(date, -40), end_date: date });
+  const limits = await get('TaiwanStockPriceLimit', { start_date: date, end_date: date });
+  return { ...parseDayTradePrep({ list, suspended, sellFirst, limits }, date), errors };
+}
+
 export default {
   id: 'finmind', name: 'FinMind', site: 'https://finmindtrade.com', docs: 'https://finmind.github.io/', markets: ['TW'],
   key: 'required', keyEnv: 'FINMIND_API_TOKEN', interval: 1000,
   // 1：免費可用；'sponsor'：需 Sponsor 方案
-  caps: { universe: 1, calendar: 1, daily: 1, adjusted: 1, dailyAll: 'sponsor', snapshot: 'sponsor', intraday: 'sponsor', news: 1, marketNews: 'sponsor', valuation: 1, revenue: 'monthly', institutional: 1, institutionalAll: 'sponsor', brokers: 'sponsor', holders: 1, flows: 1, futures: 1, margin: 1 },
+  caps: { dayTrade: 'sponsor', universe: 1, calendar: 1, daily: 1, adjusted: 1, dailyAll: 'sponsor', snapshot: 'sponsor', intraday: 'sponsor', news: 1, marketNews: 'sponsor', valuation: 1, revenue: 'monthly', institutional: 1, institutionalAll: 'sponsor', brokers: 'sponsor', holders: 1, flows: 1, futures: 1, margin: 1 },
   snapshotMode: 'market',
   async validate(key) {
     const r = await fetch('https://api.web.finmindtrade.com/v2/user_info', { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) }).catch(() => null);
@@ -80,5 +99,6 @@ export default {
   revenue: (id, from, to, ctx) => request(DATASETS.revenue, range(id, from, to), ctx),
   institutional: (id, from, to, ctx) => request(DATASETS.institutions, range(id, from, to), ctx),
   institutionalAll: (date, ctx) => request(DATASETS.institutions, range(null, date, date), ctx),
+  dayTrade: (date, ctx) => dayTradePrep(date, ctx),
   request, // 台股在地模組（法人籌碼、分點、股權分散、期貨、融資）直接使用
 };

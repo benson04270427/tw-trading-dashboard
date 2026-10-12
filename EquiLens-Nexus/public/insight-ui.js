@@ -8,12 +8,15 @@ const TXT = 'var(--text,var(--ink))';
 const lots = shares => fmt(shares / 1000, 0);
 
 /* ---------- 盤中走勢小圖：以昨收為基準線 ---------- */
-export function sparkSVG(values, prev, { w = 120, h = 38 } = {}) {
-  const v = (values || []).filter(x => x > 0); if (v.length < 2) return `<svg class="ix-spark" viewBox="0 0 ${w} ${h}"></svg>`;
-  const base = prev > 0 ? prev : v[0], lo = Math.min(...v, base), hi = Math.max(...v, base), rg = hi - lo || 1;
-  const x = i => i / (v.length - 1) * (w - 2) + 1, y = p => 2 + (hi - p) / rg * (h - 4);
+// xs（選填）：每一點在全日交易時段中的位置（0＝開盤、1＝收盤）。有 xs 時橫軸固定為全日，線只畫到目前時間，並標出盤中參考時間
+export function sparkSVG(values, prev, { w = 120, h = 38, xs = null } = {}) {
+  const P = (values || []).map((p, i) => [xs ? xs[i] : null, p]).filter(([, p]) => p > 0), full = !!xs && P.every(([x]) => x != null);
+  const grid = full ? MK.axis().slice(1, -1).map(t => { const gx = (MK.elapsed(t) / MK.sessionLength() * (w - 2) + 1).toFixed(1); return `<line x1="${gx}" x2="${gx}" y1="0" y2="${h}" stroke="var(--line2)" stroke-width=".6"/>`; }).join('') : '';
+  if (P.length < 2) return `<svg class="ix-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${grid}</svg>`;
+  const v = P.map(q => q[1]), base = prev > 0 ? prev : v[0], lo = Math.min(...v, base), hi = Math.max(...v, base), rg = hi - lo || 1;
+  const x = i => (full ? P[i][0] : i / (v.length - 1)) * (w - 2) + 1, y = p => 2 + (hi - p) / rg * (h - 4);
   const up = v.at(-1) >= base, col = up ? 'var(--up)' : 'var(--down)', pts = v.map((p, i) => `${x(i).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
-  return `<svg class="ix-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="${w}" y1="${y(base)}" y2="${y(base)}" stroke="var(--soft)" stroke-dasharray="2 3" stroke-width=".8"/><polygon points="1,${y(base)} ${pts} ${x(v.length - 1)},${y(base)}" fill="${col}" opacity=".13"/><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+  return `<svg class="ix-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${grid}<line x1="0" x2="${w}" y1="${y(base)}" y2="${y(base)}" stroke="var(--soft)" stroke-dasharray="2 3" stroke-width=".8"/><polygon points="${x(0).toFixed(1)},${y(base)} ${pts} ${x(v.length - 1).toFixed(1)},${y(base)}" fill="${col}" opacity=".13"/><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 }
 
 /* ---------- K 線（日 K／5 分 K）：K 棒＋5MA／20MA＋成交量；滑鼠移動或點擊顯示該根數值 ---------- */
@@ -150,9 +153,9 @@ export function holderHTML(h) {
 }
 
 /* ---------- 雷達事件 ---------- */
-export const ALERT_ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️' };
-export const ALERT_GROUPS = [['all', '全部'], ['watch', '自選'], ['volume', '爆量'], ['surge', '急拉急殺'], ['limit', '漲跌停'], ['pattern', '型態／防守'], ['news', '新聞']];
-export function alertMatch(a, g) { return g === 'all' || (g === 'watch' && a.watch) || (g === 'volume' && a.type === 'volume') || (g === 'surge' && a.type.startsWith('surge')) || (g === 'limit' && a.type.startsWith('limit')) || (g === 'pattern' && ['pattern-entry', 'stop'].includes(a.type)) || (g === 'news' && a.type === 'news'); }
+export const ALERT_ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰' };
+export const ALERT_GROUPS = [['all', '全部'], ['watch', '自選'], ['daytrade', '當沖'], ['volume', '爆量'], ['surge', '急拉急殺'], ['limit', '漲跌停'], ['pattern', '型態／防守'], ['news', '新聞']];
+export function alertMatch(a, g) { return g === 'all' || (g === 'watch' && a.watch) || (g === 'daytrade' && a.type.startsWith('dt-')) || (g === 'volume' && a.type === 'volume') || (g === 'surge' && a.type.startsWith('surge')) || (g === 'limit' && a.type.startsWith('limit')) || (g === 'pattern' && ['pattern-entry', 'stop'].includes(a.type)) || (g === 'news' && a.type === 'news'); }
 export const isMove = a => a.type !== 'report' && a.type !== 'news'; // 盤中異動（不含日報與新聞）
 export function alertRow(a) {
   if (a.type === 'news') { // 個股新聞：點擊開啟原文
@@ -160,7 +163,8 @@ export function alertRow(a) {
     return /^https?:\/\//i.test(a.url || '') ? `<a class="ix-alert t-news lv-${esc(a.level)}" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>` : `<div class="ix-alert t-news lv-${esc(a.level)}">${inner}</div>`;
   }
   if (a.type === 'report') return `<button class="ix-alert t-report" data-open-report="${esc(a.date || '')}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">📰</span><span class="ix-ab"><b>AI 盤後日報</b><small>${esc(a.detail)}</small></span></button>`;
-  const tone = ['surge-up', 'limit-up', 'pattern-entry', 'limit-down-open'].includes(a.type) ? 'up' : ['surge-down', 'limit-down', 'stop', 'limit-up-open'].includes(a.type) ? 'down' : 'hot';
+  if (!a.stockId) return `<div class="ix-alert t-report lv-${esc(a.level)}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">${ALERT_ICON[a.type] || '📡'}</span><span class="ix-ab"><b>${esc(a.title)}</b><small>${esc(a.detail)}</small></span></div>`; // 不屬於個股的提醒（例如當沖停止新增部位）
+  const tone = ['surge-up', 'limit-up', 'pattern-entry', 'limit-down-open', 'dt-breakout', 'dt-vwap', 'dt-bid'].includes(a.type) ? 'up' : ['surge-down', 'limit-down', 'stop', 'limit-up-open'].includes(a.type) ? 'down' : 'hot';
   return `<button class="ix-alert lv-${a.level} tone-${tone}" data-alert-stock="${esc(a.stockId)}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">${ALERT_ICON[a.type] || '📡'}</span><span class="ix-ab"><b>${esc(a.name)} <small class="num">${esc(a.stockId)}</small>${a.watch ? '<em class="ix-badge acc">自選</em>' : ''} <em class="ix-tag ${tone}">${esc(a.title)}</em></b><small>${esc(a.detail)}</small></span><span class="ix-ap num ${cls(a.change)}">${fmt(a.close, 2)}<small>${pct(a.change)}</small></span></button>`;
 }
 

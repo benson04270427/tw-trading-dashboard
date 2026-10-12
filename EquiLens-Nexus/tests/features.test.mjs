@@ -14,6 +14,8 @@ const access = await import('../lib/access.mjs');
 const grouprank = await import('../lib/grouprank.mjs');
 const newswatch = await import('../lib/newswatch.mjs');
 const wgroups = await import('../lib/watchgroups.mjs');
+const { parseCnyes } = await import('../lib/providers/cnyes.mjs');
+const { parseTpexDayTrade } = await import('../lib/providers/twse.mjs');
 
 test('watch groups: create, rename, delete, reorder; deleted group members become ungrouped', () => {
   const list = ['2330', '2454', '3037'];
@@ -66,6 +68,34 @@ test('news watch: noise filtered, reposts merged, first scan seeds silently, the
   assert.equal(newswatch.quietNow(23, true), true); assert.equal(newswatch.quietNow(6, true), true); assert.equal(newswatch.quietNow(7, true), false); assert.equal(newswatch.quietNow(2, false), false);
   assert.deepEqual(newswatch.normalizeNews({ enabled: 'yes', scope: 'x' }), { enabled: false, scope: 'all', quiet: false });
   assert.equal(newswatch.validNewsInput({ enabled: true, scope: 'watch', quiet: false }), true); assert.equal(newswatch.validNewsInput({ enabled: 1, scope: 'all', quiet: false }), false);
+});
+
+test('news watch: a newly added source is recorded silently once; the same article on both sources pushes once', () => {
+  const scope = new Set(['2330', '3290']), t0 = Date.parse('2026-10-12T05:00:00Z');
+  const fin = (title, link) => ({ date: '2026-10-12 13:00:00', stock_id: '2330', title, link, source: '經濟日報' });
+  const st = newswatch.createNewsState(null);
+  newswatch.scanNews(st, [fin('舊聞', 'https://u/1')], { scope, now: t0 });
+  const cn = parseCnyes({ items: { data: [
+    { newsId: 1, title: '東浦精密Q3營收創新高', publishAt: 1791783230, stock: ['3290'], market: [{ code: '3290', symbol: 'TWS:3290:STOCK' }] },
+    { newsId: 2, title: '輝達財報（NVDA）', publishAt: 1791783000, stock: ['US-NVDA'], market: [{ code: 'NVDA', symbol: 'USS:NVDA:STOCK' }] },
+    { newsId: 3, title: '台積電(2330)法說會', publishAt: 1791782000, stock: [], market: [] },
+  ] } });
+  assert.deepEqual(cn.map(r => [r.stock_id, r.date, r.link, r.source]), [['3290', '2026-10-12 13:33:50', 'https://news.cnyes.com/news/id/1', '鉅亨網'], ['2330', '2026-10-12 13:13:20', 'https://news.cnyes.com/news/id/3', '鉅亨網']]);
+  assert.throws(() => parseCnyes({ items: {} }), /格式/);
+  // 第一次加入鉅亨網：既有文章只記錄
+  assert.equal(newswatch.scanNews(st, [fin('舊聞', 'https://u/1')], { scope, now: t0 + 60e3, seedOnly: cn }).fresh.length, 0);
+  st.sources.add('cnyes');
+  // 之後的新文章：鉅亨網與 FinMind 同一篇（同連結）只算一次
+  const next = parseCnyes({ items: { data: [{ newsId: 9, title: '台積電擴產', publishAt: 1791783900, stock: ['2330'] }] } });
+  const r = newswatch.scanNews(st, [...next, fin('台積電擴產 - 鉅亨網', 'https://news.cnyes.com/news/id/9'), ...cn], { scope, now: t0 + 120e3 });
+  assert.deepEqual(r.fresh.map(a => a.title), ['台積電擴產']);
+  assert.deepEqual(newswatch.createNewsState(JSON.parse(JSON.stringify(newswatch.saveNewsState(st)))).sources.has('cnyes'), true);
+});
+
+test('TPEx day-trade list: eligible codes and sell-first suspensions', () => {
+  const body = { tables: [{ title: '現股當沖交易標的', fields: ['證券代號', '證券名稱', '暫停現股賣出後現款買進當沖註記'], data: [['3260', '威剛', ''], ['6187', '萬潤', 'Y'], ['00679B', '元大美債20年', '']] }] };
+  assert.deepEqual(parseTpexDayTrade(body), { eligible: ['3260', '6187', '00679B'], sellFirstOff: ['6187'] });
+  assert.equal(parseTpexDayTrade({ tables: [] }), null);
 });
 
 test('group ranking: low-volume outliers excluded, sqrt-turnover weighting, ranks and rank moves', () => {
