@@ -121,7 +121,6 @@ server {
 - 主機名稱白名單：本機、電腦版設定的網域（Cloudflare 臨時網址模式另允許 `*.trycloudflare.com`）。
 - CSP、禁止被嵌入框架、不傳 Referrer；搜尋引擎 noindex。
 - 手機端可以閱讀、查詢熱浪圖與法人、加減自選、更新行情與型態資料、調整雷達與新聞推播；資料來源、金鑰、AI 模型、研究族群與遠端存取只能在電腦版設定。
-- 專用通知音效（Android）：「盤中 → 雷達」可試聽與下載三種衡析通知音（`public/sound-*.wav`，由 `tools/make-sounds.mjs` 產生），再到 Android 的通知設定指定給衡析。網頁通知無法由 App 逐則指定音效；iPhone 只能用系統預設音效。
 
 ## 檔案
 

@@ -297,11 +297,6 @@ button.bf-chip{min-height:30px}
 .lv-px .chg{min-width:0;padding:2px 6px;font-size:.78rem}
 .ix-spark{width:100%;height:38px;display:block}
 .lv-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 4px;font-size:.7rem;color:var(--muted)}
-/* 通知音效 */
-.lv-sound .snd-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
-.lv-sound .snd-row span{display:grid;gap:2px}.lv-sound .snd-row small{color:var(--muted);font-size:.74rem}
-.lv-sound a.btn{text-decoration:none;text-align:center}
-.snd-help{margin-top:8px;font-size:.8rem;color:var(--muted)}.snd-help summary{cursor:pointer;color:var(--text)}.snd-help ol{padding-left:18px;display:grid;gap:4px}
 /* 當沖掃描 */
 .dt-head{display:grid;gap:4px;font-size:.82rem;margin-bottom:10px}.dt-head small{color:var(--muted)}
 .dt-list{display:grid;gap:6px}

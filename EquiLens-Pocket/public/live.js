@@ -121,26 +121,12 @@ function boardView() {
       <div class="lv-meta num"><span>${q?.volume ? `${fmt(q.volume)} 張` : q?.time ? `收盤 ${q.time}` : s.daily?.asOf ? `日資料 ${s.daily.asOf.slice(5)}` : '—'}</span><span>${q?.amount ? `${yi(q.amount)} 億` : ''}</span><span class="${ratio >= 2 ? 'up' : ''}">${ratio ? `量比 ${fmt(ratio, 1)}` : ''}</span>${outer != null ? `<span class="${outer >= 60 ? 'up' : outer <= 40 ? 'down' : ''}">外盤 ${fmt(outer, 0)}%</span>` : ''}</div></button>`;
   }).join('')}</div><p class="foot">${b.live ? (b.stream ? '即時推播（每 3 秒更新畫面）' : '盤中每 10 秒更新') : b.date ? `顯示 ${esc(b.date)} 最後狀態` : '開盤後自動顯示即時報價'} · 點卡片看日 K／5 分 K<br>族群旁的數字為量能加權漲幅（與「族群排名」同算法）</p>`;
 }
-// 衡析專用通知音效：Android 的網頁通知無法由 App 指定音效，下載後在系統通知設定把衡析的通知音換成它
-const SOUNDS = [['chime', '標準', '上行雙音鐘聲'], ['alert', '醒目', '快速三連音，適合吵雜環境'], ['soft', '柔和', '木琴般單音，適合辦公室']];
-function soundCard() {
-  if (!/Android/i.test(navigator.userAgent)) return '';
-  return `<section class="card lv-sound"><div class="card-b"><b>🔔 衡析通知音效</b><p>Android 的網頁通知只能使用系統設定的音效。下載專用音效後，把衡析的通知音換成它，就能一聽就知道是衡析。</p>
-    ${SOUNDS.map(([k, name, desc]) => `<div class="snd-row"><span><b>${name}</b><small>${desc}</small></span><button class="btn" data-sound-play="${k}">▶ 試聽</button><a class="btn" href="/sound-${k}.wav" download="衡析通知音-${name}.wav">下載</a></div>`).join('')}
-    <details class="snd-help"><summary>如何設定為通知音</summary><ol>
-      <li>按「下載」，檔案會存到手機的「下載」資料夾。</li>
-      <li>三星手機：設定 → 通知 → 應用程式通知 → 衡析（若是用瀏覽器開啟則選 Chrome）→ 通知類別 → 選擇衡析的類別 → 音效 → 右上角「＋」或從「我的檔案」選擇下載的音效。清單中找不到時，用「我的檔案」把檔案移到 Notifications 資料夾再選。</li>
-      <li>其他 Android 手機：設定 → 應用程式 → 衡析 → 通知 → 通知類別 → 音效 → 從裝置選擇檔案。</li>
-      <li>設定好後按上方「發送測試」確認。</li>
-    </ol><p>iPhone 的網頁通知只能使用系統預設音效。</p></details></div></section>`;
-}
-let soundPlayer = null;
 function radarView() {
   const p = L.push, list = L.alerts.filter(a => alertMatch(a, L.group)).slice().reverse();
   const pushCard = `<section class="card lv-push"><div class="card-b"><b>📲 手機通知</b><p>${p.state === 'on' ? `已開啟 · 共 ${p.count} 台裝置` : p.state === 'unsupported' || p.state === 'denied' ? pushHelp(p.state) : '開啟後，盤中異動與 AI 日報會直接推到這支手機。'}</p>
     <div class="upd-row">${p.state === 'on' ? '<button class="btn" data-push="test">發送測試</button><button class="btn" data-push="off">關閉通知</button>' : p.state === 'unsupported' || p.state === 'denied' ? '' : '<button class="btn primary" data-push="on" style="grid-column:1/-1">開啟通知</button>'}</div></div></section>`;
   const chips = `<div class="chips" style="margin-bottom:10px">${ALERT_GROUPS.map(([k, l]) => `<button class="chip ${L.group === k ? 'on' : ''}" data-agroup="${k}">${l} ${L.alerts.filter(a => alertMatch(a, k)).length}</button>`).join('')}</div>`;
-  return pushCard + soundCard() + chips + `<section class="card ix-alerts">${list.map(alertRow).join('') || `<div class="empty">${marketOpen() ? '目前沒有符合條件的異動。' : '今日尚無異動紀錄。開盤後雷達會自動掃描。'}</div>`}</section>`;
+  return pushCard + chips + `<section class="card ix-alerts">${list.map(alertRow).join('') || `<div class="empty">${marketOpen() ? '目前沒有符合條件的異動。' : '今日尚無異動紀錄。開盤後雷達會自動掃描。'}</div>`}</section>`;
 }
 function settingsView() {
   const d = L.draft; if (!d) return '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
@@ -313,7 +299,6 @@ document.addEventListener('click', async e => {
   try {
     if (ds.lview) { L.view = ds.lview; if (ds.lview === 'radar') checkPush().then(() => C.S.tab === 'live' && C.draw()); if (ds.lview === 'groups') loadGroupRank(); if (ds.lview === 'daytrade') loadDaytrade().then(() => C.S.tab === 'live' && L.view === 'daytrade' && C.draw()); return C.draw(); }
     if ('dtreview' in ds) { await loadDtReview(); return C.draw(); }
-    if (ds.soundPlay) { try { soundPlayer?.pause(); soundPlayer = new Audio(`/sound-${ds.soundPlay}.wav`); await soundPlayer.play(); } catch { C.toast('無法播放音效'); } return; }
     if ('grQuery' in ds) { GR.view = 'live'; return queryGroupRank(); }
     if (ds.grGroup) { GR.open.has(ds.grGroup) ? GR.open.delete(ds.grGroup) : GR.open.add(ds.grGroup); return C.draw(); }
     if (ds.grStock) return C.inScope(ds.grStock) ? C.openStock(ds.grStock) : openChart(ds.grStock);
