@@ -20,7 +20,7 @@ const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/heatmap.js': ['heatmap.js', 'text/javascript; charset=utf-8'], '/flow-cards.js': ['flow-cards.js', 'text/javascript; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json'], '/icon.svg': ['icon.svg', 'image/svg+xml'],
-  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/live.js': ['live.js', 'text/javascript; charset=utf-8'], '/insight-ui.js': ['insight-ui.js', 'text/javascript; charset=utf-8'], '/report-card.js': ['report-card.js', 'text/javascript; charset=utf-8'], '/save-image.js': ['save-image.js', 'text/javascript; charset=utf-8'], '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'], '/market.js': ['market.js', 'text/javascript; charset=utf-8'],  '/icon-192.png': ['icon-192.png', 'image/png'], '/badge-96.png': ['badge-96.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'], '/apple-touch-icon.png': ['icon-192.png', 'image/png'],
+  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/live.js': ['live.js', 'text/javascript; charset=utf-8'], '/chips.js': ['chips.js', 'text/javascript; charset=utf-8'], '/insight-ui.js': ['insight-ui.js', 'text/javascript; charset=utf-8'], '/report-card.js': ['report-card.js', 'text/javascript; charset=utf-8'], '/save-image.js': ['save-image.js', 'text/javascript; charset=utf-8'], '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'], '/market.js': ['market.js', 'text/javascript; charset=utf-8'],  '/icon-192.png': ['icon-192.png', 'image/png'], '/badge-96.png': ['badge-96.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'], '/apple-touch-icon.png': ['icon-192.png', 'image/png'],
 };
 
 // 前端版本號：public 內檔案的修改時間雜湊（改了網頁檔即變更，手機 App 回到前景時會自動重新載入）
@@ -119,6 +119,10 @@ async function api(req, res, url) {
     if (route === 'grouprank') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.grouprank(date)); }
     if (route === 'report/card') { const date = q.get('date'); if (date && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.reportCard(date)); }
     if (route === 'report') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.report(date)); }
+    if (route === 'price-alerts') return send(req, res, 200, await nexus.priceAlerts());
+    if (route === 'chipwatch') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.chipwatch(date)); }
+    if (route === 'chipwatch/branches') { const k = String(q.get('q') || '').trim(); if (k.length > 30) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.brokerSearch(k)); }
+    if (route === 'holders/rank') { const scope = q.get('scope') || 'mine', date = q.get('date'); if (!['mine', 'market'].includes(scope) || (date && date !== 'latest' && !validDate(date))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.holderRank(scope, date)); }
     if (route === 'push/key') return send(req, res, 200, { publicKey: push.publicKey(), count: push.subscriptionCount(), subscribed: q.get('endpoint') ? push.hasSubscription(q.get('endpoint')) : null });
     if (route === 'job') { const { job: j = {}, busy } = await nexus.job(); return send(req, res, 200, { running: !!j.running, busy: !!busy, done: j.done || 0, total: j.total || 0, current: j.current || null, message: j.message || '', errors: (j.errors || []).length, finishedAt: j.finishedAt || null }); }
     if (route === 'patterns') { const p = await nexus.patterns(); return send(req, res, 200, { asOf: p.asOf, from: p.from, matched: p.matched, count: p.patternCount, eligible: p.eligible, rows: nexus.slimPatternRows(p) }); }
@@ -148,6 +152,21 @@ async function api(req, res, url) {
     if (route === 'news/settings') {
       if (typeof b.enabled !== 'boolean' || !['all', 'watch'].includes(b.scope) || typeof b.quiet !== 'boolean') throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
       return send(req, res, 200, await nexus.newsSettings({ enabled: b.enabled, scope: b.scope, quiet: b.quiet }));
+    }
+    if (route === 'price-alerts') {
+      // 新增（stockId）或修改（id）自訂提醒；條件與數值由 Nexus 檢查
+      const ok = (b.id === undefined || (typeof b.id === 'string' && /^[\w-]{1,40}$/.test(b.id))) && (b.stockId === undefined || validId(b.stockId)) && (b.id !== undefined || b.stockId !== undefined)
+        && (b.kind === undefined || typeof b.kind === 'string') && (b.value === undefined || Number.isFinite(Number(b.value))) && (b.repeat === undefined || typeof b.repeat === 'boolean') && (b.active === undefined || typeof b.active === 'boolean') && (b.note === undefined || (typeof b.note === 'string' && b.note.length <= 60));
+      if (!ok) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
+      return send(req, res, 200, await nexus.priceAlertSave({ id: b.id, stockId: b.stockId, kind: b.kind, value: b.value, repeat: b.repeat, active: b.active, note: b.note }));
+    }
+    if (route === 'price-alerts/delete') { if (typeof b.id !== 'string' || !/^[\w-]{1,40}$/.test(b.id)) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.priceAlertDelete(b.id)); }
+    if (route === 'chipwatch/query') { if (b.date && !validDate(b.date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 202, await nexus.chipwatchQuery(b.date ? { date: b.date } : {})); }
+    if (route === 'holders/rank/query') return send(req, res, 200, await nexus.holderRankQuery());
+    if (route === 'chipwatch/settings') {
+      const br = b.branches; if (br !== undefined && (!Array.isArray(br) || br.length > 20 || !br.every(x => x && typeof x.id === 'string' && /^[\w]{1,10}$/.test(x.id) && typeof x.name === 'string' && x.name.length <= 40))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
+      if ((b.auto !== undefined && typeof b.auto !== 'boolean') || (b.minLots !== undefined && !Number.isFinite(Number(b.minLots))) || (b.holdersPush !== undefined && typeof b.holdersPush !== 'boolean')) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
+      return send(req, res, 200, await nexus.chipwatchSettings({ branches: br, auto: b.auto, minLots: b.minLots, holdersPush: b.holdersPush }));
     }
     if (route === 'report/generate') { if (b.date && !validDate(b.date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 202, await nexus.reportGenerate(b.date)); }
     // 推播聯絡網址：手機開啟通知時所用的 https 網址（Nexus 設定了對外網址時以該網址為準）

@@ -67,3 +67,14 @@ test('alerts become concise notifications, batching bursts', () => {
   const dt = push.notificationsFor([a(0, { type: 'dt-breakout', title: '爆量突破' }), { type: 'dt-stop', stockId: '', name: '', title: '停止新增部位', detail: '13:10 起不再發出當沖訊號' }]);
   assert.deepEqual(dt.map(x => [x.title, x.body]), [['💥 股0 2330 爆量突破', '100（+2.5%）· 5 分鐘內 +2.5%'], ['⏰ 停止新增部位', '13:10 起不再發出當沖訊號']]);
 });
+
+test('custom alerts are never folded into the radar batch; chip summaries open the chips tab', () => {
+  const a = i => ({ type: 'surge-up', stockId: '2330', name: `股${i}`, title: '急拉', close: 100, change: 2.5, detail: 'x', watch: false });
+  const c = i => ({ type: 'custom', rule: `r${i}`, stockId: '2330', name: '台積電', title: '自訂提醒', close: 1001, change: 1.1, detail: `價格 ≥ 1000 · ${i}` });
+  const out = push.notificationsFor([...Array.from({ length: 5 }, (_, i) => a(i)), c(1), c(2), { type: 'broker', title: '分點追蹤：凱基台北', detail: '2026-10-13 · 買超：台積電 +350', date: '2026-10-13' }]);
+  assert.deepEqual(out.map(n => n.title), ['🔔 台積電 2330', '🔔 台積電 2330', '🏦 分點追蹤：凱基台北', '📡 盤中雷達：5 則異動']);
+  assert.deepEqual(out.map(n => n.tag).slice(0, 3), ['custom:r1', 'custom:r2', 'broker:2026-10-13']);
+  assert.equal(out[2].url, '/#flows');
+  const burst = push.notificationsFor(Array.from({ length: 7 }, (_, i) => c(i)));
+  assert.equal(burst.length, 1); assert.match(burst[0].title, /7 則/);
+});

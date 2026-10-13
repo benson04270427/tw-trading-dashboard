@@ -136,7 +136,8 @@ export function replayStocks(sum, frame) {
 /* ---------- 券商分點 ---------- */
 export function brokerHTML(b) {
   if (!b) return '<div class="ix-empty">查無分點資料</div>';
-  const row = (x, side) => `<tr class="${x.dayTrader ? 'ix-dt' : ''}"><td>${esc(x.name)}${x.dayTrader ? '<em class="ix-badge warn">隔日沖</em>' : ''}${Math.abs(x.streak) >= 3 ? `<em class="ix-badge ${x.streak > 0 ? 'up' : 'down'}">連${Math.abs(x.streak)}${x.streak > 0 ? '買' : '賣'}</em>` : ''}</td><td class="num ${side}">${x.net > 0 ? '+' : ''}${lots(x.net)}</td><td class="num">${fmt(side === 'up' ? x.avgBuy : x.avgSell, 2)}</td><td class="num ${cls(x.cumNet)}">${x.cumNet > 0 ? '+' : ''}${lots(x.cumNet)}</td></tr>`;
+  const tracked = new Set(b.tracked || []);
+  const row = (x, side) => `<tr class="${x.dayTrader ? 'ix-dt' : ''}"><td>${esc(x.name)}${tracked.has(x.id) ? '<em class="ix-badge acc">追蹤</em>' : ''}${x.dayTrader ? '<em class="ix-badge warn">隔日沖</em>' : ''}${Math.abs(x.streak) >= 3 ? `<em class="ix-badge ${x.streak > 0 ? 'up' : 'down'}">連${Math.abs(x.streak)}${x.streak > 0 ? '買' : '賣'}</em>` : ''}</td><td class="num ${side}">${x.net > 0 ? '+' : ''}${lots(x.net)}</td><td class="num">${fmt(side === 'up' ? x.avgBuy : x.avgSell, 2)}</td><td class="num ${cls(x.cumNet)}">${x.cumNet > 0 ? '+' : ''}${lots(x.cumNet)}</td></tr>`;
   const table = (list, side, title) => `<div class="ix-btable"><h5 class="${side}">${title}</h5><table><thead><tr><th>分點</th><th>淨張</th><th>均價</th><th>${b.dates.length}日累計</th></tr></thead><tbody>${list.map(x => row(x, side)).join('') || '<tr><td colspan="4" class="muted">無</td></tr>'}</tbody></table></div>`;
   return `<div class="ix-bmeta"><span>${esc(b.date)}</span><span>${fmt(b.brokerCount)} 個分點 · 成交 ${lots(b.volume)} 張</span><span>主力集中度 <b class="${cls(b.concentration)}">${pct(b.concentration, 1)}</b></span></div>
   <div class="ix-bgrid">${table(b.buy.slice(0, 8), 'up', '買超前 8')}${table(b.sell.slice(0, 8), 'down', '賣超前 8')}</div>
@@ -153,18 +154,19 @@ export function holderHTML(h) {
 }
 
 /* ---------- 雷達事件 ---------- */
-export const ALERT_ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰' };
-export const ALERT_GROUPS = [['all', '全部'], ['watch', '自選'], ['daytrade', '當沖'], ['volume', '爆量'], ['surge', '急拉急殺'], ['limit', '漲跌停'], ['pattern', '型態／防守'], ['news', '新聞']];
-export function alertMatch(a, g) { return g === 'all' || (g === 'watch' && a.watch) || (g === 'daytrade' && a.type.startsWith('dt-')) || (g === 'volume' && a.type === 'volume') || (g === 'surge' && a.type.startsWith('surge')) || (g === 'limit' && a.type.startsWith('limit')) || (g === 'pattern' && ['pattern-entry', 'stop'].includes(a.type)) || (g === 'news' && a.type === 'news'); }
-export const isMove = a => a.type !== 'report' && a.type !== 'news'; // 盤中異動（不含日報與新聞）
+export const ALERT_ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰', custom: '🔔', broker: '🏦', holders: '🐋' };
+export const ALERT_GROUPS = [['all', '全部'], ['watch', '自選'], ['custom', '自訂'], ['daytrade', '當沖'], ['volume', '爆量'], ['surge', '急拉急殺'], ['limit', '漲跌停'], ['pattern', '型態／防守'], ['news', '新聞'], ['chips', '籌碼']];
+export function alertMatch(a, g) { return g === 'all' || (g === 'watch' && a.watch) || (g === 'daytrade' && a.type.startsWith('dt-')) || (g === 'volume' && a.type === 'volume') || (g === 'surge' && a.type.startsWith('surge')) || (g === 'limit' && a.type.startsWith('limit')) || (g === 'pattern' && ['pattern-entry', 'stop'].includes(a.type)) || (g === 'news' && a.type === 'news') || (g === 'custom' && a.type === 'custom') || (g === 'chips' && (a.type === 'broker' || a.type === 'holders')); }
+export const isMove = a => !['report', 'news', 'broker', 'holders'].includes(a.type); // 盤中異動（不含日報、新聞與盤後籌碼摘要）
 export function alertRow(a) {
   if (a.type === 'news') { // 個股新聞：點擊開啟原文
     const inner = `<span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">🗞️</span><span class="ix-ab"><b>${esc(a.name)} <small class="num">${esc(a.stockId)}</small>${a.watch ? '<em class="ix-badge acc">自選</em>' : ''} <em class="ix-tag news">${esc(a.source || '新聞')}</em></b><small>${esc(a.detail)}</small></span><span class="ix-ap num ${cls(a.change)}">${a.close != null ? fmt(a.close, 2) : ''}<small>${a.change != null ? pct(a.change) : ''}</small></span>`;
     return /^https?:\/\//i.test(a.url || '') ? `<a class="ix-alert t-news lv-${esc(a.level)}" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>` : `<div class="ix-alert t-news lv-${esc(a.level)}">${inner}</div>`;
   }
   if (a.type === 'report') return `<button class="ix-alert t-report" data-open-report="${esc(a.date || '')}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">📰</span><span class="ix-ab"><b>AI 盤後日報</b><small>${esc(a.detail)}</small></span></button>`;
+  if (a.type === 'broker' || a.type === 'holders') return `<button class="ix-alert t-report lv-${esc(a.level)}" data-open-chips="${a.type}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">${ALERT_ICON[a.type]}</span><span class="ix-ab"><b>${esc(a.title)}</b><small>${esc(a.detail)}</small></span></button>`;
   if (!a.stockId) return `<div class="ix-alert t-report lv-${esc(a.level)}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">${ALERT_ICON[a.type] || '📡'}</span><span class="ix-ab"><b>${esc(a.title)}</b><small>${esc(a.detail)}</small></span></div>`; // 不屬於個股的提醒（例如當沖停止新增部位）
-  const tone = ['surge-up', 'limit-up', 'pattern-entry', 'limit-down-open', 'dt-breakout', 'dt-vwap', 'dt-bid'].includes(a.type) ? 'up' : ['surge-down', 'limit-down', 'stop', 'limit-up-open'].includes(a.type) ? 'down' : 'hot';
+  const tone = a.type === 'custom' ? (a.dir || 'hot') : ['surge-up', 'limit-up', 'pattern-entry', 'limit-down-open', 'dt-breakout', 'dt-vwap', 'dt-bid'].includes(a.type) ? 'up' : ['surge-down', 'limit-down', 'stop', 'limit-up-open'].includes(a.type) ? 'down' : 'hot';
   return `<button class="ix-alert lv-${a.level} tone-${tone}" data-alert-stock="${esc(a.stockId)}"><span class="ix-at num">${esc(a.t?.slice(0, 5))}</span><span class="ix-ai">${ALERT_ICON[a.type] || '📡'}</span><span class="ix-ab"><b>${esc(a.name)} <small class="num">${esc(a.stockId)}</small>${a.watch ? '<em class="ix-badge acc">自選</em>' : ''} <em class="ix-tag ${tone}">${esc(a.title)}</em></b><small>${esc(a.detail)}</small></span><span class="ix-ap num ${cls(a.change)}">${fmt(a.close, 2)}<small>${pct(a.change)}</small></span></button>`;
 }
 
@@ -175,6 +177,66 @@ export function reportHTML(r, { compact = false } = {}) {
   return `<article class="ix-report"><p class="ix-rdate num">${esc(r.date)} 盤後</p><h3 class="ix-rh">${esc(r.headline)}</h3><p class="ix-rs">${esc(r.summary)}</p>
   ${(r.sections || []).map((s, i) => `<details class="ix-rsec" ${compact && i > 0 ? '' : 'open'}><summary>${esc(s.title)}</summary><ul>${s.points.map(p => `<li>${esc(p)}</li>`).join('')}</ul></details>`).join('')}
   ${r.watchlist?.length ? `<section class="ix-rsec"><h4>👀 值得注意</h4><div class="ix-rwatch">${r.watchlist.map(w => `<button data-stock="${esc(w.id)}"><b>${esc(w.name)} <small class="num">${esc(w.id)}</small></b><span>${esc(w.note)}</span></button>`).join('')}</div></section>` : ''}
+  ${r.notes?.length ? `<section class="ix-rsec"><h4>📋 自選股逐檔</h4><div class="ix-rnotes">${r.notes.map(w => `<button data-stock="${esc(w.id)}"><b>${esc(w.name)} <small class="num">${esc(w.id)}</small>${w.stance ? `<em class="ix-badge ${w.stance === '偏多' ? 'up' : w.stance === '偏空' ? 'down' : ''}">${esc(w.stance)}</em>` : ''}</b><span>${esc(w.note)}</span></button>`).join('')}</div></section>` : ''}
   ${list('明日觀察', r.tomorrow, '🗓')}${list('風險提醒', r.risks, '⚠️')}
   <p class="ix-foot">由 <span translate="no">${esc(r.model || 'AI')}</span> 依當日資料產生 · ${esc(MK.dateTime(r.createdAt))}${r.usage ? ` · ${fmt(r.usage.input)} / ${fmt(r.usage.output)} tokens` : ''} · 研究紀錄，非投資建議</p></article>`;
+}
+
+/* ---------- 自訂提醒：規則清單與新增表單（電腦版個股視窗、盤中雷達頁；手機版個股頁、盤中分頁） ---------- */
+export const RULE_KINDS = [['above', '價格 ≥'], ['below', '價格 ≤'], ['pct-up', '漲幅 ≥ %'], ['pct-down', '跌幅 ≥ %'], ['volume', '預估量 ≥ 倍昨量']];
+// stock：{ id, name, close }（個股頁預填；沒有時顯示代號輸入框）
+export function priceRuleForm(stock = null) {
+  const hint = stock?.close > 0 ? `現價 ${fmt(stock.close, 2)}` : '';
+  return `<form class="ix-pa-form" data-pa-form>${stock ? `<input type="hidden" name="stockId" value="${esc(stock.id)}">` : '<input name="stockId" placeholder="股票代號" required maxlength="16" autocomplete="off" inputmode="text" aria-label="股票代號">'}
+  <select name="kind" aria-label="提醒條件">${RULE_KINDS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+  <input name="value" type="number" step="any" min="0" required placeholder="${stock?.close > 0 ? fmt(stock.close, 2).replace(/,/g, '') : '數值'}" aria-label="門檻數值">
+  <input name="note" maxlength="60" placeholder="備註（選填）" aria-label="備註">
+  <label class="ix-pa-rep"><input type="checkbox" name="repeat">重複提醒</label><button type="submit" class="primary">＋ 新增提醒</button>${hint ? `<small class="ix-pa-hint num">${hint}</small>` : ''}</form>`;
+}
+export function priceRulesHTML(info, { stockId = null, empty = '尚未設定提醒' } = {}) {
+  const rules = (info?.rules || []).filter(r => !stockId || r.stockId === stockId);
+  if (!rules.length) return `<p class="ix-empty">${empty}</p>`;
+  return `<div class="ix-pa-list">${rules.map(r => `<div class="ix-pa-row ${r.active ? '' : 'off'}">${stockId ? '' : `<button class="ix-pa-stock" data-alert-stock="${esc(r.stockId)}"><b>${esc(r.name)}</b><small class="num">${esc(r.stockId)}</small></button>`}
+    <span class="ix-pa-cond"><b>${esc(r.label)}</b>${r.repeat ? '<em class="ix-badge acc">重複</em>' : ''}${!r.active ? '<em class="ix-badge">已停用</em>' : ''}${r.note ? `<small>${esc(r.note)}</small>` : ''}<small class="num">${r.close != null ? `現價 ${fmt(r.close, 2)}（${pct(r.change)}）` : ''}${r.firedAt ? `${r.close != null ? ' · ' : ''}上次提醒 ${esc(MK.dateTime(r.firedAt))} · 共 ${r.hits} 次` : ''}</small></span>
+    <span class="ix-pa-act"><button data-pa-toggle="${esc(r.id)}" data-on="${r.active ? '0' : '1'}" title="${r.active ? '停用' : '重新啟用'}">${r.active ? '⏸' : '▶'}</button><button data-pa-del="${esc(r.id)}" title="刪除" aria-label="刪除提醒">✕</button></span></div>`).join('')}</div>`;
+}
+// 表單內容 → API 參數
+export function priceRuleBody(form) { const f = form.elements; return { stockId: f.stockId.value.trim().toUpperCase(), kind: f.kind.value, value: Number(f.value.value), note: f.note.value.trim(), repeat: f.repeat.checked }; }
+
+/* ---------- 分點追蹤 ---------- */
+const yi8 = v => fmt(v / 1e8, Math.abs(v) >= 1e10 ? 0 : 2);
+const streakBadge = x => Math.abs(x.streak) >= 2 ? `<em class="ix-badge ${x.streak > 0 ? 'up' : 'down'}">連${Math.abs(x.streak)}${x.streak > 0 ? '買' : '賣'}</em>` : '';
+const mineBadge = x => x.watch ? '<em class="ix-badge acc">自選</em>' : x.research ? '<em class="ix-badge">研究</em>' : '';
+export function branchHTML(b, { top = 10 } = {}) {
+  if (b.error) return `<section class="ix-cw"><h4>🏦 ${esc(b.name)} <small class="num">${esc(b.id)}</small></h4><p class="ix-note">⚠️ ${esc(b.error)}</p></section>`;
+  if (!b.count) return `<section class="ix-cw"><h4>🏦 ${esc(b.name)} <small class="num">${esc(b.id)}</small></h4><p class="ix-empty">當日沒有進出</p></section>`;
+  const row = x => `<tr><td><button class="ix-cw-stock" data-alert-stock="${esc(x.id)}">${esc(x.name)} <small class="num">${esc(x.id)}</small></button>${mineBadge(x)}${streakBadge(x)}</td><td class="num ${cls(x.net)}">${x.net > 0 ? '+' : ''}${lots(x.net)}</td><td class="num ${cls(x.netAmt)}">${x.netAmt > 0 ? '+' : ''}${yi8(x.netAmt)}</td><td class="num">${fmt(x.net > 0 ? x.avgBuy : x.avgSell, 2)}</td></tr>`;
+  const table = (list, title, side) => `<div class="ix-btable"><h5 class="${side}">${title}</h5><table><thead><tr><th>股票</th><th>淨張</th><th>淨額億</th><th>均價</th></tr></thead><tbody>${list.map(row).join('') || '<tr><td colspan="4" class="muted">無</td></tr>'}</tbody></table></div>`;
+  return `<section class="ix-cw"><h4>🏦 ${esc(b.name)} <small class="num">${esc(b.id)}</small></h4><div class="ix-bmeta"><span>${fmt(b.count)} 檔</span><span>買進 <b>${yi8(b.buyAmt)}</b> 億</span><span>賣出 <b>${yi8(b.sellAmt)}</b> 億</span><span>淨額 <b class="${cls(b.buyAmt - b.sellAmt)}">${yi8(b.buyAmt - b.sellAmt)}</b> 億</span></div>
+  ${b.mine.length ? table(b.mine, '自選／研究名單進出', '') : ''}<div class="ix-bgrid">${table(b.buy.slice(0, top), `買超前 ${top}`, 'up')}${table(b.sell.slice(0, top), `賣超前 ${top}`, 'down')}</div></section>`;
+}
+export function chipwatchHTML(info) {
+  const r = info?.report;
+  if (!r) return `<p class="ix-empty">${info?.settings?.branches?.length ? '尚無追蹤紀錄。平日 18:30 後自動查詢，也可以立即查詢。' : '先在上方加入要追蹤的券商分點。'}</p>`;
+  return `<div class="ix-bmeta"><span><b>${esc(r.date)}</b> 盤後</span><span>${r.branches.length} 個分點</span><span>提醒門檻 ${fmt(r.minLots)} 張</span><span class="muted">${esc(MK.dateTime(r.builtAt))} 取得</span></div>${r.branches.map(b => branchHTML(b)).join('')}
+  <p class="ix-foot">FinMind 券商分點（依券商代碼查詢）· 約 18:00 更新 · 「連 N 買／賣」以本機已保存的追蹤紀錄計算</p>`;
+}
+export function branchChips(settings) {
+  const list = settings?.branches || [];
+  return `<div class="ix-cw-chips">${list.map(b => `<span class="ix-cw-chip">${esc(b.name)} <small class="num">${esc(b.id)}</small><button data-cw-del="${esc(b.id)}" aria-label="移除 ${esc(b.name)}">✕</button></span>`).join('') || '<span class="muted">尚未追蹤任何分點</span>'}</div>`;
+}
+export function branchSearchHTML(list, settings) {
+  const have = new Set((settings?.branches || []).map(b => b.id));
+  return list.length ? `<div class="ix-cw-found">${list.map(b => `<button data-cw-add="${esc(b.id)}" data-name="${esc(b.name)}" ${have.has(b.id) ? 'disabled' : ''}>${esc(b.name)} <small class="num">${esc(b.id)}</small>${have.has(b.id) ? ' ✓' : ' ＋'}</button>`).join('')}</div>` : '<p class="ix-empty">找不到符合的分點</p>';
+}
+
+/* ---------- 大戶集中度排行 ---------- */
+export function holderRankHTML(rank, { limit = 40 } = {}) {
+  if (!rank?.rows?.length) return '<p class="ix-empty">尚無股權分散紀錄。每週五公布後自動取得，也可以立即更新。</p>';
+  const d = v => v == null ? '—' : `${v > 0 ? '+' : ''}${fmt(v, 2)}`;
+  const row = x => `<tr><td><button class="ix-cw-stock" data-alert-stock="${esc(x.id)}">${esc(x.name)} <small class="num">${esc(x.id)}</small></button>${mineBadge(x)}</td><td><span class="ix-pill ${x.tone === '籌碼集中' ? 'up' : x.tone === '籌碼渙散' ? 'down' : ''}">${esc(x.tone)}</span></td><td class="num">${fmt(x.big1000, 2)}%</td><td class="num ${cls(x.d1)}">${d(x.d1)}</td><td class="num ${cls(x.d4)}">${d(x.d4)}</td><td class="num ${cls(x.dp4 == null ? null : -x.dp4)}">${x.dp4 == null ? '—' : pct(x.dp4, 1)}</td></tr>`;
+  const rows = rank.rows.length > limit ? [...rank.rows.slice(0, limit / 2), null, ...rank.rows.slice(-limit / 2)] : rank.rows;
+  return `<div class="ix-bmeta"><span><b>${esc(rank.date)}</b> 股權分散</span><span>比較 ${esc(rank.prev1 || '—')}（1 週）· ${esc(rank.prev4 || '—')}（4 週）</span><span>${fmt(rank.count)} 檔</span></div>
+  <div class="ix-btable ix-hr"><table><thead><tr><th>股票</th><th>判讀</th><th>千張大戶</th><th>1 週</th><th>4 週</th><th>股東人數 4 週</th></tr></thead><tbody>${rows.map(x => x ? row(x) : '<tr><td colspan="6" class="muted" style="text-align:center">⋯</td></tr>').join('')}</tbody></table></div>
+  <p class="ix-foot">依千張大戶比例 4 週變化排序 · 集中＝4 週增加 0.5 個百分點以上且股東人數未增加；渙散相反 · 集保每週五資料</p>`;
 }

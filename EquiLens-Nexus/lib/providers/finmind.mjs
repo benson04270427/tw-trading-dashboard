@@ -19,8 +19,9 @@ export async function request(dataset, params = {}, { interval = 7000, token, si
     if (delay) await sleep(delay, signal);
     if (signal?.aborted) throw stopped();
     const secret = await tokenOf(token);
-    const url = new URL('https://api.finmindtrade.com/api/v4/data');
-    url.search = new URLSearchParams({ dataset, ...params }).toString();
+    // dataset 以「/」開頭時為獨立端點（例如依券商代碼查分點：/taiwan_stock_trading_daily_report）
+    const path = dataset.startsWith('/'), url = new URL(`https://api.finmindtrade.com/api/v4${path ? dataset : '/data'}`);
+    url.search = new URLSearchParams(path ? params : { dataset, ...params }).toString();
     lastRequest = Date.now();
     return await fetchData(url, secret, signal, dataset, 45000);
   } finally { release(); }

@@ -78,7 +78,7 @@ export function setLastSeq(seq) { const s = store(); s.lastSeq = seq; save(s); }
 // 通知文字依 Nexus 的介面語言翻譯
 export const localize = n => ({ ...n, title: tx(n.title), body: n.body ? tx(n.body) : n.body });
 // 將雷達、新聞與日報事件轉成通知；同一批太多時合併成一則摘要。
-const ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰' };
+const ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰', custom: '🔔', broker: '🏦', holders: '🐋' };
 export function notificationsFor(alerts) { return build(alerts).map(localize); }
 function build(alerts) {
   if (!alerts.length) return [];
@@ -87,8 +87,14 @@ function build(alerts) {
   const news = alerts.filter(a => a.type === 'news' && !a.quiet), newsOut = news.length <= 4
     ? news.map(a => ({ title: `🗞️ ${a.name} ${a.stockId}`, body: `${a.detail}${a.source ? `（${a.source}）` : ''}`, tag: `news:${a.seq}`, url: a.url || '/#live' }))
     : [{ title: `🗞️ 個股新聞 ${news.length} 則`, body: news.slice(0, 5).map(a => `${a.name}：${a.detail}`).join('\n'), tag: 'news-batch', url: '/#live' }];
-  const rest = alerts.filter(a => a.type !== 'report' && a.type !== 'news');
-  if (rest.length <= 4) return [...report, ...newsOut, ...rest.map(a => !a.stockId ? { title: `${ICON[a.type] || '📡'} ${a.title}`, body: a.detail, tag: a.type, url: '/#live' } : { title: `${ICON[a.type] || '📡'} ${a.name} ${a.stockId} ${a.title}`, body: `${a.close}（${a.change > 0 ? '+' : ''}${a.change ?? '—'}%）· ${a.detail}`, tag: `${a.type}:${a.stockId}`, url: '/#live' })];
+  // 自訂提醒：使用者自己設的條件，一律各自推播（一次超過 6 則才合併）；分點追蹤與大戶排行是盤後摘要，點開到籌碼分頁
+  const custom = alerts.filter(a => a.type === 'custom'), customOut = custom.length <= 6
+    ? custom.map(a => ({ title: `🔔 ${a.name} ${a.stockId}`, body: `${a.close}（${a.change > 0 ? '+' : ''}${a.change ?? '—'}%）· ${a.detail}`, tag: `custom:${a.rule || a.stockId}`, url: '/#live' }))
+    : [{ title: `🔔 自訂提醒 ${custom.length} 則`, body: custom.slice(0, 6).map(a => `${a.name}：${a.detail}`).join('\n'), tag: 'custom-batch', url: '/#live' }];
+  const chips = alerts.filter(a => a.type === 'broker' || a.type === 'holders').map(a => ({ title: `${ICON[a.type]} ${a.title}`, body: a.detail, tag: `${a.type}:${a.date || ''}`, url: '/#flows' }));
+  const head = [...report, ...customOut, ...chips];
+  const rest = alerts.filter(a => !['report', 'news', 'custom', 'broker', 'holders'].includes(a.type));
+  if (rest.length <= 4) return [...head, ...newsOut, ...rest.map(a => !a.stockId ? { title: `${ICON[a.type] || '📡'} ${a.title}`, body: a.detail, tag: a.type, url: '/#live' } : { title: `${ICON[a.type] || '📡'} ${a.name} ${a.stockId} ${a.title}`, body: `${a.close}（${a.change > 0 ? '+' : ''}${a.change ?? '—'}%）· ${a.detail}`, tag: `${a.type}:${a.stockId}`, url: '/#live' })];
   const watch = rest.filter(a => a.watch);
-  return [...report, ...newsOut, { title: `📡 盤中雷達：${rest.length} 則異動`, body: (watch.length ? watch : rest).slice(0, 5).map(a => `${a.name}${a.title}`).join('、'), tag: 'radar-batch', url: '/#live' }];
+  return [...head, ...newsOut, { title: `📡 盤中雷達：${rest.length} 則異動`, body: (watch.length ? watch : rest).slice(0, 5).map(a => `${a.name}${a.title}`).join('、'), tag: 'radar-batch', url: '/#live' }];
 }
