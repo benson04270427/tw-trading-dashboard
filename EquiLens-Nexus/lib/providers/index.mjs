@@ -60,6 +60,8 @@ export const data = {
   snapshotLimit: () => { const p = pick('snapshot'); return p ? (p.snapshotLimit?.(providerInfo()[p.id]) ?? null) : null; },
   // 即時推播的補資料（REST）：由提供推播的資料源執行
   streamBackfill: async (id, opts) => { const p = pick('stream'); if (!p?.streamBackfill) return null; return p.streamBackfill(id, await ctxOf(p, opts)); },
+  // 當日全部逐筆成交（REST，五檔錄製器收盤後補齊只錄五檔的股票）
+  streamTrades: async (id, opts) => { const p = pick('stream'); if (!p?.streamTrades) return null; return p.streamTrades(id, await ctxOf(p, opts)); },
   universe: (opts) => call('universe', [], opts),
   // 交易日曆；沒有支援的資料源時以平日代替（假日由「當天沒有行情」判斷）
   calendar: async (from, opts) => has('calendar') ? call('calendar', [from], opts) : weekdays(from || addDays(new Date().toISOString().slice(0, 10), -400), addDays(new Date().toISOString().slice(0, 10), 7)),

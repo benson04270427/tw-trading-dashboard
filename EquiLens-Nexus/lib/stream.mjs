@@ -7,10 +7,17 @@ const QUIET_MS = 75000;      // 這麼久沒有任何訊息（伺服器每 30 �
 const AUTH_RETRY_MS = 10 * 60e3; // 認證失敗（金鑰無效）時 10 分鐘後才再試
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-export function createStream({ spec, key, market, symbols = [], channels = ['aggregates'], onEvents, onStatus = () => { }, connect = url => new WebSocket(url), now = Date.now, timers = { setTimeout, clearTimeout, setInterval, clearInterval }, flushMs = 1000 }) {
+// extra：額外訂閱（例如五檔錄製器加錄的股票，只訂閱五檔）。只有額外訂閱變更時在原連線上增減訂閱、不重新連線
+// （訂閱回覆帶有訂閱 id，取消時用它）；額外訂閱另計數量，不影響主清單是否訂閱完整的判斷。
+// onEvent：每個解析後的事件（批次合併前，五檔不會被同一批較新的一筆蓋掉），供錄製使用
+export function createStream({ spec, key, market, symbols = [], channels = ['aggregates'], extra = null, onEvents, onEvent = null, onStatus = () => { }, connect = url => new WebSocket(url), now = Date.now, timers = { setTimeout, clearTimeout, setInterval, clearInterval }, flushMs = 1000 }) {
   let ws = null, closed = false, want = [...new Set(symbols)], chans = [...channels], backoff = 5000, retryTimer = null, lastMsg = 0, subscribed = 0, authed = false, everAuthed = false;
+  let ex = normExtra(extra), subIds = new Map(), extraSubscribed = 0; // subIds：額外訂閱「頻道:代號」→ 訂閱 id
   let list = [], keyed = new Map();
-  const status = s => onStatus({ ...s, symbols: want.length, channels: chans, expected: want.length * chans.length, subscribed });
+  const exKey = (ch, s) => ch + ':' + s, exSet = () => new Set(ex.channels.flatMap(ch => ex.symbols.map(s => exKey(ch, s))));
+  let exKeys = exSet();
+  const status = s => onStatus({ ...s, symbols: want.length, channels: chans, expected: want.length * chans.length, subscribed, extraSymbols: ex.symbols.length, extraExpected: ex.symbols.length * ex.channels.length, extraSubscribed });
+  const subscribe = (sock, symbols, chs) => { const n = spec.batch || 50; for (const ch of chs) for (let i = 0; i < symbols.length; i += n) sock.send(JSON.stringify(spec.subscribe(symbols.slice(i, i + n), ch))); };
   const flushTimer = timers.setInterval(() => {
     if (list.length || keyed.size) { const events = [...list, ...keyed.values()]; list = []; keyed = new Map(); try { onEvents(events); } catch { } }
     if (ws && authed) { if (now() - lastMsg > QUIET_MS) { status({ connected: false, error: 'no-heartbeat' }); reopen(0); } else status({ connected: true, alive: lastMsg }); }
@@ -19,7 +26,7 @@ export function createStream({ spec, key, market, symbols = [], channels = ['agg
 
   function open() {
     if (closed || !want.length) return;
-    authed = false; subscribed = 0; lastMsg = now();
+    authed = false; subscribed = 0; extraSubscribed = 0; subIds = new Map(); lastMsg = now();
     let sock;
     try { sock = connect(spec.url); } catch (e) { status({ connected: false, error: e.message }); return reopen(); }
     ws = sock;
@@ -30,19 +37,29 @@ export function createStream({ spec, key, market, symbols = [], channels = ['agg
       let msg; try { msg = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data)); } catch { return; }
       if (msg.event === 'authenticated') {
         authed = true; backoff = 5000;
-        const n = spec.batch || 50;
-        for (const ch of chans) for (let i = 0; i < want.length; i += n) sock.send(JSON.stringify(spec.subscribe(want.slice(i, i + n), ch)));
+        subscribe(sock, want, chans);
+        const extraOnly = ex.symbols.filter(s => !want.includes(s)); // 主清單已有的頻道不重複訂閱
+        for (const ch of ex.channels) subscribe(sock, chans.includes(ch) ? extraOnly : ex.symbols, [ch]);
         const resumed = everAuthed ? now() : 0; everAuthed = true;
         return status({ connected: true, error: '', authFailed: false, since: now(), ...(resumed ? { resumed } : {}) });
       }
-      if (msg.event === 'subscribed') { subscribed += Array.isArray(msg.data) ? msg.data.length : 1; return status({ connected: true }); }
+      if (msg.event === 'subscribed' || msg.event === 'unsubscribed') {
+        const items = Array.isArray(msg.data) ? msg.data : [msg.data || {}], sign = msg.event === 'subscribed' ? 1 : -1;
+        for (const d of items) {
+          const k = d?.channel && d?.symbol ? exKey(d.channel, d.symbol) : '';
+          const isExtra = !!k && (sign > 0 ? exKeys.has(k) && !(chans.includes(d.channel) && want.includes(d.symbol)) : subIds.has(k));
+          if (isExtra) { if (sign > 0) subIds.set(k, d.id ?? null); else subIds.delete(k); extraSubscribed = Math.max(0, extraSubscribed + sign); }
+          else subscribed = Math.max(0, subscribed + sign);
+        }
+        return status({ connected: true });
+      }
       if (msg.event === 'error') {
         const text = String(msg.data?.message || msg.message || 'error');
         if (!authed) { status({ connected: false, error: text, authFailed: true }); return reopen(AUTH_RETRY_MS); }
         return status({ connected: true, error: text });
       }
       const e = spec.parse(msg, market);
-      if (e) { if (e.key) keyed.set(e.key, e); else list.push(e); }
+      if (e) { if (onEvent) try { onEvent(e); } catch { } if (e.key) keyed.set(e.key, e); else list.push(e); }
     });
     sock.addEventListener('close', () => { if (ws === sock) { ws = null; status({ connected: false }); reopen(); } });
     sock.addEventListener('error', () => { /* close 事件會接著處理重連 */ });
@@ -59,18 +76,31 @@ export function createStream({ spec, key, market, symbols = [], channels = ['agg
   open();
   return {
     // 訂閱清單或頻道變更（例如自選股增減、方案改變）：重新連線並以新清單訂閱
-    update(next, nextChannels = chans) {
-      const l = [...new Set(next)];
-      if (same(l, want) && same(nextChannels, chans)) return;
-      want = l; chans = [...nextChannels];
-      if (!want.length) { drop(); return status({ connected: false }); }
-      reopen(0);
+    update(next, nextChannels = chans, nextExtra = ex) {
+      const l = [...new Set(next)], x = normExtra(nextExtra);
+      if (!same(l, want) || !same(nextChannels, chans)) {
+        want = l; chans = [...nextChannels]; ex = x; exKeys = exSet();
+        if (!want.length) { drop(); return status({ connected: false }); }
+        return reopen(0);
+      }
+      if (same(x.symbols, ex.symbols) && same(x.channels, ex.channels)) return;
+      const before = exKeys; ex = x; exKeys = exSet();
+      if (!ws || !authed) return; // 尚未連上：連上後依新清單訂閱
+      // 只增減額外訂閱：取消已不需要的（用訂閱 id；還沒收到回覆的沒有 id，下次重連自然不再訂閱），訂閱新增的
+      const ids = [...before].filter(k => !exKeys.has(k) && subIds.get(k) != null).map(k => subIds.get(k));
+      if (ids.length && spec.unsubscribe) for (let i = 0; i < ids.length; i += 100) ws.send(JSON.stringify(spec.unsubscribe(ids.slice(i, i + 100))));
+      const add = new Map();
+      for (const k of exKeys) if (!before.has(k)) { const [ch, s] = k.split(':'); if (chans.includes(ch) && want.includes(s)) continue; if (!add.has(ch)) add.set(ch, []); add.get(ch).push(s); }
+      for (const [ch, syms] of add) subscribe(ws, syms, [ch]);
+      status({ connected: true });
     },
     close() { closed = true; timers.clearInterval(flushTimer); timers.clearTimeout(retryTimer); drop(); },
     get symbols() { return want; },
     get channels() { return chans; },
+    get extra() { return ex; },
   };
 }
+function normExtra(x) { return { symbols: [...new Set(x?.symbols || [])].sort(), channels: [...(x?.channels || ['books'])] }; }
 
 // 多條連線：把股票分組（例如依代號排序平均分成兩組），每組一條連線；狀態合併後回報
 export function createStreamPool({ groups, onStatus = () => { }, ...common }) {
@@ -80,14 +110,15 @@ export function createStreamPool({ groups, onStatus = () => { }, ...common }) {
     onStatus({
       connected: live.length > 0 && live.every(s => s.connected), connections: live.map(s => ({ connected: !!s.connected, symbols: s.symbols || 0, subscribed: s.subscribed || 0, expected: s.expected || 0, error: s.error || '' })),
       symbols: live.reduce((a, s) => a + (s.symbols || 0), 0), subscribed: live.reduce((a, s) => a + (s.subscribed || 0), 0), expected: live.reduce((a, s) => a + (s.expected || 0), 0),
+      extraSymbols: live.reduce((a, s) => a + (s.extraSymbols || 0), 0), extraSubscribed: live.reduce((a, s) => a + (s.extraSubscribed || 0), 0), extraExpected: live.reduce((a, s) => a + (s.extraExpected || 0), 0),
       channels: live[0]?.channels || [], alive: live.length ? Math.min(...live.map(s => s.alive || 0)) : 0, error: live.map(s => s.error).find(Boolean) || '', authFailed: live.some(s => s.authFailed),
       resumed: Math.max(0, ...live.map(s => s.resumed || 0)), since: Math.max(0, ...live.map(s => s.since || 0)),
     });
   };
-  const make = (g, i) => createStream({ ...common, symbols: g.symbols, channels: g.channels, onStatus: s => { states[i] = { ...states[i], ...s }; report(); } });
+  const make = (g, i) => createStream({ ...common, symbols: g.symbols, channels: g.channels, extra: g.extra, onStatus: s => { states[i] = { ...states[i], ...s }; report(); } });
   function set(next) {
     while (streams.length > next.length) { streams.pop().close(); states.pop(); }
-    next.forEach((g, i) => { if (streams[i]) streams[i].update(g.symbols, g.channels); else { states[i] = {}; streams[i] = make(g, i); } });
+    next.forEach((g, i) => { if (streams[i]) streams[i].update(g.symbols, g.channels, g.extra); else { states[i] = {}; streams[i] = make(g, i); } });
     report();
   }
   set(groups);
@@ -98,4 +129,10 @@ export function splitSymbols(symbols, n) {
   const list = [...new Set(symbols)].sort(), size = Math.ceil(list.length / Math.max(1, n)), out = [];
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
   return out.length ? out : [[]];
+}
+// 依代號雜湊固定分到 n 組：清單增減時其餘股票不換連線（額外訂閱用，盤中增減不必重新訂閱）
+export function spreadSymbols(symbols, n) {
+  const out = Array.from({ length: Math.max(1, n) }, () => []);
+  for (const s of [...new Set(symbols)].sort()) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; out[h % out.length].push(s); }
+  return out;
 }

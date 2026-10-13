@@ -20,7 +20,8 @@ import { fetchStock, fetchNews, isBulkInstitutional, bulkInstitutions, defaultSo
 import { buildGroupRanking, compareRanks, quotesFromSnapshot, quotesFromReplay, quotesFromDaily, RANK_RULES } from './lib/grouprank.mjs';
 import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGroup, removeGroup, reorderGroups, addStock, removeStock, importGroups, selectedUpdateIds } from './lib/scope.mjs';
 import { patternSnapshot, clearPatterns, updatePatternData } from './lib/pattern-service.mjs';
-import { createStreamPool, splitSymbols } from './lib/stream.mjs';
+import { createStreamPool, splitSymbols, spreadSymbols } from './lib/stream.mjs';
+import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV } from './lib/bookrec.mjs';
 import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffset, evaluateSignal, reviewStats, DT_TITLES } from './lib/daytrade.mjs';
 import { dispositions, tpexDayTrade } from './lib/providers/twse.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
@@ -49,6 +50,9 @@ let liveHeat=null,livePending=null,lastSnap=null,monitorPauseUntil=0,monitorErro
 let stream=null,streamState={provider:null,connected:false,symbols:0,subscribed:0,limit:0,lastAt:0,error:'',since:0},streamRows=new Map(),streamDate='',streamAsOf='',yvCache={date:'',map:new Map()};
 // 當沖監控：引擎（每日一個）、股票資料、盤前資料、斷線補資料進度、今天是否因訂閱數不足改用精簡模式
 let dt=null,dtMeta=new Map(),dtPrep={date:'',busy:false,data:null,at:0},dtSaved='',dtFallback='',backfill={busy:false,again:false,started:0,done:0,total:0,error:''};
+// 五檔錄製器：今天的錄製檔、加錄清單與換股紀錄、收盤整理狀態
+const BOOKS=path.join(LOCAL,'books');
+let bookRec=null,bookDay={date:''},bookBusy=false,bookError='';
 let uniCache={ref:null,scope:null,ids:new Set(),meta:new Map(),list:[]};
 let radarState=null,radarPlans={at:0,map:new Map()},alertsBox={date:'',list:[]},alertSeq=Date.now();
 let replayCache={key:'',data:null},boardGroupCache={key:'',data:null},calendarCache={date:'',dates:[]},heatSummaryCache=null;
@@ -74,6 +78,7 @@ function loadMarketState(){
   replayCache={key:'',data:null};boardGroupCache={key:'',data:null};calendarCache={date:'',dates:[]};heatSummaryCache=null;grLive={at:0,data:null};grAttempt={date:'',at:0};
   newsState=null;newsStatus={at:0,error:'',found:0,seeded:false};newsPauseUntil=0;kbarMiss.clear();kbarDenied={until:0,error:''};
   if(stream){stream.close();stream=null;}streamRows=new Map();streamDate='';streamAsOf='';streamState={...streamState,connected:false};
+  if(bookRec){bookRec.close();bookRec=null;}bookDay={date:''};
   dt=null;dtMeta=new Map();dtSaved='';dtFallback='';{const p=read('daytrade-prep.json',null);dtPrep={date:p?.date||'',busy:false,data:p,at:0};}
   resetReplayCache();invalidate();
 }
@@ -189,11 +194,15 @@ function streamPlanNow(p,dtReady=true){
   const full=s.enabled&&dtReady&&dtFallback!==today()&&!!p.stream.channels?.full&&all.length*p.stream.channels.full.length<=plan.limit;
   const channels=full?p.stream.channels.full:(p.stream.channels?.lite||['aggregates']),ids=all.slice(0,Math.floor(plan.limit/channels.length));
   const groups=full&&plan.connections>1&&ids.length>1?splitSymbols(ids,plan.connections):[ids];
-  return{planId,plan,full,channels,ids,total:all.length,groups:groups.map(symbols=>({symbols,channels}))};
+  // 五檔錄製器加錄：用剩下的訂閱數（保留 50 個餘裕），依代號固定分到各連線
+  const slots=bookSlots(plan.limit-ids.length*channels.length),extra=slots>0?bookExtras(new Set(ids),slots):[];
+  const ex=spreadSymbols(extra,groups.length),book=p.stream.channels?.book||['books'];
+  return{planId,plan,full,channels,ids,total:all.length,slots,extra,groups:groups.map((symbols,i)=>({symbols,channels,extra:{symbols:ex[i]||[],channels:book}}))};
 }
 async function streamTick(){
   const p=data.pick('stream');
-  if(settings.monitor===false||!feedWindow()||!p){if(stream){stream.close();stream=null;}streamState={...streamState,connected:false,provider:p?.id||null};return;}
+  if(settings.monitor===false||!feedWindow()||!p){if(stream){stream.close();stream=null;}if(bookRec){const r=bookRec;bookRec=null;r.close();}streamState={...streamState,connected:false,provider:p?.id||null};return;}
+  bookPrepare(today());
   // 當沖引擎建立失敗時不影響推播：改用精簡模式（聚合行情）讓雷達與看板照常運作
   let dtReady=false,dtError='';
   if(dtSettings().enabled){try{ensureDt();refreshDtMeta(streamUniverse());dtReady=true;}catch(e){dtError=e.message;console.error(t('當沖監控計算失敗：')+e.message);}}
@@ -204,8 +213,9 @@ async function streamTick(){
   if(!stream){
     const key=await getSecret(p.id,p.keyEnv);if(!key)return;
     streamState={...meta,connected:false,symbols:plan.ids.length,subscribed:0,expected:plan.ids.length*plan.channels.length,lastAt:0,alive:0,error:'',since:0,resumed:0,connections:[]};
-    stream=createStreamPool({spec:p.stream,key,market:M(),groups:plan.groups,flushMs:500,onEvents:onStreamEvents,onStatus:onStreamStatus});
+    stream=createStreamPool({spec:p.stream,key,market:M(),groups:plan.groups,flushMs:500,onEvents:onStreamEvents,onEvent:onBookEvent,onStatus:onStreamStatus});
   }else{streamState={...streamState,...meta};stream.update(plan.groups);}
+  bookStart(plan);
   // 自動判斷方案：完整模式連線 15 秒後訂閱仍不足（方案上限不夠），今天改用精簡模式
   if(plan.full&&dtSettings().plan==='auto'&&streamState.connected&&streamState.since&&Date.now()-streamState.since>15e3&&streamState.subscribed<streamState.expected){dtFallback=today();console.log(t('即時推播訂閱數不足，今天改用精簡模式（聚合行情）'));}
 }
@@ -214,14 +224,96 @@ function onStreamStatus(s){
   const prev=streamState.since;streamState={...streamState,...s};
   // 盤中才連上或斷線重連：補資料完成前暫停訊號（盤前連線不需要）
   if(s.since&&s.since!==prev&&dt?.date===today()&&dt.engine.phase(Date.now())!=='pre')backfillAll();
+  if(s.resumed&&bookDay.date===today()&&!bookDay.gap){bookDay.gap=true;saveBookMeta();} // 錄製有缺口：收盤後以 REST 補齊逐筆成交
 }
-// 推播事件：有當沖引擎時由引擎整理成快照列；沒有時（精簡模式且未開啟當沖監控）直接用聚合行情
-function onStreamEvents(events){
+// 推播事件：有當沖引擎時由引擎整理成快照列；沒有時（精簡模式且未開啟當沖監控）直接用聚合行情。
+// 五檔錄製器加錄的股票只用於錄製，不進入當沖引擎與雷達
+function onStreamEvents(all){
+  const ex=bookDay.extraSet,events=ex?.size?all.filter(x=>!ex.has(x.id)):all;
   const e=dt?.date===today()?dt.engine:null;
   if(e){const changed=e.ingest(events);onStreamRows([...changed].map(id=>e.row(id)).filter(Boolean));}
   else onStreamRows(events.filter(x=>x.kind==='agg').map(x=>x.row));
 }
 const streamInfo=()=>({capable:data.has('stream'),provider:streamState.provider,active:streamFresh(),connected:streamState.connected,mode:streamState.mode||null,plan:streamState.plan||null,symbols:streamState.symbols,subscribed:streamState.subscribed,expected:streamState.expected||0,connections:streamState.connections||[],limit:streamState.limit,lastAt:streamState.lastAt||null,error:streamState.error,authFailed:!!streamState.authFailed,total:new Set([...watchlist,...scopeIds(researchScope)]).size});
+
+/* ---------- 五檔錄製器 ---------- */
+// 推播清單（研究名單＋自選）的五檔與逐筆成交本來就有訂閱，直接錄製；另用剩下的訂閱數「加錄」其他活躍股票的五檔。
+// 開盤前依時光機近 20 日平均成交金額挑選加錄清單；盤中檢查點（開盤後 5 分鐘起每 30 分鐘）把冷清的換成爆量、大漲跌或族群轉強的股票；
+// 收盤後以 REST 補齊加錄股票（及推播曾中斷時全部股票）的逐筆成交，整理成每檔一個檔案，保留最近 N 個交易日。
+const bookSettings=()=>normalizeBooks(settings.books);
+function bookSlots(spare){const s=bookSettings();return s.enabled?Math.max(0,Math.min(s.extra,spare-50)):0;}
+function bookPrepare(date){
+  if(bookDay.date===date||!bookSettings().enabled)return;
+  const m=readMeta(BOOKS,date),p=M();let liq=null;
+  try{const list=[];for(const d of listDays().filter(d=>d<date).slice(-20)){const x=loadDay(d);if(x)list.push(reduceDay(x,p));}if(list.length)liq=buildLiquidity(list,p);}catch(e){bookError=t('五檔錄製器選股失敗：')+e.message;}
+  bookDay={date,liq,extras:m?.extras||(liq?null:[]),initial:m?.initial||null,ever:new Set(m?.ever||[]),swaps:m?.swaps||[],checks:new Set(m?.checks||[]),gap:!!m?.gap,main:m?.main||[],current:[],slots:0,extraSet:new Set(),fill:null};
+}
+function saveBookMeta(){
+  const d=bookDay;if(!d.date)return;
+  try{writeMeta(BOOKS,d.date,{date:d.date,main:d.main,initial:d.initial,extras:d.extras,ever:[...d.ever],swaps:d.swaps,checks:[...d.checks],gap:!!d.gap,compacted:false});}catch(e){bookError=e.message;}
+}
+// 今天的加錄清單：第一次用到時依平均成交金額挑選（股票清單內的普通股）
+function bookExtras(main,slots){
+  if(bookDay.date!==today())return[];
+  if(!bookDay.extras){const {ids}=uniIndex();bookDay.extras=bookDay.liq?pickExtras(bookDay.liq,main,slots,ids.size?ids:null):[];bookDay.initial=[...bookDay.extras];saveBookMeta();}
+  return bookDay.extras.filter(id=>!main.has(id)).slice(0,slots);
+}
+function bookStart(plan){
+  if(!bookSettings().enabled||bookDay.date!==today()){if(bookRec){const r=bookRec;bookRec=null;r.close();}return;}
+  if(!bookRec)try{bookRec=createBookRecorder({dir:BOOKS,date:today()});bookError='';}catch(e){bookError=e.message;return;}
+  const main=new Set(plan.ids);let added=false;for(const id of plan.extra)if(!bookDay.ever.has(id)){bookDay.ever.add(id);added=true;}
+  bookDay.extraSet=new Set([...bookDay.ever].filter(id=>!main.has(id)));bookDay.current=plan.extra;bookDay.slots=plan.slots;
+  if(added||String(plan.ids)!==String(bookDay.main)){bookDay.main=plan.ids;saveBookMeta();}
+}
+function onBookEvent(e){bookRec?.record(e);}
+// 盤中檢查點換股（依全市場即時快照：累計成交金額、漲跌幅，與近 5 日同時點平均比較）
+function bookSwap(){
+  const s=bookSettings(),date=today();
+  if(!s.enabled||!s.swap||bookDay.date!==date||!bookDay.extras||!bookRec||!lastSnap||lastSnap.date!==date)return;
+  const hm=/(\d{2}):(\d{2})/.exec(String(lastSnap.asOf||'').slice(11));if(!hm)return;
+  const p=M(),el=Number(hm[1])*60+Number(hm[2])-p.open,due=checkpoints(p).filter(m=>m<=el&&!bookDay.checks.has(m));if(!due.length)return;
+  for(const m of due)bookDay.checks.add(m);
+  const cp=due.at(-1),rows=new Map(lastSnap.rows.map(r=>[r.stock_id,{amount:Number(r.total_amount)||0,change:Number(r.change_rate)||0}]));
+  const {meta}=uniIndex(),sectorOf=id=>{const x=meta.get(id)?.sector;return x&&x!=='未分類'?x:'';},main=new Set(bookDay.main);
+  const r=swapExtras({extras:bookDay.extras.filter(id=>!main.has(id)),exclude:main,rows,base:bookDay.liq?.at.get(cp),sectorOf,slots:bookDay.slots||0});
+  bookDay.extras=r.next;bookDay.swaps.push({at:String(lastSnap.asOf).slice(11,19),cp,added:r.added,dropped:r.dropped,sectors:r.sectors});saveBookMeta();
+  if(r.added.length)console.log(t('五檔錄製器換股：加錄 {a} 檔、移除 {d} 檔',{a:r.added.length,d:r.dropped.length}));
+}
+// 收盤後整理：今天的錄製先以 REST 補齊逐筆成交；之前未整理完的日子（例如收盤時沒開機）直接整理
+async function bookFinish(){
+  if(bookBusy||bookRec)return;
+  const x=clock(),p=M(),date=today();
+  for(const d of listBookDays(BOOKS)){
+    const m=readMeta(BOOKS,d)||{date:d};if(m.compacted)continue;
+    if(d===date&&(feedWindow()||x.minute<p.close+p.settle+1))continue;
+    bookBusy=true;
+    try{
+      if(d===date&&data.has('stream')){
+        const ids=[...new Set([...(m.ever||[]),...(m.gap?m.main||[]:[])])],interval=Math.ceil(60000/(streamState.perMinute||600))+10;
+        if(bookDay.date===d)bookDay.fill={done:0,total:ids.length};
+        const rec=createBookRecorder({dir:BOOKS,date:d});
+        try{for(const id of ids){try{for(const e of await data.streamTrades(id,{interval})||[])rec.record(e);}catch(e){bookError=e.message;if(blocked(e))break;}if(bookDay.date===d)bookDay.fill.done++;}}finally{await rec.close();}
+      }
+      const stocks=await compactDay(BOOKS,d);
+      fs.writeFileSync(path.join(BOOKS,d,'index.json'),JSON.stringify(stocks));
+      writeMeta(BOOKS,d,{...(readMeta(BOOKS,d)||m),compacted:true,stocks:Object.keys(stocks).length,at:new Date().toISOString()});
+      pruneDays(BOOKS,bookSettings().keepDays);
+    }finally{bookBusy=false;}
+  }
+}
+setInterval(()=>{try{bookSwap();}catch(e){bookError=e.message;}bookFinish().catch(e=>{bookError=e.message;});},20e3).unref();
+function bookInfo(){
+  const d=bookDay.date===today()?bookDay:null;
+  const days=listBookDays(BOOKS).reverse().map(x=>{const m=readMeta(BOOKS,x)||{};return{date:x,compacted:!!m.compacted,stocks:m.stocks??null,main:(m.main||[]).length,extra:(m.ever||[]).length,swaps:(m.swaps||[]).length,gap:!!m.gap};});
+  return{settings:bookSettings(),recording:!!bookRec,stats:bookRec?.stats||null,busy:bookBusy,error:bookError,days,
+    today:d?{main:d.main.length,extras:d.current.length,ever:d.ever.size,slots:d.slots,subscribed:streamState.extraSubscribed||0,liquidityDays:d.liq?.days||0,swaps:d.swaps.slice(-10),gap:!!d.gap,fill:d.fill}:null};
+}
+function bookStocks(date){
+  const m=readMeta(BOOKS,date);if(!m)return null;
+  let idx=null;try{idx=JSON.parse(fs.readFileSync(path.join(BOOKS,date,'index.json'),'utf8'));}catch{}
+  const {meta}=uniIndex(),main=new Set(m.main||[]),ids=idx?Object.keys(idx):[...new Set([...(m.main||[]),...(m.ever||[])])];
+  return ids.sort().map(id=>({id,name:meta.get(id)?.name||id,sector:meta.get(id)?.sector||'',main:main.has(id),...(idx?.[id]||{})}));
+}
 
 /* ---------- 當沖監控 ---------- */
 function refreshDtMeta(ids){
@@ -879,6 +971,20 @@ const server = http.createServer(async (req,res) => {
       settings={...settings,daytrade:normalizeDaytrade({...dtSettings(),...b,signals:{...dtSettings().signals,...b.signals},costs:{...dtSettings().costs,...b.costs}})};saveSettings();
       if(dt)dt.engine.setSettings(settings.daytrade);
       return json(res,200,{ok:true,settings:settings.daytrade});
+    }
+    if(route==='/api/books'&&req.method==='GET')return json(res,200,bookInfo());
+    if(route==='/api/books/stocks'&&req.method==='GET'){const date=url.searchParams.get('date')||'';if(!validHeatDate(date))throw new UserError('請選擇有效日期');return json(res,200,{date,stocks:bookStocks(date)||[]});}
+    if(route==='/api/books/export'&&req.method==='GET'){
+      const date=url.searchParams.get('date')||'',id=url.searchParams.get('id')||'';
+      if(!validHeatDate(date))throw new UserError('請選擇有效日期');if(!validId(id))throw new UserError('股票代號格式錯誤');
+      const rows=await readStock(BOOKS,date,id);if(!rows?.length)return json(res,404,{error:t('{id} 在 {date} 沒有五檔錄製資料',{id,date})});
+      const name=uniIndex().meta.get(id)?.name||'',file=`${id}${name?'-'+name:''}-${date}-五檔.csv`;
+      res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${id}-${date}.csv"; filename*=UTF-8''${encodeURIComponent(file)}`,'Cache-Control':'no-store'});
+      return res.end(toCSV(rows,{tz:M().tz}));
+    }
+    if(route==='/api/books/settings'&&req.method==='POST'){
+      const b=await body(req);if(!b||typeof b!=='object'||Array.isArray(b))throw new UserError('五檔錄製設定格式錯誤');
+      settings={...settings,books:normalizeBooks({...bookSettings(),...b})};saveSettings();return json(res,200,{ok:true,books:bookInfo()});
     }
     if(route==='/api/monitor/settings'&&req.method==='POST'){
       const b=await body(req);if(typeof b.monitor!=='boolean'||!validRadarInput(b.radar))throw new UserError('雷達設定格式錯誤');

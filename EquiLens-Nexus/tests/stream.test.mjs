@@ -30,10 +30,10 @@ class FakeSocket extends EventTarget {
   close() { this.closed = true; }
   emit(type, data) { this.dispatchEvent(data === undefined ? new Event(type) : new MessageEvent(type, { data: JSON.stringify(data) })); }
 }
-function setup(symbols = ['2330', '2317']) {
+function setup(symbols = ['2330', '2317'], opts = {}) {
   const clock = fakeClock(), socks = [], rows = [], states = [];
   const stream = createStream({
-    spec: fugle.stream, key: 'test-key', market: { tz: 'Asia/Taipei', lot: 1000 }, symbols,
+    spec: fugle.stream, key: 'test-key', market: { tz: 'Asia/Taipei', lot: 1000 }, symbols, ...opts,
     onEvents: r => rows.push(r), onStatus: s => states.push(s),
     connect: url => { const ws = new FakeSocket(url); socks.push(ws); return ws; }, now: clock.now, timers: clock.timers,
   });
@@ -116,4 +116,33 @@ test('stream: update() resubscribes only when the list changes; close() stops ev
   assert.ok(socks[1].closed);
   socks[1].emit('close');
   clock.advance(30 * 60e3); assert.equal(socks.length, 2, 'no reconnect after close');
+});
+
+test('stream: extra (book-only) subscriptions counted apart, changed in place without reconnecting', () => {
+  const events = [];
+  const { clock, socks, stream, login, last, rows } = setup(['2330', '2317'], { channels: ['trades', 'books'], extra: { symbols: ['3406', '2330'], channels: ['books'] }, onEvent: e => events.push(e) });
+  const ws = socks[0]; login(ws);
+  const subs = ws.sent.slice(1).map(m => [m.data.channel, m.data.symbols]);
+  assert.deepEqual(subs, [['trades', ['2330', '2317']], ['books', ['2330', '2317']], ['books', ['3406']]], '2330 books already in the main list, not subscribed twice');
+  ws.emit('message', { event: 'subscribed', data: [{ id: 't1', channel: 'trades', symbol: '2330' }, { id: 't2', channel: 'trades', symbol: '2317' }] });
+  ws.emit('message', { event: 'subscribed', data: [{ id: 'b1', channel: 'books', symbol: '2330' }, { id: 'b2', channel: 'books', symbol: '2317' }] });
+  ws.emit('message', { event: 'subscribed', data: [{ id: 'x1', channel: 'books', symbol: '3406' }] });
+  assert.deepEqual([last().subscribed, last().expected, last().extraSubscribed, last().extraSymbols], [4, 4, 1, 2]);
+  // 五檔每一筆都交給 onEvent（批次只留最新一筆）
+  const book = (symbol, p) => ({ event: 'data', channel: 'books', data: { symbol, time: 1760320800000000, bids: [{ price: p, size: 1 }], asks: [{ price: p + 5, size: 2 }] } });
+  ws.emit('message', book('3406', 1100)); ws.emit('message', book('3406', 1105));
+  assert.deepEqual(events.map(e => e.bids[0].price), [1100, 1105]);
+  clock.advance(1000); assert.equal(rows[0].length, 1);
+  // 只換加錄清單：取消 3406（用訂閱 id）、訂閱 1569，不重新連線
+  const n = ws.sent.length;
+  stream.update(['2330', '2317'], ['trades', 'books'], { symbols: ['1569'], channels: ['books'] });
+  assert.equal(socks.length, 1);
+  assert.deepEqual(ws.sent.slice(n), [{ event: 'unsubscribe', data: { ids: ['x1'] } }, { event: 'subscribe', data: { channel: 'books', symbols: ['1569'] } }]);
+  ws.emit('message', { event: 'unsubscribed', data: { id: 'x1', channel: 'books', symbol: '3406' } });
+  ws.emit('message', { event: 'subscribed', data: { id: 'x2', channel: 'books', symbol: '1569' } });
+  assert.deepEqual([last().subscribed, last().extraSubscribed], [4, 1]);
+  // 主清單變更才重新連線，並連同加錄清單一起訂閱
+  stream.update(['2330'], ['trades', 'books'], { symbols: ['1569'], channels: ['books'] });
+  clock.advance(0); assert.equal(socks.length, 2); login(socks[1]);
+  assert.deepEqual(socks[1].sent.slice(1).map(m => [m.data.channel, m.data.symbols]), [['trades', ['2330']], ['books', ['2330']], ['books', ['1569']]]);
 });

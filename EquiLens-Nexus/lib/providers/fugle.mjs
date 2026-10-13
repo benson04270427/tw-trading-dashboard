@@ -83,9 +83,11 @@ export default {
   // 盤中即時推播（WebSocket）：完整模式訂閱逐筆成交＋1 分 K＋五檔（每檔 3 個訂閱），精簡模式只訂閱聚合行情（每檔 1 個）
   stream: {
     url: WS, plans: PLANS, plan: planOf,
-    channels: { full: ['trades', 'candles', 'books'], lite: ['aggregates'] },
+    // book：五檔錄製器加錄的股票只訂閱五檔（每檔 1 個訂閱）
+    channels: { full: ['trades', 'candles', 'books'], lite: ['aggregates'], book: ['books'] },
     auth: key => ({ event: 'auth', data: { apikey: key } }),
     subscribe: (symbols, channel = 'aggregates') => ({ event: 'subscribe', data: { channel, symbols } }),
+    unsubscribe: ids => ({ event: 'unsubscribe', data: { ids } }),
     batch: 50,
     parse: streamEvent,
   },
@@ -93,6 +95,16 @@ export default {
   async streamBackfill(id, ctx) {
     const quote = await get(`/intraday/quote/${id}`, ctx), candles = await get(`/intraday/candles/${id}?timeframe=1`, ctx);
     return { quote, candles: candles?.data || [] };
+  },
+  // 當日全部逐筆成交（每頁最多 500 筆，依時間由舊到新）→ 與推播相同格式的成交事件
+  async streamTrades(id, ctx) {
+    const out = [];
+    for (let offset = 0; offset < 200000; offset += 500) {
+      const body = await get(`/intraday/trades/${id}?limit=500&offset=${offset}&sort=asc`, ctx), rows = body?.data || [];
+      for (const d of rows) out.push(streamEvent({ event: 'data', channel: 'trades', data: { ...d, symbol: id } }));
+      if (rows.length < 500) break;
+    }
+    return out.filter(Boolean);
   },
   async validate(key) {
     const r = await fetchJSON(`${BASE}/intraday/quote/2330`, { headers: { 'X-API-KEY': key }, label: LABEL });

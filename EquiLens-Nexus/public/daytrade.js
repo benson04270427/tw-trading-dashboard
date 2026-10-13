@@ -9,12 +9,22 @@ export function initDaytrade(ctx) { X = ctx; }
 export const dtCapable = () => !!D.info?.capable;
 export async function loadDaytrade() { try { D.info = await X.api('daytrade'); D.at = Date.now(); D.error = ''; if (!D.draft) D.draft = structuredClone(D.info.settings); } catch (e) { D.error = e.message; } }
 async function loadReview() { try { D.review = await X.api('daytrade/review'); } catch (e) { D.error = e.message; } }
+// 五檔錄製（/api/books）：錄製狀態、換股紀錄、匯出 CSV、設定
+const B = { info: null, draft: null, date: '', stocks: null, id: '' };
+async function loadBooks() {
+  try {
+    B.info = await X.api('books'); if (!B.draft) B.draft = structuredClone(B.info.settings);
+    const dates = B.info.days.map(x => x.date); if (!dates.includes(B.date)) { B.date = dates[0] || ''; B.stocks = null; }
+    if (B.date && !B.stocks) B.stocks = (await X.api('books/stocks?date=' + B.date)).stocks;
+  } catch (e) { D.error = e.message; }
+}
 // 盤中且推播運作時每 3 秒更新；其餘時間 30 秒
 setInterval(async () => {
   if (!X || document.hidden || !X.isLive()) return;
   const live = D.info?.feed?.active && MK.isOpen();
   if (!live && Date.now() - D.at < 30e3) return;
   await loadDaytrade(); if (D.tab === 'scan') X.repaint();
+  if (D.tab === 'books' && Date.now() - (B.at || 0) > 10e3) { B.at = Date.now(); await loadBooks(); X.repaint(); }
 }, 3000);
 
 const PLAN_NAMES = { basic: '基本', developer: '開發者', advanced: '進階' };
@@ -83,10 +93,31 @@ function settingsView(d) {
     <p class="dt-foot">現股當沖證交稅目前減半為 0.15%（至 2027 年底）；滑價與成本只用於訊號檢討的淨報酬計算。</p>
     <div class="form-actions"><button class="primary" data-dtsave>儲存當沖監控設定</button></div></div>`;
 }
+function booksView() {
+  const b = B.info; if (!b) return '<div class="empty"><span class="spinner"></span></div>';
+  const s = B.draft || b.settings, td = b.today, st = b.stats, mb = v => fmt(v / 1048576, 1) + ' MB';
+  const status = !s.enabled ? '<span>五檔錄製已關閉</span>' : b.recording && td
+    ? `<span>⏺ 錄製中</span><span>推播清單 <b class="mono">${fmt(td.main)}</b> 檔（五檔＋逐筆）</span><span>加錄 <b class="mono">${fmt(td.extras)}</b> 檔（只錄五檔，訂閱 ${fmt(td.subscribed)}／${fmt(td.extras)}）</span>${st ? `<span>五檔變動 <b class="mono">${fmt(st.books)}</b> · 成交 <b class="mono">${fmt(st.trades)}</b> · 原始 ${mb(st.bytes)}</span>` : ''}${td.liquidityDays ? '' : '<span class="warn">時光機沒有紀錄，開盤前無法挑選加錄股票（盤中換股仍會加錄）</span>'}${td.gap ? '<span class="warn">推播曾中斷，收盤後以 REST 補齊逐筆成交</span>' : ''}`
+    : `<span>非盤中 · 平日開盤前 10 分鐘隨即時推播開始錄製</span>${b.busy ? `<span class="warn">收盤整理中${td?.fill ? `：補逐筆成交 ${td.fill.done}／${td.fill.total}` : ''}</span>` : ''}`;
+  const swaps = td?.swaps?.length ? `<details class="dt-day"><summary>今日換股 ${td.swaps.length} 次（累計錄過 ${fmt(td.ever)} 檔加錄股票）</summary>${td.swaps.map(w => `<div class="dt-sig"><span class="mono">${esc(w.at.slice(0, 5))}</span><span>加錄 <b class="mono">${w.added.length}</b></span><span>移除 <b class="mono">${w.dropped.length}</b></span>${w.sectors.length ? `<span>族群轉強：${w.sectors.map(esc).join('、')}</span>` : ''}<small class="mono">${w.added.slice(0, 12).map(esc).join(' ')}${w.added.length > 12 ? ' …' : ''}</small></div>`).join('')}</details>` : '';
+  const opts = (B.stocks || []).map(x => `<option value="${esc(x.id)}">${esc(x.name)}${x.main ? '' : '（加錄）'}${x.books != null ? ` · 五檔 ${x.books} · 成交 ${x.trades}` : ''}</option>`).join('');
+  const exp = b.days.length ? `<div class="dt-field"><span>匯出日期</span><select data-bkdate>${b.days.map(x => `<option value="${x.date}" ${x.date === B.date ? 'selected' : ''}>${x.date}${x.compacted ? '' : '（整理前）'}</option>`).join('')}</select>
+      <span>股票代號</span><input data-bkid list="bk-stocks" value="${esc(B.id)}" placeholder="例如 3406" size="10" autocomplete="off"><datalist id="bk-stocks">${opts}</datalist><button class="primary" data-bkexport>下載 CSV</button></div>
+    <p class="dt-foot">每次五檔變動與每筆成交各一列，成交列附上當下的五檔（委買／委賣各 5 檔價格與張數）。整理前（盤中）匯出需逐檔篩選，可能要等數十秒。</p>` : '<div class="empty"><p>尚無錄製紀錄。</p></div>';
+  const days = b.days.length ? `<div class="dt-table"><table><tr><th>日期</th><th>狀態</th><th>股票數</th><th>推播清單</th><th>加錄</th><th>換股</th></tr>${b.days.map(x => `<tr><td class="mono">${x.date}</td><td>${x.compacted ? '已整理' : '<span class="warn">待整理</span>'}${x.gap ? ' · 曾中斷' : ''}</td><td class="mono">${x.stocks ?? '—'}</td><td class="mono">${fmt(x.main)}</td><td class="mono">${fmt(x.extra)}</td><td class="mono">${x.swaps}</td></tr>`).join('')}</table></div>` : '';
+  const sel = (key, list, f = v => v) => `<select data-bkset="${key}">${list.map(v => `<option value="${v}" ${s[key] === v ? 'selected' : ''}>${f(v)}</option>`).join('')}</select>`;
+  const set = `<details class="dt-day"><summary>錄製設定</summary><div class="lv-settings">
+    <label class="lv-rule"><input type="checkbox" data-bkset="enabled" ${s.enabled ? 'checked' : ''}><span>啟用五檔錄製（隨即時推播盤中錄製，收盤後整理）</span></label>
+    <label class="dt-field"><span>加錄股票上限</span>${sel('extra', [0, 300, 500, 800, 1000, 1100], v => v ? `${fmt(v)} 檔` : '不加錄')}<span>保留</span>${sel('keepDays', [5, 10, 20, 40, 60], v => `${v} 個交易日`)}</label>
+    <label class="lv-rule"><input type="checkbox" data-bkset="swap" ${s.swap ? 'checked' : ''}><span>盤中換股：開盤後 5 分鐘（第一根 5 分 K）起每 30 分鐘，把冷清的加錄股換成爆量、大漲跌或族群轉強的股票</span></label>
+    <p class="dt-foot">加錄只用推播剩下的訂閱數（保留 50 個餘裕），每檔只訂閱五檔 1 個；富果進階方案（2,000 訂閱）扣掉推播清單後約可加錄 1,000 檔。加錄股票的逐筆成交於收盤後以 REST 補齊。</p>
+    <div class="form-actions"><button class="primary" data-bksave>儲存錄製設定</button></div></div></details>`;
+  return `<div class="dt-status">${status}</div>${swaps}${exp}${days}${set}`;
+}
 export function daytradePanel() {
   const d = D.info; if (!d?.capable) return '';
-  const tabs = [['scan', `掃描 Top ${d.settings?.top || 20}`], ['review', '訊號檢討'], ['settings', '設定']];
-  const body = !d.enabled && D.tab === 'scan' ? '<div class="empty"><p>當沖監控已關閉，可在「設定」開啟。</p></div>' : D.tab === 'scan' ? scanView(d) : D.tab === 'review' ? reviewView() : settingsView(d);
+  const tabs = [['scan', `掃描 Top ${d.settings?.top || 20}`], ['review', '訊號檢討'], ['books', '五檔錄製'], ['settings', '設定']];
+  const body = !d.enabled && D.tab === 'scan' ? '<div class="empty"><p>當沖監控已關閉，可在「設定」開啟。</p></div>' : D.tab === 'scan' ? scanView(d) : D.tab === 'review' ? reviewView() : D.tab === 'books' ? booksView() : settingsView(d);
   return `<section class="panel dt-panel"><div class="panelhead"><div><h2><span class="idx">DT</span>當沖掃描</h2><p>${d.phaseName ? `${esc(d.phaseName)} · ` : ''}FinMind 盤後選股與盤前資料＋富果盤中即時行情${d.marketChange != null ? ` · 監控股票平均 ${pct(d.marketChange)}` : ''}</p></div><div class="segmented">${tabs.map(([k, l]) => `<button class="${D.tab === k ? 'selected' : ''}" data-dttab="${k}">${l}</button>`).join('')}</div></div>
     <div class="contentpad"><div class="dt-status">${feedLine(d)}</div><div class="dt-status">${prepLine(d)}</div>${D.error ? `<div class="notice err"><span>${esc(D.error)}</span></div>` : ''}${body}</div></section>`;
 }
@@ -94,13 +125,29 @@ export function daytradePanel() {
 document.addEventListener('click', async e => {
   const b = e.target.closest('button,[data-kbar-row]'); if (!b || !X) return; const ds = b.dataset;
   try {
-    if (ds.dttab) { D.tab = ds.dttab; if (D.tab === 'review') { X.repaint(); await loadReview(); } return X.repaint(); }
+    if (ds.dttab) { D.tab = ds.dttab; if (D.tab === 'review') { X.repaint(); await loadReview(); } if (D.tab === 'books') { X.repaint(); B.at = Date.now(); await loadBooks(); } return X.repaint(); }
     if (ds.kbarRow) return X.openChart(ds.kbarRow);
     if ('dtsave' in ds && D.draft) { const r = await X.api('daytrade/settings', D.draft); D.draft = structuredClone(r.settings); await loadDaytrade(); X.toast('當沖監控設定已儲存'); return X.repaint(); }
+    if ('bksave' in ds && B.draft) { const r = await X.api('books/settings', B.draft); B.info = r.books; B.draft = structuredClone(r.books.settings); X.toast('五檔錄製設定已儲存'); return X.repaint(); }
+    if ('bkexport' in ds) {
+      const id = (document.querySelector('[data-bkid]')?.value || '').trim().toUpperCase(); B.id = id;
+      if (!/^[0-9A-Z]{1,12}$/.test(id) || !B.date) return X.toast('請輸入股票代號');
+      // 先確認有資料（沒有時顯示原因），再以連結下載
+      b.disabled = true; X.toast('匯出中…');
+      try {
+        const url = `/api/books/export?date=${B.date}&id=${encodeURIComponent(id)}`, r = await fetch(url);
+        if (!r.ok) { const j = await r.json().catch(() => ({})); return X.toast(j.error || `HTTP ${r.status}`); }
+        const blob = await r.blob(), a = document.createElement('a'), name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(r.headers.get('content-disposition') || '')?.[1] || `${id}-${B.date}.csv`);
+        a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60e3);
+      } finally { b.disabled = false; }
+    }
   } catch (err) { X.toast(err.message); }
 });
-document.addEventListener('change', e => {
-  const t = e.target; if (!X || !t.dataset?.dtset || !D.draft) return;
+document.addEventListener('change', async e => {
+  const t = e.target; if (!X) return;
+  if (t.dataset?.bkdate) { B.date = t.value; B.stocks = null; await loadBooks(); return X.repaint(); }
+  if (t.dataset?.bkset && B.draft) { B.draft[t.dataset.bkset] = t.type === 'checkbox' ? t.checked : Number(t.value); return; }
+  if (!t.dataset?.dtset || !D.draft) return;
   const keys = t.dataset.dtset.split('.'), v = t.type === 'checkbox' ? t.checked : /^(auto|advanced|developer|basic|\d{2}:\d{2})$/.test(t.value) ? t.value : Number(t.value);
   keys.slice(0, -1).reduce((o, k) => o[k], D.draft)[keys.at(-1)] = v;
 });
