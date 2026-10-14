@@ -74,24 +74,25 @@ export function livePage() {
   return status + seg + err + (L.view === 'board' ? boardView() : L.view === 'daytrade' ? daytradeView() : L.view === 'radar' ? radarView() : L.view === 'groups' ? groupsView() : settingsView());
 }
 /* ---------- 當沖掃描 ---------- */
-const DT_SIG = { 'dt-breakout': '💥 爆量突破', 'dt-vwap': '📈 VWAP 延續', 'dt-bid': '🟢 買盤增強' };
+const DT_SIG = { 'dt-breakout': '💥 爆量突破', 'dt-vwap': '📈 VWAP 延續', 'dt-bid': '🟢 五檔增強', 'dt-weak': '⚠️ 多單轉弱', 'dt-risk': '🛑 參考停損' };
 const DT_FILTERS = { noDayTrade: '不可當沖', disposition: '處置', suspended: '暫停交易', spread: '價差過大', liquidity: '流動性不足', limitUp: '已漲停' };
-const DT_PARTS = [['volume', 'var(--amber, #f5b942)'], ['structure', 'var(--accent, #22c3e6)'], ['book', '#9b8cff'], ['relative', '#ff6ad5']];
+const DT_REASONS = { hourStale: '60 分 K 尚未補齊', eligibility: '尚未取得可當沖資格', history: '30 日歷史不足', fullFeed: '需完整推播', fiveMinute: '等待完整 5 分 K', quoteStale: '成交已過期', vwap: '等待有效 VWAP', bookPending: '等待五檔連續確認', volumeHistory: '同時段歷史量不足', priceBasis: '參考價與歷史口徑待確認', subscription: '超出訂閱範圍', waitingQuote: '等待報價' };
+const DT_PARTS = [['daily', 'var(--amber, #f5b942)'], ['hour', 'var(--accent, #22c3e6)'], ['book', '#9b8cff'], ['five', '#ff6ad5']];
 function daytradeView() {
   const d = DT.info; if (!d) return '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
   const f = d.feed || {}, p = d.prep, n = v => v == null ? '—' : fmt(v, 1);
   const feed = !f.window ? '非盤中 · 平日開盤前 10 分鐘自動連線' : !f.connected ? (f.authFailed ? '金鑰無效或方案不支援（10 分鐘後重試）' : f.error ? `即時推播未連線：${esc(f.error === 'no-heartbeat' ? '連線逾時，重新連線中' : f.error)}` : '即時推播連線中…')
     : `⚡ ${f.mode === 'full' ? '完整模式（逐筆＋分 K＋五檔）' : '精簡模式（聚合行情）'} · 訂閱 ${fmt(f.subscribed)}／${fmt(f.expected)}${f.backfill?.busy ? ` · 補資料中 ${f.backfill.done}／${f.backfill.total}` : ''}`;
   const prep = p ? `${p.eligible == null ? '可當沖清單未取得' : `可當沖 ${fmt(p.eligible)} 檔`} · 處置 ${p.disposition} · 暫停交易 ${p.suspended}` : '盤前資料於開盤前 30 分鐘取得';
-  const head = `<section class="card dt-head"><div>${esc(d.phaseName || '')}${d.phaseName ? ' · ' : ''}${feed}</div><small>${prep}${d.baselineDays != null && d.baselineDays < 3 ? ' · 時光機紀錄不足 3 天，同時段量以近 20 日均量推估' : ''}</small></section>`;
+  const head = `<section class="card dt-head"><div>${esc(d.phaseName || '')}${d.phaseName ? ' · ' : ''}${feed}</div><small>${prep}</small></section>`;
   if (!d.enabled) return head + '<div class="empty">當沖監控已關閉（可在電腦版「盤中雷達 → 當沖掃描 → 設定」開啟）。</div>';
-  const list = d.top.map((x, i) => `<button class="dt-card ${cls(x.change)}" data-kbar="${esc(x.id)}"><span class="dt-rank num">${i + 1}</span><span class="dt-main"><b>${esc(x.name)}<small class="num"> ${esc(x.id)}</small></b><span class="dt-bar">${DT_PARTS.map(([k, c]) => `<i style="width:${x.part?.[k] || 0}%;background:${c}"></i>`).join('')}</span>
-    <small class="num">VWAP ${x.vwapDist == null ? '—' : pct(x.vwapDist)} · 量比 ${n(x.rvol)} · OBI ${x.obi == null ? '—' : fmt(x.obi, 2)} · 外盤 ${x.outer5 == null ? '—' : x.outer5 + '%'}${x.last ? ` · ${DT_SIG[x.last.type] || ''} ${esc(x.last.t?.slice(0, 5))}` : ''}</small></span>
+  const list = (d.watched || d.top).map((x, i) => `<button class="dt-card ${cls(x.change)}" data-kbar="${esc(x.id)}"><span class="dt-rank num">${i + 1}</span><span class="dt-main"><b>${esc(x.name)}<small class="num"> ${esc(x.id)}</small></b><span class="dt-bar">${DT_PARTS.map(([k, c]) => `<i style="width:${x.part?.[k] || 0}%;background:${c}"></i>`).join('')}</span>
+    <small>${x.pending ? '補資料中' : x.context?.reasons?.length ? esc(x.context.reasons.map(k=>DT_REASONS[k]||k).join('、')) : '多週期監控中'} · 日 K ${x.context?.daily?.long ? '偏多' : '未偏多'} · 60 分 K ${x.context?.hour?.long ? '偏多' : '未偏多'} · 5 分量 ${n(x.context?.five?.volumeRatio)}x · 參考停損 ${x.reference?.stop == null ? '—' : fmt(x.reference.stop, 2)}</small><small class="num">VWAP ${x.vwapDist == null ? '—' : pct(x.vwapDist)} · 量比 ${n(x.rvol)} · OBI ${x.obi == null ? '—' : fmt(x.obi, 2)} · 外盤 ${x.outer5 == null ? '—' : x.outer5 + '%'}${x.last ? ` · ${DT_SIG[x.last.type] || ''} ${esc(x.last.t?.slice(0, 5))}` : ''}</small></span>
     <span class="dt-px num"><b class="${cls(x.change)}">${fmt(x.price, 2)}</b><small class="${cls(x.change)}">${pct(x.change)}</small><em>${n(x.score)}</em></span></button>`).join('');
   const ex = Object.entries(d.excluded || {}).filter(([, v]) => v).map(([k, v]) => `${DT_FILTERS[k] || k} ${v}`);
   const r = DT.review, review = !r ? '<div class="empty"><button class="btn" data-dtreview>載入訊號檢討</button></div>' : !r.signals ? '<p class="foot">尚無訊號紀錄，收盤後會自動檢討當天的訊號。</p>'
-    : `<section class="card"><h3>訊號檢討（${r.days} 天、${r.signals} 則）</h3>${r.types.map(t => `<div class="dt-rv"><span>${DT_SIG[t.type] || esc(t.title)}</span><span class="num">${t.n} 則 · 15 分勝率 ${t.win15 ?? '—'}% · 平均 ${t.r15 == null ? '—' : (t.r15 > 0 ? '+' : '') + fmt(t.r15, 2) + '%'}</span></div>`).join('')}<p class="foot">已扣除滑價、手續費與證交稅（來回約 ${fmt(r.cost, 3)}%）</p></section>`;
-  return head + (list ? `<div class="dt-list">${list}</div>` : `<div class="empty">${f.window ? '尚無報價，開盤後開始計算。' : '盤中才會計算當沖分數。'}</div>`) + (ex.length ? `<p class="foot">已排除：${ex.join(' · ')}</p>` : '') + `<p class="foot">分數＝量能 35＋結構 30＋五檔 20＋族群與大盤 15（研究用初始權重，尚未回測）。訊號只做提醒，請自行下單並設定停損。</p>` + review;
+    : `<section class="card"><h3>訊號檢討（${r.days} 天、${r.signals} 則）</h3>${r.types.map(t => `<div class="dt-rv"><span>${esc(t.title)} v${t.version || 1}</span><span class="num">${t.n} 則 · 15 分勝率 ${t.win15 ?? '—'}% · 平均 ${t.r15 == null ? '—' : (t.r15 > 0 ? '+' : '') + fmt(t.r15, 2) + '%'}</span></div>`).join('')}<p class="foot">已扣除滑價、手續費與證交稅（來回約 ${fmt(r.cost, 3)}%）</p></section>`;
+  return head + (list ? `<div class="dt-list">${list}</div>` : `<div class="empty">${f.window ? '尚無報價，開盤後開始計算。' : '盤中才會計算當沖分數。'}</div>`) + (ex.length ? `<p class="foot">已排除：${ex.join(' · ')}</p>` : '') + `<p class="foot">做多須通過日 K、60 分 K、5 分 K 與五檔確認。風險提醒持續至 13:25；參考停損不代表實際持倉。</p>` + review;
 }
 /* ---------- 即時看板：自選或研究總覽任一族群 ---------- */
 const BOARD_SORTS = [['default', '預設'], ['chg', '漲幅'], ['amt', '成交值']];

@@ -31,12 +31,11 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
 - **Intraday radar** – volume spikes, surges and plunges, price-limit touches, pattern entries and stop breaks for your
   watchlist and research groups, plus a live board with daily / 5-minute candles. With a Fugle key the radar runs on a
   WebSocket live stream (watchlist first, up to your plan's limit) instead of periodic snapshots.
-- **Day-trade monitoring** (Taiwan, FinMind + Fugle) – FinMind screens after the close and supplies the pre-market
-  day-trade list, suspensions and reference prices; Fugle streams trades, 1-minute bars and the order book for your
-  watchlist and research list. Every stock gets a live day-trade score (volume vs the same time of day, VWAP and
-  breakout structure, order-book imbalance, strength vs its group and the market), a top-20 list, three long signals
-  (volume breakout, VWAP continuation, sustained bid strength) pushed to your phone, and an after-close review of each
-  signal's net return after slippage, fees and tax. See [docs/DAYTRADE.zh-TW.md](docs/DAYTRADE.zh-TW.md).
+- **Day-trade monitoring** (Taiwan, FinMind + Fugle) – Watchlist alerts combine the previous 30 daily candles,
+  completed 60-minute and 5-minute candles, same-slot historical volume and a continuous live five-level book window.
+  Three long setups are accompanied by weakness and reference-stop alerts; risk alerts continue after the entry cutoff.
+  Missing history, stale data or an incomplete feed pause confirmation. Each stock shows its evidence and readiness;
+  v1/v2 after-close outcome statistics remain separate. See [the rules and limitations](docs/DAYTRADE.zh-TW.md).
 - **Group ranking** – your research groups ranked by turnover-weighted gain, with daily close records.
 - **Pattern scanner** – 10 classic patterns over 90 sessions with conditional entry and stop levels.
 - **AI after-market report** – written by Claude, OpenAI, Gemini or any OpenAI-compatible endpoint (including local

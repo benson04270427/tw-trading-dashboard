@@ -70,7 +70,7 @@ export function streamEvent(msg, market) {
     case 'trades': return { kind: 'trade', id, time: ms(d.time), price: num(d.price), size: num(d.size) ?? 0, volume: num(d.volume), bid: num(d.bid), ask: num(d.ask), serial: num(d.serial), trial: !!d.isTrial, limitUp: !!d.isLimitUpPrice, halted: !!(d.isLimitUpHalt || d.isLimitDownHalt) };
     case 'books': return { kind: 'book', key: 'b:' + id, id, time: ms(d.time), bids: levels(d.bids), asks: levels(d.asks), trial: !!d.isTrial };
     case 'candles': { const t = Date.parse(d.date); return t > 0 ? { kind: 'candle', key: `c:${id}:${t}`, id, time: t, open: num(d.open), high: num(d.high), low: num(d.low), close: num(d.close), volume: num(d.volume) ?? 0 } : null; }
-    case 'aggregates': { const row = aggregateRow(d, market?.tz, market?.lot); return row ? { kind: 'agg', key: 'a:' + id, id, time: ms(d.lastUpdated ?? d.total?.time), row, book: { bids: levels(d.bids), asks: levels(d.asks) } } : null; }
+    case 'aggregates': { const row = aggregateRow(d, market?.tz, market?.lot); return row ? { kind: 'agg', key: 'a:' + id, id, tradeTime: ms(d.closeTime ?? d.lastTrade?.time), time: ms(d.lastUpdated ?? d.total?.time), row, book: { bids: levels(d.bids), asks: levels(d.asks) } } : null; }
     default: return null;
   }
 }
@@ -91,7 +91,28 @@ export default {
     batch: 50,
     parse: streamEvent,
   },
-  // 斷線重連後補資料：最新報價（累計量、內外盤、均價、五檔、參考價）與當日 1 分 K
+  // 最近 30 交易日：還原日 K 與同基準分 K；原始日 K 提供量額及參考價核對。
+  async streamHistory(id, date, ctx) {
+    const to = addDays(date, -1), from = addDays(date, -90);
+    const raw = await get(`/historical/candles/${id}?timeframe=D&from=${from}&to=${to}&sort=asc&fields=open,high,low,close,volume,turnover`, ctx);
+    const adjusted = await get(`/historical/candles/${id}?timeframe=D&from=${from}&to=${to}&sort=asc&fields=open,high,low,close,volume&adjusted=true`, ctx);
+    const rows = (adjusted?.data || []).filter(b => b.date < date && b.close > 0).sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
+    if (!rows.length) return { daily: [], minutes: [], source: 'fugle' };
+    const original = new Map((raw?.data || []).map(b => [b.date, b]));
+    const factors = new Map(rows.filter(b => original.get(b.date)?.close > 0).map(b => [b.date, b.close / original.get(b.date).close]));
+    // Fetch each session separately: bounded response size and no cross-day truncation.
+    const minutes = [];
+    for (const b of rows) {
+      const candles = await get(`/historical/candles/${id}?timeframe=1&from=${b.date}&to=${b.date}&sort=asc&fields=open,high,low,close,volume`, ctx);
+      const factor = factors.get(b.date); if (!(factor > 0)) continue;
+      for (const c of candles?.data || []) {
+        const time = Date.parse(c.date); if (!Number.isFinite(time) || !String(c.date).startsWith(b.date)) continue;
+        minutes.push({ time, o: c.open * factor, h: c.high * factor, l: c.low * factor, c: c.close * factor, v: c.volume });
+      }
+    }
+    return { daily: rows.map(b => ({ date: b.date, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume / 1000, amount: original.get(b.date)?.turnover ?? null })), minutes, rawClose: original.get(rows.at(-1).date)?.close, source: 'fugle' };
+  },
+  // 斷線重連後補資料：最新報價與當日 1 分 K。
   async streamBackfill(id, ctx) {
     const quote = await get(`/intraday/quote/${id}`, ctx), candles = await get(`/intraday/candles/${id}?timeframe=1`, ctx);
     return { quote, candles: candles?.data || [] };

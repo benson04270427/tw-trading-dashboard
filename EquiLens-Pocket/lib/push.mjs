@@ -78,7 +78,7 @@ export function setLastSeq(seq) { const s = store(); s.lastSeq = seq; save(s); }
 // 通知文字依 Nexus 的介面語言翻譯
 export const localize = n => ({ ...n, title: tx(n.title), body: n.body ? tx(n.body) : n.body });
 // 將雷達、新聞與日報事件轉成通知；同一批太多時合併成一則摘要。
-const ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰' };
+const ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰', 'dt-weak': '⚠️', 'dt-risk': '🛑' };
 export function notificationsFor(alerts) { return build(alerts).map(localize); }
 function build(alerts) {
   if (!alerts.length) return [];

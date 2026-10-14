@@ -29,8 +29,8 @@ setInterval(async () => {
 
 const PLAN_NAMES = { basic: '基本', developer: '開發者', advanced: '進階' };
 const FILTERS = { noDayTrade: '不可當沖', disposition: '處置', suspended: '暫停交易', spread: '價差過大', liquidity: '流動性不足', limitUp: '已漲停' };
-const PARTS = [['volume', '量能', 35, 'var(--amber)'], ['structure', '結構', 30, 'var(--cyan)'], ['book', '五檔', 20, 'var(--violet)'], ['relative', '族群', 15, 'var(--magenta)']];
-const SIG = { 'dt-breakout': '💥 爆量突破', 'dt-vwap': '📈 VWAP 延續', 'dt-bid': '🟢 買盤增強' };
+const PARTS = [['daily', '日 K', 20, 'var(--amber)'], ['hour', '60 分 K', 25, 'var(--cyan)'], ['five', '5 分 K', 30, 'var(--magenta)'], ['book', '五檔', 25, 'var(--violet)']];
+const SIG = { 'dt-breakout': '💥 爆量突破', 'dt-vwap': '📈 VWAP 延續', 'dt-bid': '🟢 五檔增強', 'dt-weak': '⚠️ 多單轉弱', 'dt-risk': '🛑 參考停損' };
 const n0 = v => v == null ? '—' : fmt(v, 0), n1 = v => v == null ? '—' : fmt(v, 1), n2 = v => v == null ? '—' : fmt(v, 2);
 
 function feedLine(d) {
@@ -42,52 +42,64 @@ function feedLine(d) {
   return `<span>⚡ ${mode}</span><span>富果${plan}方案${lim ? `（上限 ${fmt(lim)}）` : ''}</span><span>訂閱 <b class="mono">${fmt(f.subscribed)}／${fmt(f.expected)}</b>${f.connections?.length > 1 ? `（${f.connections.length} 條連線）` : ''}${short}</span>${f.backfill?.busy ? `<span class="warn">斷線補資料中 ${f.backfill.done}／${f.backfill.total}</span>` : ''}${d.fallback ? '<span class="warn">訂閱數不足，今天改用精簡模式</span>' : ''}`;
 }
 function prepLine(d) {
-  const p = d.prep, base = d.baselineDays == null ? '' : d.baselineDays >= 3 ? `<span>同時段均量：時光機 ${d.baselineDays} 天</span>` : `<span class="warn">時光機紀錄不足 3 天，同時段量以近 20 日均量推估</span>`;
+  const p = d.prep, base = '';
   if (!p) return `<span>盤前資料（可當沖標的、處置股、參考價）於開盤前 30 分鐘取得</span>${base}`;
   return `<span>${p.eligible == null ? '<b class="warn">可當沖清單未取得</b>' : `可當沖 <b class="mono">${fmt(p.eligible)}</b> 檔`}</span><span>處置 <b class="mono">${p.disposition}</b></span><span>暫停交易 <b class="mono">${p.suspended}</b></span><span>暫停先賣後買 <b class="mono">${p.sellFirstOff}</b></span><span>參考價 <b class="mono">${fmt(p.ref)}</b> 檔</span>${p.errors?.length ? `<span class="warn" title="${esc(p.errors.join('\n'))}">部分盤前資料取得失敗</span>` : ''}${base}`;
 }
 function scoreBar(x) {
   return `<span class="dt-bar" title="${PARTS.map(([k, l, max]) => `${l} ${x.part?.[k] ?? 0}／${max}`).join(' · ')}">${PARTS.map(([k, , , c]) => `<i style="width:${(x.part?.[k] || 0)}%;background:${c}"></i>`).join('')}</span><b class="mono">${n1(x.score)}</b>`;
 }
+const REASONS = { hourStale: '60 分 K 尚未補齊', eligibility: '尚未取得可當沖資格', history: '30 日歷史不足', fullFeed: '需完整推播', fiveMinute: '等待完整 5 分 K', quoteStale: '成交已過期', vwap: '等待有效 VWAP', bookPending: '等待五檔連續確認', volumeHistory: '同時段歷史量不足', priceBasis: '參考價與歷史口徑待確認', subscription: '超出訂閱範圍', waitingQuote: '等待報價' };
 function row(x, i) {
-  return `<tr data-kbar-row="${esc(x.id)}" class="${x.pending ? 'dim' : ''}"><td class="mono">${i + 1}</td><td><b>${esc(x.name)}</b> <small class="mono">${esc(x.id)}</small>${x.watch ? ' <em class="ix-badge acc">自選</em>' : ''}</td>
-    <td class="mono ${cls(x.change)}">${n2(x.price)}<small> ${pct(x.change)}</small></td><td class="dt-score">${scoreBar(x)}</td>
-    <td class="mono ${cls(x.vwapDist)}">${x.vwapDist == null ? '—' : pct(x.vwapDist)}</td><td class="mono ${x.rvol >= 2 ? 'up' : ''}">${n1(x.rvol)}</td><td class="mono ${x.r1 >= 2 ? 'up' : ''}">${n1(x.r1)}</td>
-    <td class="mono ${cls(x.obi)}">${n2(x.obi)}</td><td class="mono ${x.outer5 >= 60 ? 'up' : x.outer5 <= 40 && x.outer5 != null ? 'down' : ''}">${x.outer5 == null ? '—' : x.outer5 + '%'}</td><td class="mono">${x.spread ?? '—'}</td>
-    <td class="mono ${cls(x.gap)}">${x.gap == null ? '—' : pct(x.gap)}</td><td>${x.last ? `<span class="ix-tag up">${SIG[x.last.type] || esc(x.last.type)}</span> <small class="mono">${esc(x.last.t?.slice(0, 5))}</small>` : x.pending ? '<small>補資料中</small>' : ''}</td></tr>`;
+  const c = x.context || {}, d = c.daily || {}, h = c.hour || {}, f = c.five || {}, b = c.book || {};
+  const waiting = [...(x.pending ? ['補資料中'] : []), ...(c.reasons || []).map(k => REASONS[k] || k), ...(x.filters || []).map(k => FILTERS[k] || k)];
+  const state = waiting.length ? waiting.join('、') : c.conditions && Object.values(c.conditions).some(Boolean) ? '條件確認' : '持續觀察';
+  return `<tr data-kbar-row="${esc(x.id)}"><td><b>${esc(x.name)}</b><small class="mono"> ${esc(x.id)}</small></td>
+    <td class="mono ${cls(x.change)}">${n2(x.price)}<small> ${pct(x.change)}</small></td>
+    <td><span class="${waiting.length ? 'warn' : ''}">${esc(state)}</span><small>${scoreBar(x)}</small></td>
+    <td>${d.long ? '偏多' : d.count === 30 ? '未偏多' : '不足'}<small>${d.count || 0}/30 · MA20 ${n2(d.ma20)}</small></td>
+    <td>${h.long ? '偏多' : h.count >= 21 ? '未偏多' : '不足'}<small>MA20 ${n2(h.ma20)}</small></td>
+    <td class="mono">${n1(f.volumeRatio)}x<small>支撐 ${n2(f.support)} · 壓力 ${n2(f.resistance)}</small></td>
+    <td class="mono">${n2(b.obi)}<small>Δ ${n2(b.delta)} · ${b.age == null ? '—' : n1(b.age)}s</small></td>
+    <td class="mono">${n2(x.reference?.stop)}<small>VWAP ${n2(x.vwap)}</small></td>
+    <td>${x.last ? `${SIG[x.last.type] || esc(x.last.type)}<small>${esc(x.last.t)}</small>` : '—'}</td></tr>`;
 }
 function scanView(d) {
-  const ex = Object.entries(d.excluded || {}).filter(([, n]) => n).map(([k, n]) => `${FILTERS[k] || k} ${n}`), watched = (d.watched || []).filter(w => !d.top.some(x => x.id === w.id));
-  const head = `<tr><th>#</th><th>股票</th><th>價格</th><th title="量能 35 · 結構 30 · 五檔 20 · 族群與大盤 15">當沖分數</th><th title="現價相對 VWAP（當日成交均價）">VWAP 乖離</th><th title="累計量 ÷ 歷史同時段累計量">量比</th><th title="最近 1 分鐘量 ÷ 歷史同時段 1 分鐘量">1 分量</th><th title="五檔委買量與委賣量的不平衡（−1～+1，30 秒平均）">OBI</th><th title="最近 5 分鐘外盤成交量占比">外盤</th><th title="委買賣價差（檔）">價差</th><th title="開盤價相對參考價">跳空</th><th>最新訊號</th></tr>`;
-  const table = d.top.length ? `<div class="dt-table"><table>${head}${d.top.map(row).join('')}</table></div>` : `<div class="empty"><p>${d.feed?.window ? '尚無報價，開盤後開始計算。' : '盤中（開盤後）才會計算當沖分數。'}</p></div>`;
-  return `${table}${ex.length ? `<p class="dt-foot">已排除：${ex.join(' · ')}（共 ${d.total} 檔中）</p>` : ''}${watched.length ? `<p class="dt-foot">自選未進榜：${watched.map(w => `${esc(w.name)} <b class="mono">${n1(w.score)}</b>${w.filters.length ? `（${w.filters.map(f => FILTERS[f] || f).join('、')}）` : ''}`).join(' · ')}</p>` : ''}
-    <p class="dt-foot">分數為研究用初始權重（量能 35＋結構 30＋五檔 20＋族群與大盤 15），尚未回測，請以「訊號檢討」累積的實際結果調整。訊號只做提醒，請自行在券商下單並設定停損。</p>`;
+  const list = [...d.top, ...(d.watched || []).filter(x => !d.top.some(y => y.id === x.id))];
+  const hs = d.history || [], ready = hs.filter(x => x.status === 'ready').length;
+  return `<div class="dt-status"><b>30 日日 K → 60 分 K → 5 分 K → 即時五檔</b><span>歷史就緒 ${ready}/${hs.length}</span><span>僅提醒觀察名單；新增股票自動準備資料</span></div>
+    ${hs.filter(x => x.error).map(x => `<p class="notice warn">${esc(x.id)} · ${esc(x.error)}</p>`).join('')}
+    ${list.length ? `<div class="dt-table"><table><tr><th>觀察股票</th><th>現價</th><th>監控狀態／排序分數</th><th>30 日日 K</th><th>60 分 K</th><th>5 分 K 量比／結構</th><th>五檔／變化／秒數</th><th>參考停損</th><th>最近警示</th></tr>${list.map(row).join('')}</table></div>` : '<div class="empty">請先將股票加入觀察名單。</div>'}
+    <p class="dt-foot">做多須通過四層確認；風險提醒不受分數門檻限制。參考停損來自先前訊號的 5 分 K 低點下一檔，不代表實際持倉或已送出委託。</p>
+    <p class="dt-foot">只使用已完成 K 棒；五檔連續 30 秒、每筆間隔不超過 10 秒。分數僅供排序，門檻尚未經歷史五檔回放驗證。</p>`;
 }
 function reviewView() {
   const r = D.review; if (!r) return '<div class="empty"><span class="spinner"></span></div>';
   if (!r.signals) return `<div class="empty"><p>尚無訊號紀錄。每個交易日收盤後，系統會以分 K 檢討當天的當沖訊號。</p></div>`;
   const v = x => x == null ? '—' : `<span class="${cls(x)}">${x > 0 ? '+' : ''}${fmt(x, 2)}%</span>`;
   const table = `<div class="dt-table"><table><tr><th>訊號</th><th>次數</th><th>15 分鐘勝率</th><th>5 分鐘</th><th>15 分鐘</th><th>30 分鐘</th><th>持有到收盤</th><th title="30 分鐘內最大有利／不利幅度（未扣成本）">最大有利／不利</th></tr>
-    ${r.types.map(x => `<tr><td>${SIG[x.type] || esc(x.title)}</td><td class="mono">${x.n}</td><td class="mono">${x.win15 == null ? '—' : x.win15 + '%'}</td><td class="mono">${v(x.r5)}</td><td class="mono">${v(x.r15)}</td><td class="mono">${v(x.r30)}</td><td class="mono">${v(x.rClose)}</td><td class="mono">${v(x.mfe)}／${v(x.mae)}</td></tr>`).join('')}</table></div>`;
-  const recent = r.recent.map(d => `<details class="dt-day"><summary>${esc(d.date)} · ${d.signals.length} 則${d.mode === 'lite' ? ' · 精簡模式' : ''}</summary>${d.signals.map(s => `<div class="dt-sig"><span class="mono">${esc(s.t?.slice(0, 5))}</span><b>${esc(s.name)}</b> <small class="mono">${esc(s.id)}</small><span>${SIG[s.type] || esc(s.title)}</span><span class="mono">${n2(s.price)}</span><span class="mono">15 分 ${v(s.outcome?.r15)}</span><span class="mono">收盤 ${v(s.outcome?.rClose)}</span></div>`).join('')}</details>`).join('');
+    ${r.types.map(x => `<tr><td>${esc(x.title)} <small>v${x.version || 1}</small></td><td class="mono">${x.n}</td><td class="mono">${x.win15 == null ? '—' : x.win15 + '%'}</td><td class="mono">${v(x.r5)}</td><td class="mono">${v(x.r15)}</td><td class="mono">${v(x.r30)}</td><td class="mono">${v(x.rClose)}</td><td class="mono">${v(x.mfe)}／${v(x.mae)}</td></tr>`).join('')}</table></div>`;
+  const recent = r.recent.map(d => `<details class="dt-day"><summary>${esc(d.date)} · ${d.signals.length} 則${d.mode === 'lite' ? ' · 精簡模式' : ''}</summary>${d.signals.map(s => `<div class="dt-sig"><span class="mono">${esc(s.t?.slice(0, 5))}</span><b>${esc(s.name)}</b> <small class="mono">${esc(s.id)}</small><span>${SIG[s.type] || esc(s.title)}</span><span class="mono">${n2(s.price)}</span><span class="mono">15 分 ${v(s.purpose === 'risk' ? null : s.outcome?.r15)}</span><span class="mono">收盤 ${v(s.outcome?.rClose)}</span></div>`).join('')}</details>`).join('');
   return `${table}<p class="dt-foot">共 ${r.days} 個交易日、${r.signals} 則訊號。淨報酬以訊號價加滑價買進、到時以收盤價減滑價賣出，已扣除手續費與證交稅（來回約 ${fmt(r.cost, 3)}%）；樣本少時僅供參考。</p>${recent}`;
 }
 function settingsView(d) {
   const s = D.draft || d.settings, plans = d.plans || {}, need = d.need || {};
   const sel = (key, opts, fmtv = v => v) => `<select data-dtset="${key}">${opts.map(v => `<option value="${v}" ${String(key.split('.').reduce((o, k) => o?.[k], s)) === String(v) ? 'selected' : ''}>${fmtv(v)}</option>`).join('')}</select>`;
   const chk = (key, label) => `<label class="lv-rule"><input type="checkbox" data-dtset="${key}" ${key.split('.').reduce((o, k) => o?.[k], s) ? 'checked' : ''}><span>${label}</span></label>`;
-  const advice = need.symbols ? `${fmt(need.symbols)} 檔 × 3 頻道（逐筆、分 K、五檔）＝ ${fmt(need.full)} 個訂閱${plans.advanced ? `：進階方案（${fmt(plans.advanced.limit)}）可用完整模式` : ''}；開發者方案（${fmt(plans.developer?.limit || 300)}）改用聚合行情（${fmt(need.lite)} 個）` : '';
+  const advice = `觀察名單 ${need.watched || 0} 檔優先，每檔需要 3 個訂閱；不足時顯示等待，不發做多警示`;
   return `<div class="lv-settings">
     ${chk('enabled', '啟用當沖監控（盤中掃描、當沖訊號推播、收盤檢討）')}
     <label class="dt-field"><span>富果方案</span>${sel('plan', ['auto', 'advanced', 'developer', 'basic'], v => ({ auto: '自動判斷', advanced: '進階（2,000 訂閱）', developer: '開發者（300 訂閱）', basic: '基本（5 訂閱）' })[v])}</label>
     <p class="dt-foot">${advice}。自動判斷時先嘗試完整模式，訂閱不足就當天改用精簡模式。</p>
     <label class="dt-field"><span>顯示前幾名</span>${sel('top', [10, 20, 30])}</label>
     <label class="dt-field"><span>訊號分數門檻</span>${sel('minScore', [40, 50, 60, 70, 80])}</label>
-    ${chk('signals.breakout', '💥 爆量突破：1 分 K 收盤突破前 N 分鐘高點，且量達同時段均量倍數')}
+    ${chk('signals.breakout', '💥 多週期突破：日 K、60 分 K 偏多，5 分 K 放量突破，五檔確認')}
     <label class="dt-field sub"><span>前幾分鐘高點</span>${sel('breakoutLookback', [10, 15, 20, 30], v => `${v} 分鐘`)}<span>量倍數</span>${sel('breakoutVolume', [1.5, 2, 3], v => `${v} 倍`)}</label>
-    ${chk('signals.vwap', '📈 VWAP 趨勢延續：在 VWAP 上方、5 分鐘趨勢向上，回測 VWAP 後重新轉強')}
-    ${chk('signals.bid', '🟢 買盤持續增強：五檔委買持續偏強（OBI 30 秒平均 ≥ 0.3），價量同步向上')}
-    <label class="dt-field"><span>開盤觀察至</span>${sel('watchFrom', ['09:05', '09:10', '09:15', '09:30'])}<span>停止新訊號</span>${sel('stopNew', ['12:30', '13:00', '13:10', '13:20'])}</label>
+    ${chk('signals.vwap', '📈 回測轉強：多週期偏多，5 分 K 回測 VWAP 後突破前棒高點，五檔確認')}
+    ${chk('signals.bid', '🟢 五檔增強：多週期偏多，5 分 K 價量向上且委買不平衡持續增加')}
+    ${chk('signals.weak', '⚠️ 多單轉弱：5 分 K 跌破支撐與 VWAP，五檔賣壓確認')}
+    ${chk('signals.risk', '🛑 參考停損：成交價跌破先前做多訊號的參考停損，即時提醒一次')}
+    <label class="dt-field"><span>開盤觀察至</span>${sel('watchFrom', ['09:05', '09:10', '09:15', '09:30'])}<span>停止做多提醒</span>${sel('stopNew', ['12:30', '13:00', '13:10', '13:20'])}</label>
     <label class="dt-field"><span>價差上限</span>${sel('maxSpreadTicks', [2, 3, 5], v => `${v} 檔價位`)}<span>近 20 日均額至少</span>${sel('minDailyAmount', [0, 50e6, 100e6, 300e6, 500e6], v => v ? `${fmt(v / 1e8, 1)} 億` : '不限')}</label>
     <label class="dt-field"><span>手續費折扣</span>${sel('costs.feeDiscount', [1, 0.6, 0.5, 0.38, 0.28, 0.2], v => v === 1 ? '無折扣' : `${+(v * 10).toFixed(1)} 折`)}<span>證交稅</span>${sel('costs.taxRate', [0.0015, 0.003], v => `${fmt(v * 100, 2)}%`)}<span>滑價</span>${sel('costs.slipTicks', [0, 1, 2], v => `${v} 檔價位`)}</label>
     <p class="dt-foot">現股當沖證交稅目前減半為 0.15%（至 2027 年底）；滑價與成本只用於訊號檢討的淨報酬計算。</p>
@@ -116,9 +128,9 @@ function booksView() {
 }
 export function daytradePanel() {
   const d = D.info; if (!d?.capable) return '';
-  const tabs = [['scan', `掃描 Top ${d.settings?.top || 20}`], ['review', '訊號檢討'], ['books', '五檔錄製'], ['settings', '設定']];
+  const tabs = [['scan', '觀察名單'], ['review', '訊號檢討'], ['books', '五檔錄製'], ['settings', '設定']];
   const body = !d.enabled && D.tab === 'scan' ? '<div class="empty"><p>當沖監控已關閉，可在「設定」開啟。</p></div>' : D.tab === 'scan' ? scanView(d) : D.tab === 'review' ? reviewView() : D.tab === 'books' ? booksView() : settingsView(d);
-  return `<section class="panel dt-panel"><div class="panelhead"><div><h2><span class="idx">DT</span>當沖掃描</h2><p>${d.phaseName ? `${esc(d.phaseName)} · ` : ''}FinMind 盤後選股與盤前資料＋富果盤中即時行情${d.marketChange != null ? ` · 監控股票平均 ${pct(d.marketChange)}` : ''}</p></div><div class="segmented">${tabs.map(([k, l]) => `<button class="${D.tab === k ? 'selected' : ''}" data-dttab="${k}">${l}</button>`).join('')}</div></div>
+  return `<section class="panel dt-panel"><div class="panelhead"><div><h2><span class="idx">DT</span>當沖掃描</h2><p>${d.phaseName ? `${esc(d.phaseName)} · ` : ''}觀察名單多週期確認與多單風險監控${d.marketChange != null ? ` · 監控股票平均 ${pct(d.marketChange)}` : ''}</p></div><div class="segmented">${tabs.map(([k, l]) => `<button class="${D.tab === k ? 'selected' : ''}" data-dttab="${k}">${l}</button>`).join('')}</div></div>
     <div class="contentpad"><div class="dt-status">${feedLine(d)}</div><div class="dt-status">${prepLine(d)}</div>${D.error ? `<div class="notice err"><span>${esc(D.error)}</span></div>` : ''}${body}</div></section>`;
 }
 

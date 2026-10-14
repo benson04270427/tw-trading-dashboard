@@ -700,3 +700,6 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 @media (max-width:640px){.setup-card{padding:20px 16px}.setup-markets{grid-template-columns:1fr 1fr}}
 
 .brief-grid.single{grid-template-columns:1fr}
+.dt-table td small{display:block;margin-top:4px;color:var(--muted);font-size:.72rem}
+.dt-table tr[data-kbar-row] td:nth-child(3){white-space:normal;min-width:170px;max-width:250px}
+.dt-table tr[data-kbar-row] td:nth-child(3) small{display:flex;align-items:center;gap:8px}

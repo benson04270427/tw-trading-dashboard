@@ -60,21 +60,15 @@ test('candles fill bars missed by trades without double counting', () => {
   e.ingest([trade('2330', '09:00:05', 50, 10)]);
   e.ingest([{ kind: 'candle', id: '2330', time: at('09:00:00'), open: 50, high: 50.3, low: 49.8, close: 50.1, volume: 25 }]);
   const b = e.bars('2330').get(540);
-  assert.deepEqual([b.h, b.l, b.c, Math.max(b.tv, b.cv)], [50.3, 49.8, 50, 25]);
+  assert.deepEqual([b.h, b.l, b.c, Math.max(b.tv, b.cv)], [50.3, 49.8, 50.1, 25]);
 });
 
-test('breakout signal: closes above the 15-minute high on 2x same-time volume, then cools down', () => {
-  const e = engine(); e.setFeed(true);
-  quietMinutes(e, 555, 574); // 09:15–09:34
-  e.ingest([trade('2330', '09:35:10', 50.3, 30, { bid: 50.2, ask: 50.3 }), trade('2330', '09:35:50', 50.5, 20, { bid: 50.4, ask: 50.5 }), book('2330', at('09:35:51'), 50.4, 50.5)]);
-  assert.deepEqual(e.tick(at('09:35:55')), [], 'the minute is not complete yet');
-  const alerts = e.tick(at('09:36:01')), a = alerts.find(x => x.type === 'dt-breakout');
-  assert.ok(a, 'breakout fired');
-  assert.equal(a.title, '爆量突破');
-  assert.match(a.detail, /突破前 15 分鐘高點 50\.2/);
-  assert.match(a.detail, /5 倍/);
-  assert.equal(e.signals.length >= 1, true);
-  assert.equal(e.tick(at('09:36:30')).filter(x => x.type === 'dt-breakout').length, 0, 'cooldown');
+test('legacy one-minute breakout alone no longer triggers a multi-timeframe alert', () => {
+  const e = engine(); e.setFeed(true); e.setWatch(new Set(['2330'])); e.setMode('full');
+  quietMinutes(e, 555, 574);
+  e.ingest([trade('2330', '09:35:10', 50.5, 50), book('2330', at('09:35:51'), 50.4, 50.5)]);
+  assert.deepEqual(e.tick(at('09:36:01')), []);
+  assert.ok(e.ranking().list[0].context.reasons.includes('history'));
 });
 
 test('no signals before the watch window, while gaps are pending, or when excluded', () => {
@@ -100,26 +94,22 @@ test('wide spread and limit-up exclude; stop time sends one reminder', () => {
   e.tick(at('13:09:30'));
   assert.deepEqual(e.ranking().list[0].filters, ['spread', 'limitUp'], '55 is the limit-up price for 50');
   const stop = e.tick(at('13:10:05')).filter(a => a.type === 'dt-stop');
-  assert.equal(stop.length, 1); assert.match(stop[0].detail, /13:10 起不再發出當沖訊號/);
+  assert.equal(stop.length, 1); assert.match(stop[0].detail, /13:10 起停止做多機會提醒/);
   assert.equal(e.tick(at('13:11:00')).filter(a => a.type === 'dt-stop').length, 0);
 });
 
-test('order-book imbalance signal needs persistence, rising price and volume', () => {
-  const e = engine(); e.setFeed(true);
+test('single-level order-book strength cannot stand in for five-level continuous confirmation', () => {
+  const e = engine(); e.setFeed(true); e.setWatch(new Set(['2330'])); e.setMode('full');
   quietMinutes(e, 555, 574);
-  const evs = [];
-  for (let s = 0; s < 50; s += 5) evs.push(book('2330', at(`09:35:${String(s).padStart(2, '0')}`), 50.3, 50.4, 400, 100));
-  evs.push(trade('2330', '09:35:20', 50.3, 20, { bid: 50.3, ask: 50.4 }), trade('2330', '09:35:55', 50.4, 20, { bid: 50.3, ask: 50.4 }));
-  e.ingest(evs);
-  e.ingest([book('2330', at('09:36:00'), 50.3, 50.4, 400, 100), trade('2330', '09:36:00', 50.4, 1, { bid: 50.3, ask: 50.4 })]);
-  const a = e.tick(at('09:36:00')).find(x => x.type === 'dt-bid');
-  assert.ok(a, 'bid-strength fired');
-  assert.match(a.detail, /五檔不平衡 0\.6/);
+  for (let second = 0; second < 60; second += 5) e.ingest([book('2330', at('09:35:00') + second * 1000, 50.3, 50.4, 400, 100)]);
+  e.ingest([trade('2330', '09:36:00', 50.4, 40)]);
+  assert.deepEqual(e.tick(at('09:36:00')), []);
+  assert.equal(e.ranking().list[0].context.book.ready, false);
 });
 
 test('backfill after a reconnect restores totals, reference, book and minute bars', () => {
   const e = engine({ prep: {} }); e.markGap(['2330']);
-  e.backfill('2330', { quote: { referencePrice: 48, openPrice: 48.5, highPrice: 50.5, lowPrice: 48.2, closePrice: 50, avgPrice: 49.5, lastUpdated: at('10:00:00') * 1000, total: { tradeVolume: 1000, tradeValue: 49.5e6, tradeVolumeAtBid: 400, tradeVolumeAtAsk: 600 }, lastTrade: { serial: 500 }, bids: [{ price: 49.9, size: 10 }], asks: [{ price: 50, size: 10 }] }, candles: [{ date: `${date}T09:00:00.000+08:00`, open: 48.5, high: 48.8, low: 48.2, close: 48.7, volume: 300 }] });
+  e.backfill('2330', { quote: { referencePrice: 48, openPrice: 48.5, highPrice: 50.5, lowPrice: 48.2, closePrice: 50, closeTime: at('10:00:00') * 1000, avgPrice: 49.5, lastUpdated: at('10:00:00') * 1000, total: { tradeVolume: 1000, tradeValue: 49.5e6, tradeVolumeAtBid: 400, tradeVolumeAtAsk: 600 }, lastTrade: { serial: 500 }, bids: [{ price: 49.9, size: 10 }], asks: [{ price: 50, size: 10 }] }, candles: [{ date: `${date}T09:00:00.000+08:00`, open: 48.5, high: 48.8, low: 48.2, close: 48.7, volume: 300 }] });
   assert.equal(e.gaps.size, 0);
   const r = e.row('2330');
   assert.deepEqual([r.close, r.change_price, r.total_volume, r.volume_at_ask, r.buy_price], [50, 2, 1000, 600, 49.9]);
