@@ -29,7 +29,8 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
 - **Sector heatmap** – turnover-sized, change-colored treemap of the whole market (or of your research groups when the
   data source has no whole-market data), live during the session, with a per-minute **time machine** replay.
 - **Intraday radar** – volume spikes, surges and plunges, price-limit touches, pattern entries and stop breaks for your
-  watchlist and research groups, plus a live board with daily / 5-minute candles. With a Fugle key the radar runs on a
+  watchlist and research groups, plus a live board with daily / 5-minute candles. **Custom alerts** let you set price,
+  % change or projected-volume conditions on any stock; they are pushed to your phone when met (one-time or repeating). With a Fugle key the radar runs on a
   WebSocket live stream (watchlist first, up to your plan's limit) instead of periodic snapshots.
 - **Day-trade monitoring** (Taiwan, FinMind + Fugle) – FinMind screens after the close and supplies the pre-market
   day-trade list, suspensions and reference prices; Fugle streams trades, 1-minute bars and the order book for your
@@ -40,7 +41,9 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
 - **Group ranking** – your research groups ranked by turnover-weighted gain, with daily close records.
 - **Pattern scanner** – 10 classic patterns over 90 sessions with conditional entry and stop levels.
 - **AI after-market report** – written by Claude, OpenAI, Gemini or any OpenAI-compatible endpoint (including local
-  models), with a downloadable 9:16 summary card.
+  models), with a short note on every watchlist stock and a downloadable 9:16 summary card.
+- **Chip tracking** (Taiwan, FinMind Sponsor) – track chosen broker branches (each branch's market-wide trades after the
+  close, streaks, push above a threshold) and rank stocks by the weekly change in 1,000-lot holders.
 - **Market-specific modules** – for Taiwan with FinMind: broker branches, shareholding distribution, institutional
   and futures/options flows.
 - **Interface languages** – Traditional Chinese and English.
