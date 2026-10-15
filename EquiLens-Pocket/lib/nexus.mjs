@@ -66,6 +66,15 @@ export const chart = (id, period) => call('chart?' + qs({ id, period }), { timeo
 export const brokers = (id, days) => call('brokers?' + qs({ id, days }), { timeout: 120000 });
 export const holders = id => call('holders?' + qs({ id }), { timeout: 60000 });
 export const report = date => call('report?' + qs({ date }));
+export const priceAlerts = () => call('price-alerts');
+export const priceAlertSave = b => call('price-alerts', { body: b });
+export const priceAlertDelete = id => call('price-alerts/delete', { body: { id } });
+export const chipwatch = date => call('chipwatch?' + qs({ date }));
+export const chipwatchQuery = b => call('chipwatch/query', { body: b, timeout: 300000 });
+export const chipwatchSettings = b => call('chipwatch/settings', { body: b });
+export const brokerSearch = q => call('chipwatch/branches?' + qs({ q }), { timeout: 60000 });
+export const holderRank = (scope, date) => call('holders/rank?' + qs({ scope, date }));
+export const holderRankQuery = () => call('holders/rank/query', { body: {}, timeout: 300000 });
 export const grouprank = date => call('grouprank?' + qs({ date }));
 export const grouprankQuery = () => call('grouprank/query', { body: {}, timeout: 60000 });
 export const reportCard =date => call('report/card?' + qs({ date }), { timeout: 120000 });

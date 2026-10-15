@@ -1,6 +1,7 @@
 import { aggregate, renderTreemap, heatColor } from './heatmap.js';
 import { renderFlowCards, downloadFlowCard } from './flow-cards.js';
-import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS } from './live.js';
+import { initChips, loadChips, brokersView, holdersView } from './chips.js';
+import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard } from './live.js';
 import { setLanguage, getLanguage, tx } from './i18n.js';
 import * as MK from './market.js';
 
@@ -29,7 +30,7 @@ const tabsNow = () => TABS.filter(([k]) => k !== 'flows' || !S.profile || !!S.pr
 const TITLES = { brief: '今日焦點', home: '今日盤勢', heat: '資金熱浪', live: '盤中雷達', stocks: '個股研究', patterns: '型態選股', flows: '法人籌碼' };
 
 const S = { tab: 'brief', brief: { news: { 0: null, 1: null }, offset: 0, section: 'all', limit: 15, week: null, kind: 'all' }, summary: null, stocks: null, heat: { data: null, dates: [], market: '全部', focus: null, sel: null, loading: false, error: '', tried: false, live: true, liveBusy: false }, pat: null, patStatus: '', patCat: '', patLimit: 20,
-  list: { mode: 'watch', group: '', sort: 'score', q: '', limit: 40 }, moverSide: 'up', flows: { data: null, date: '', loading: false, error: '', market: '上市', inv: 'total', side: 'buy', contract: null, page: 0 }, loading: false };
+  list: { mode: 'watch', group: '', sort: 'score', q: '', limit: 40 }, moverSide: 'up', flows: { view: 'inst', data: null, date: '', loading: false, error: '', market: '上市', inv: 'total', side: 'buy', contract: null, page: 0 }, loading: false };
 
 /* ---------- theme ---------- */
 function applyTheme() { let t = null; try { t = localStorage.getItem('pocket.theme'); } catch { } if (!t) t = 'dark'; /* 預設深色主題（可在設定或右上角切換） */ document.documentElement.dataset.theme = t; document.querySelector('meta[name=theme-color]')?.setAttribute('content', t === 'light' ? '#f2f5f9' : '#070b14'); }
@@ -94,7 +95,7 @@ async function load(force = false) {
     else if (S.tab === 'heat') { if (replayActive()) return; if (!S.heat.data || force) await loadHeat(); if (S.heat.live && liveOpen()) await loadLive(); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'live') { await loadLiveTab(); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'patterns') { if (!S.pat || force) S.pat = await api('api/patterns'); }
-    else if (S.tab === 'flows') { if (!S.flows.data || force) await loadFlows(); }
+    else if (S.tab === 'flows') { if (S.flows.view !== 'inst') await loadChips(force); else if (!S.flows.data || force) await loadFlows(); }
     S.error = '';
   } catch (e) { if (!e.silent) { S.error = e.message; } }
   finally { btn?.classList.remove('spin'); draw(); }
@@ -288,7 +289,7 @@ async function openStock(id) {
       <div class="upd-row" style="margin-bottom:12px"><button class="btn" data-upd-stock="${s.id}">⟳ 更新此股資料</button><button class="btn" data-news="${s.id}">📰 取得近三日新聞</button></div>
       <section class="card"><div class="card-h"><h2>四維評分<small>有效權重 ${s.coverage}%</small></h2></div><div class="card-b">${s.factors.map((f, i) => `<div class="factor"><span>${FACTORS[i][1]} <small class="soft">${s.weights?.[f.key] ?? ''}%</small></span><span class="track"><i style="width:${f.score ?? 0}%"></i></span><b class="num">${f.score == null ? '—' : fmt(f.score)}</b></div>`).join('')}</div></section>
       <section class="card"><div class="card-h"><h2>近 90 日 K 線</h2></div><div class="card-b">${kline(s.bars)}<div class="chart-tip num" id="ktip">按住圖表查看每日價格</div><div class="legend"><span style="color:var(--amber)">━ MA20 ${fmt(s.tech.ma20, 1)}</span><span style="color:var(--violet)">━ MA60 ${fmt(s.tech.ma60, 1)}</span><span>還原價格</span></div></div></section>
-      ${stockExtrasShell(s.id)}
+      ${rulesCard({ id: s.id, name: s.name, close: s.price })}${stockExtrasShell(s.id)}
       <section class="card"><div class="card-h"><h2>重點數據</h2></div><div class="card-b grid4">${[['20 日報酬', pct(s.tech.r20, 1), cls(s.tech.r20)], ['60 日報酬', pct(s.tech.r60, 1), cls(s.tech.r60)], ['法人 5 日', sign(s.chips.net5) + ' 張', cls(s.chips.net5)], ['法人 20 日', sign(s.chips.net20) + ' 張', cls(s.chips.net20)], ['本益比', fmt(s.valuation.pe, 1) + ' 倍', ''], ['股價淨值比', fmt(s.valuation.pb, 2) + ' 倍', ''], ['殖利率', fmt(s.valuation.yield, 2) + '%', ''], ['近三月營收年增', pct(s.revenue.yoy, 1), cls(s.revenue.yoy)]].map(([a, b, c]) => `<div class="stat"><span>${a}</span><b class="num ${c}">${b}</b></div>`).join('')}</div></section>
       ${s.risks.length ? `<section class="card"><div class="card-h"><h2>需要留意</h2></div><ul class="reasons risk">${s.risks.map(r => `<li>${esc(r)}</li>`).join('')}</ul></section>` : ''}
       ${s.factors.map((f, i) => `<details class="card"><summary>${FACTORS[i][1]}依據 <span class="soft num" style="margin-left:auto;margin-right:10px">${f.date || ''}</span></summary><ul class="reasons">${f.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul></details>`).join('')}
@@ -423,7 +424,15 @@ async function loadFlows(date, query = false) {
   } catch (e) { if (!e.silent) F.error = e.message; }
   finally { F.loading = false; }
 }
+// 籌碼分頁：法人（法人與期權籌碼）、分點追蹤、大戶排行（後兩者需要券商分點能力）
+const chipsOn = () => !!S.profile?.capabilities?.brokers;
 function flowPage() {
+  const seg = chipsOn() ? `<div class="seg" style="margin-bottom:12px">${[['inst', '法人'], ['brokers', '分點追蹤'], ['holders', '大戶排行']].map(([v, l]) => `<button class="${S.flows.view === v ? 'on' : ''}" data-fview="${v}">${l}</button>`).join('')}</div>` : '';
+  if (chipsOn() && S.flows.view === 'brokers') return seg + brokersView();
+  if (chipsOn() && S.flows.view === 'holders') return seg + holdersView();
+  return seg + instPage();
+}
+function instPage() {
   const F = S.flows, d = F.data;
   const ctl = `<div class="toolbar"><div class="field"><input type="date" id="flow-date" value="${F.date || twToday()}" max="${twToday()}" min="2018-06-05" style="flex:1" aria-label="交易日期"><button class="btn" data-flow-load ${F.loading ? 'disabled' : ''}>紀錄</button><button class="btn primary" data-flow-query ${F.loading ? 'disabled' : ''}>${F.loading ? '<span class="spinner"></span>' : '查詢'}</button></div></div>`;
   if (F.loading && !d) return ctl + '<div class="empty"><span class="spinner"></span> 正在依序取得法人、期貨與選擇權資料（約 1 分鐘）…</div>';
@@ -466,6 +475,7 @@ document.addEventListener('click', async e => {
   try {
     if ('reload' in ds) return location.reload();
     if (ds.tab) return setTab(ds.tab);
+    if (ds.fview) { S.flows.view = ds.fview; draw(); return load(); }
     if (b.id === 'refresh') { if (S.tab === 'heat' && !(S.heat.live && liveOpen())) await loadHeat(S.heat.data?.date); return load(S.tab !== 'heat'); }
     if (b.id === 'settings') return openSettings();
     if (ds.setFont) { try { localStorage.setItem('pocket.font', ds.setFont); } catch { } applyFont(); draw(); return openSettings(); }
@@ -571,7 +581,10 @@ setInterval(() => { if (!document.hidden) checkBuild(); }, 10 * 60e3);
 /* ---------- boot ---------- */
 checkBuild();
 applyWake();
-initLive({ api, toast, draw, S, openSheet, openStock, inScope, aggregate, renderTreemap, heatColor, $, $$, setTab, twToday });
+initLive({ api, toast, draw, S, openSheet, openStock, inScope, aggregate, renderTreemap, heatColor, $, $$, setTab, twToday, openChips });
+initChips({ api, toast, draw, S });
+// 推播或雷達中的分點追蹤／大戶週報：開啟籌碼分頁對應的檢視
+function openChips(view) { S.flows.view = view; if (S.tab === 'flows') { draw(); load(); } else setTab('flows'); }
 // Nexus 的研究市場、介面語言、漲跌配色與可用功能
 function applyProfile(p) { if (!p) return; S.profile = p; MK.setMarket(p.market, p.upColor, p.language); if (p.language && p.language !== getLanguage()) setLanguage(p.language); }
 async function start() {

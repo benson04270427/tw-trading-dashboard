@@ -49,22 +49,24 @@ function levelLower(level) {
   if (/total/i.test(s) || /差異/.test(s)) return null;
   const m = /(\d+)/.exec(s); return m ? Number(m[1]) : null;
 }
+// 同一股票同一日的各分級列 → 千張大戶、400 張以上、50 張以下比例與股東人數
+export function holderLevels(list) {
+  let big1000 = 0, big400 = 0, small = 0, people = 0, peopleBig = 0;
+  const total = list.find(r => /total/i.test(r.HoldingSharesLevel));
+  for (const r of list) {
+    const lo = levelLower(r.HoldingSharesLevel); if (lo == null) continue;
+    const pct = num(r.percent);
+    if (lo >= 1000001) { big1000 += pct; peopleBig += num(r.people); }
+    if (lo >= 400001) big400 += pct;
+    if (lo < 50001) small += pct;
+    people += num(r.people);
+  }
+  return { big1000: r2(big1000), big400: r2(big400), small: r2(small), people: total ? num(total.people) : people, peopleBig };
+}
 export function parseHolders(rows) {
   const byDate = new Map();
   for (const r of rows) { if (!byDate.has(r.date)) byDate.set(r.date, []); byDate.get(r.date).push(r); }
-  return [...byDate].sort(([a], [b]) => a.localeCompare(b)).map(([date, list]) => {
-    let big1000 = 0, big400 = 0, small = 0, people = 0, peopleBig = 0;
-    const total = list.find(r => /total/i.test(r.HoldingSharesLevel));
-    for (const r of list) {
-      const lo = levelLower(r.HoldingSharesLevel); if (lo == null) continue;
-      const pct = num(r.percent);
-      if (lo >= 1000001) { big1000 += pct; peopleBig += num(r.people); }
-      if (lo >= 400001) big400 += pct;
-      if (lo < 50001) small += pct;
-      people += num(r.people);
-    }
-    return { date, big1000: r2(big1000), big400: r2(big400), small: r2(small), people: total ? num(total.people) : people, peopleBig };
-  });
+  return [...byDate].sort(([a], [b]) => a.localeCompare(b)).map(([date, list]) => ({ date, ...holderLevels(list) }));
 }
 export function holderSignal(series) {
   if (series.length < 2) return null;

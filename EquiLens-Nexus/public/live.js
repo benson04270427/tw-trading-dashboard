@@ -1,5 +1,5 @@
 // 衡析 Nexus：盤中雷達頁（族群／自選即時看板＋異動雷達＋雷達設定）、個股 K 線視窗、桌面通知、新聞推播、個股籌碼深度、AI 盤後日報與排程設定。
-import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML } from './insight-ui.js';
+import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { t, tx, translateTree } from './i18n.js';
 import * as MK from './market.js';
 import { initDaytrade, loadDaytrade, daytradePanel } from './daytrade.js';
@@ -8,7 +8,7 @@ const Note = (title, o = {}) => new Notification(tx(title), { ...o, body: o.body
 
 let C = null; // { api, toast, state, redraw, page, openStock, inScope }
 const pref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } }, savePref = (k, v) => { try { localStorage.setItem(k, v); } catch { } };
-const L = { board: null, bgroup: pref('nexus.boardGroup', ''), bsort: pref('nexus.boardSort', 'default'), alerts: [], latest: 0, date: '', group: 'all', monitor: null, draft: null, report: null, reportLoaded: false, notify: false, error: '' };
+const L = { board: null, bgroup: pref('nexus.boardGroup', ''), bsort: pref('nexus.boardSort', 'default'), alerts: [], latest: 0, date: '', group: 'all', monitor: null, draft: null, report: null, reportLoaded: false, notify: false, error: '', rules: null };
 export function initLive(ctx) {
   C = ctx; try { L.notify = localStorage.getItem('nexus.notify') === '1' && Notification.permission === 'granted'; } catch { }
   initDaytrade({ api: ctx.api, toast: ctx.toast, repaint: () => repaint(), isLive: () => C.page() === 'live', openChart: id => C.inScope(id) ? C.openStock(id) : openChart(id) });
@@ -40,7 +40,18 @@ async function fetchAlerts(reset) {
 async function loadMonitor() { try { L.monitor = await C.api('monitor'); L.draft = structuredClone({ monitor: L.monitor.enabled, radar: L.monitor.radar }); } catch (e) { L.error = e.message; } }
 async function refreshMonitor() { try { const m = await C.api('monitor'); L.monitor = m; if (!L.draft) L.draft = structuredClone({ monitor: m.enabled, radar: m.radar }); } catch { } } // 不覆蓋編輯中的雷達設定
 const newsOn = () => !!L.monitor?.news?.enabled;
-export async function enterLive() { await Promise.all([loadBoard(), loadAlerts(!L.date), loadMonitor(), loadDaytrade()]); repaint(); }
+export async function enterLive() { await Promise.all([loadBoard(), loadAlerts(!L.date), loadMonitor(), loadDaytrade(), loadRules()]); repaint(); }
+/* ---------- 自訂提醒 ---------- */
+async function loadRules() { try { L.rules = await C.api('price-alerts'); } catch (e) { L.error = e.message; } }
+// 重畫所有顯示提醒的區塊（盤中雷達頁、個股診斷、K 線視窗），不整頁重繪以免清掉輸入中的表單
+function paintRules() {
+  for (const el of document.querySelectorAll('[data-pa-box]')) el.innerHTML = priceRulesHTML(L.rules, { stockId: el.dataset.paBox || null, empty: el.dataset.paBox ? '這檔股票尚未設定提醒' : '尚未設定提醒。在下方輸入股票代號與條件，或在個股視窗設定。' });
+  const n = document.getElementById('pa-count'); if (n) n.textContent = `${(L.rules?.rules || []).filter(r => r.active).length} / ${L.rules?.max || 200}`;
+}
+function rulesSection(stock) {
+  if (!L.rules) loadRules().then(paintRules);
+  return `<section class="panel ix-pa"><div class="panelhead"><h3>🔔 自訂提醒</h3><span class="fine">條件成立時推播到手機、跳桌面通知</span></div><div class="contentpad"><div data-pa-box="${esc(stock.id)}">${L.rules ? priceRulesHTML(L.rules, { stockId: stock.id, empty: '這檔股票尚未設定提醒' }) : '<p><i class="spinner"></i></p>'}</div>${priceRuleForm(stock)}</div></section>`;
+}
 let tick = 0;
 setInterval(async () => {
   if (!C || document.hidden) return; tick++;
@@ -53,6 +64,7 @@ setInterval(async () => {
   if (C.page() === 'settings' && document.getElementById('news-status')) { await refreshMonitor(); const el = document.getElementById('news-status'); if (el) el.innerHTML = newsStatusHTML(); }
   if (C.page() === 'home' && L.report?.busy) { await loadReport(); C.redraw(); }
   if (onPage && marketOpen() && tick % 3 === 0) await refreshMonitor(); // 盤中每 30 秒確認即時推播狀態
+  if (marketOpen() && tick % 3 === 0 && document.querySelector('[data-pa-box]') && !document.activeElement?.closest?.('[data-pa-form]')) { await loadRules(); paintRules(); } // 觸發後停用的單次提醒
 }, 10000);
 // 即時推播（例如富果 WebSocket）運作時：盤中雷達頁的異動每 3 秒更新（看板固定用快照，隨上面每 10 秒更新）；開著桌面通知時，異動也每 3 秒取一次
 const streamOn = () => !!L.monitor?.stream?.active;
@@ -177,14 +189,17 @@ export function livePage() {
   const radar = `<div class="lv-chips">${ALERT_GROUPS.map(([k, l]) => `<button class="${L.group === k ? 'selected' : ''}" data-agroup="${k}">${l} <b class="mono">${L.alerts.filter(a => alertMatch(a, k)).length}</b></button>`).join('')}</div><div class="ix-alerts">${list.map(alertRow).join('') || `<div class="empty"><p>${open ? '目前沒有符合條件的異動。' : '今日尚無異動紀錄。'}</p></div>`}</div>`;
   const sorts = `<div class="segmented" title="卡片排序">${BOARD_SORTS.map(([v, l]) => `<button class="${L.bsort === v ? 'selected' : ''}" data-bsort="${v}">${l}</button>`).join('')}</div>`;
   return `${status}${L.error ? `<div class="notice err"><span>${esc(L.error)}</span></div>` : ''}${daytradePanel()}<div class="lv-layout"><section class="panel"><div class="panelhead"><div><h2><span class="idx">01</span>即時看板</h2><p>切換自選或研究總覽族群 · 盤中每 10 秒更新 · 虛線為昨收 · 點卡片看日 K／5 分 K</p></div>${sorts}</div>${boardGroupBar(b)}<div class="contentpad">${boardCards(b)}</div></section>
-  <aside class="rightcol"><section class="panel"><div class="panelhead"><div><h2><span class="idx">02</span>異動雷達</h2><p>爆量 · 急拉急殺 · 漲跌停 · 型態進場 · 跌破防守</p></div></div>${radar}</section>${settingsPanel()}</aside></div>`;
+  <aside class="rightcol"><section class="panel"><div class="panelhead"><div><h2><span class="idx">02</span>異動雷達</h2><p>爆量 · 急拉急殺 · 漲跌停 · 型態進場 · 跌破防守 · 自訂提醒</p></div></div>${radar}</section>${rulesPanel()}${settingsPanel()}</aside></div>`;
+}
+function rulesPanel() {
+  return `<section class="panel ix-pa"><div class="panelhead"><div><h2><span class="idx">03</span>自訂提醒 <small class="mono fine" id="pa-count">${(L.rules?.rules || []).filter(r => r.active).length} / ${L.rules?.max || 200}</small></h2><p>價位 · 漲跌幅 · 量能 · 條件成立時推播 · 盤中監控執行時生效</p></div></div><div class="contentpad"><div data-pa-box="">${priceRulesHTML(L.rules, { empty: '尚未設定提醒。在下方輸入股票代號與條件，或在個股視窗設定。' })}</div>${priceRuleForm()}</div></section>`;
 }
 function settingsPanel() {
   const d = L.draft; if (!d) return '';
   const r = d.radar, get = p => p.split('.').reduce((o, k) => o[k], r);
   const sel = (p, opts, unit = '') => `<select data-rset="${p}">${opts.map(v => `<option value="${v}" ${String(get(p)) === String(v) ? 'selected' : ''}>${v === 0 ? '不限' : v >= 1e7 ? fmt(v / 1e8, 1) + ' 億' : v + unit}</option>`).join('')}</select>`;
   const row = (p, label, extra = '') => `<label class="lv-rule"><input type="checkbox" data-rset="${p}" ${(p === 'monitor' ? d.monitor : get(p)) ? 'checked' : ''}><span>${label}</span>${extra ? `<span class="lv-opts">${extra}</span>` : ''}</label>`;
-  return `<section class="panel"><div class="panelhead"><div><h2><span class="idx">03</span>雷達設定</h2><p>手機版同步共用 · 監控約 360 次 FinMind 請求／小時</p></div></div><div class="contentpad lv-settings">
+  return `<section class="panel"><div class="panelhead"><div><h2><span class="idx">04</span>雷達設定</h2><p>手機版同步共用 · 監控約 360 次 FinMind 請求／小時</p></div></div><div class="contentpad lv-settings">
     ${row('monitor', `盤中監控（${MK.market().sessions?.[0]?.[0] || ''}–${MK.market().sessions?.at(-1)?.[1] || ''}）`)}
     <div class="segmented" style="margin:10px 0">${[['watch', '只看自選'], ['research', '自選＋研究名單'], ['all', '全市場']].map(([v, l]) => `<button class="${r.scope === v ? 'selected' : ''}" data-rscope="${v}">${l}</button>`).join('')}</div>
     ${row('volume.on', '🔥 爆量', `預估量 ≥ ${sel('volume.ratio', [1.5, 2, 3, 5], ' 倍')} 昨量，成交 ≥ ${sel('volume.minAmount', [0, 50000000, 100000000, 500000000])}`)}
@@ -224,12 +239,12 @@ function paintChart() {
     <div class="price">${fmt(price, 2)} <span class="${cls(chg)}" style="font-size:1rem">${pct(chg)}${q?.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</span></div>
     <p class="mono">開 ${fmt(info[0], 2)} · 高 ${fmt(info[1], 2)} · 低 ${fmt(info[2], 2)}${q?.volume ? ` · 成交 ${fmt(q.volume)} 張` : dayBar ? ` · 成交 ${fmt(dayBar[5])} 張` : ''}${q?.amount ? ` · ${yi(q.amount)} 億` : ''}${q?.bid ? ` · 委買 ${fmt(q.bid, 2)} / 委賣 ${fmt(q.ask, 2)}` : ''}</p></div>
     <div class="actions"><div class="segmented">${[['day', '日K'], ['5m', '5分K']].map(([v, l]) => `<button class="${K.period === v ? 'selected' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>${C.inScope(id) ? `<button data-stock="${id}">個股診斷 ↗</button>` : ''}<button class="close" data-action="close-detail" aria-label="關閉">×</button></div></div>
-    <div class="detailbody"><section class="chartpanel">${K.error && !ready ? `<div class="empty"><p>${esc(K.error)}</p></div>` : ready ? candleSVG(d.bars, { w: 960, h: 400, show: d.period === 'day' ? 120 : 162, period: d.period, key: id + d.period, prev: d.prev, prevs: d.days ? Object.fromEntries(d.days.map(x => [x.date, x.prev])) : null }) : `<div class="empty"><p><i class="spinner"></i>讀取${K.period === 'day' ? '日' : ' 5 分'} K…</p></div>`}<p class="chartcaption">${caption}</p></section></div>`;
+    <div class="detailbody"><section class="chartpanel">${K.error && !ready ? `<div class="empty"><p>${esc(K.error)}</p></div>` : ready ? candleSVG(d.bars, { w: 960, h: 400, show: d.period === 'day' ? 120 : 162, period: d.period, key: id + d.period, prev: d.prev, prevs: d.days ? Object.fromEntries(d.days.map(x => [x.date, x.prev])) : null }) : `<div class="empty"><p><i class="spinner"></i>讀取${K.period === 'day' ? '日' : ' 5 分'} K…</p></div>`}<p class="chartcaption">${caption}</p></section>${rulesSection({ id, name: d?.name || s?.name || id, close: price })}</div>`;
 }
 
 /* ---------- 個股診斷：分點、大戶 ---------- */
-export function detailExtrasShell() {
-  return `<div class="ix-detail"><section class="panel"><div class="panelhead"><h3>🏦 主力分點 · 近 5 日</h3><span class="fine">FinMind 券商分點</span></div><div class="contentpad" id="ix-brokers"><p><i class="spinner"></i>讀取券商分點…</p></div></section>
+export function detailExtrasShell(stock) {
+  return `${stock ? rulesSection(stock) : ''}<div class="ix-detail"><section class="panel"><div class="panelhead"><h3>🏦 主力分點 · 近 5 日</h3><span class="fine">FinMind 券商分點</span></div><div class="contentpad" id="ix-brokers"><p><i class="spinner"></i>讀取券商分點…</p></div></section>
   <section class="panel"><div class="panelhead"><h3>🐋 大戶持股 · 每週</h3><span class="fine">股權分散表</span></div><div class="contentpad" id="ix-holders"><p><i class="spinner"></i>讀取股權分散表…</p></div></section></div>`;
 }
 export async function fillDetailExtras(id, current) {
@@ -294,6 +309,9 @@ document.addEventListener('click', async e => {
     if (ds.agroup) { L.group = ds.agroup; return repaint(); }
     if (ds.alertStock) { const id = ds.alertStock; return C.inScope(id) ? C.openStock(id) : openChart(id); }
     if ('openReport' in ds) return C.setPage('home');
+    if (ds.openChips) return C.setPage('chips');
+    if (ds.paDel) { if (!confirm(t('刪除這則提醒？'))) return; L.rules = await C.api('price-alerts/delete', { id: ds.paDel }); paintRules(); return C.toast('已刪除提醒'); }
+    if (ds.paToggle) { L.rules = await C.api('price-alerts', { id: ds.paToggle, active: ds.on === '1' }); paintRules(); return C.toast(ds.on === '1' ? '提醒已重新啟用' : '提醒已停用'); }
     if (ds.live === 'pip') return await openPip();
     if (ds.live === 'notify') {
       if (L.notify) { L.notify = false; try { localStorage.setItem('nexus.notify', '0'); } catch { } return C.page() === 'live' ? repaint() : C.redraw(); }
@@ -314,7 +332,13 @@ document.addEventListener('change', async e => {
   if ('rdate' in t.dataset) { await loadReport(t.value); C.redraw(); }
 });
 document.addEventListener('submit', async e => {
-  const f = e.target; if (f.id !== 'report-form' || !C) return; e.preventDefault();
+  const f = e.target; if (!C) return;
+  if ('paForm' in f.dataset) {
+    e.preventDefault(); const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
+    try { L.rules = await C.api('price-alerts', priceRuleBody(f)); f.elements.value.value = ''; f.elements.note.value = ''; if (f.elements.stockId.type !== 'hidden') f.elements.stockId.value = ''; paintRules(); C.toast('已新增提醒，盤中條件成立時通知'); }
+    catch (err) { C.toast(err.message); } finally { btn.disabled = false; } return;
+  }
+  if (f.id !== 'report-form') return; e.preventDefault();
   const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
   try {
     await C.api('report/settings', { auto: f.elements.auto.checked, time: f.elements.time.value }); await loadReport(); C.toast('日報設定已儲存');
