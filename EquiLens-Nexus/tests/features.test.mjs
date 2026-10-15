@@ -331,7 +331,7 @@ test('holder levels parse into big-holder, retail and people series', () => {
   const lv = (date, level, people, percent) => ({ date, HoldingSharesLevel: level, people, percent });
   const rows = ['2026-09-18', '2026-09-24'].flatMap((d, i) => [lv(d, '1-999', 1000, 2), lv(d, '40,001-50,000', 50, 3), lv(d, '400,001-600,000', 5, 5), lv(d, 'more than 1,000,001', 10, 70 + i), lv(d, 'total', 1065 - i * 10, 100), lv(d, '差異數調整（說明4）', 0, 0)]);
   const s = parseHolders(rows);
-  assert.equal(s.length, 2); assert.deepEqual(s[0], { date: '2026-09-18', big1000: 70, big400: 75, small: 5, people: 1065, peopleBig: 10 });
+  assert.equal(s.length, 2); assert.deepEqual(s[0], { date: '2026-09-18', big1000: 70, big400: 75, small: 5, people: 1065, peopleBig: 10, shares: 0 });
   const sig = holderSignal(s); assert.equal(sig.d1, 1); assert.equal(sig.tone, '籌碼集中');
   assert.deepEqual(kbarRows([{ minute: '09:00:00', open: 1, high: 2, low: 1, close: 2, volume: 5 }, { minute: '09:01:00', close: 0 }]), [['09:00', 1, 2, 1, 2, 5]]);
 });

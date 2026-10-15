@@ -443,3 +443,7 @@ a.ix-alert{color:inherit;text-decoration:none}
 .ix-rnotes b{font-size:.86rem}.ix-rnotes span{display:block;font-size:.8rem;color:var(--muted);margin-top:2px;line-height:1.5}
 .ix-pa-cond em{justify-self:start;margin-left:0}
 .ix-cw>.ix-btable{margin-bottom:14px}
+/* 分點追蹤提醒條件 */
+.ix-cw-rules{display:grid;gap:10px;font-size:.84rem;line-height:2}.ix-cw-rules b{display:block;line-height:1.4}.ix-cw-rules select{padding:4px 6px;border-radius:8px;border:1px solid var(--line2);background:var(--surface);color:var(--text);font-size:16px}
+.ix-btable tr.ix-cw-hit td{background:var(--accent-soft)}
+.ix-cw .ix-btable{overflow-x:auto}.ix-cw .ix-btable table{min-width:420px}

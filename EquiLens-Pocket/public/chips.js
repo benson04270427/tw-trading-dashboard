@@ -1,5 +1,5 @@
 // 衡析 Pocket：籌碼分頁的「分點追蹤」與「大戶排行」（台股 FinMind Sponsor）。資料與設定都在電腦上的 Nexus，手機可查看、查詢與調整追蹤分點。
-import { esc, chipwatchHTML, branchChips, branchSearchHTML, holderRankHTML } from './insight-ui.js';
+import { esc, branchRulesForm, chipwatchHTML, branchChips, branchSearchHTML, holderRankHTML } from './insight-ui.js';
 import { t } from './i18n.js';
 
 let C = null; // { api, toast, draw, S }
@@ -23,7 +23,7 @@ export function brokersView() {
     <form class="ix-cw-search" data-cw-search><input name="q" value="${esc(W.q)}" placeholder="搜尋分點名稱或代號" maxlength="30" aria-label="搜尋券商分點"><button type="submit">搜尋</button></form>
     ${W.found ? branchSearchHTML(W.found, s) : ''}
     <div class="ix-cw-opts"><label class="checkbox"><input type="checkbox" data-cw-opt="auto" ${s.auto ? 'checked' : ''}> 平日 18:30 後自動查詢並推播</label>
-    <label>提醒門檻 <select class="sel" data-cw-opt="minLots">${[50, 100, 200, 500, 1000].map(v => `<option value="${v}" ${s.minLots === v ? 'selected' : ''}>${v} 張</option>`).join('')}</select></label></div></div></section>
+${branchRulesForm(s)}</div></div></section>
     ${W.error ? `<div class="notice err">${esc(W.error)}</div>` : ''}${i.error && !i.busy ? `<div class="notice warn">${esc(i.error)}</div>` : ''}
     <section class="card"><div class="card-h"><h2>盤後進出</h2>${i.dates?.length ? `<select class="sel" data-cw-date aria-label="紀錄日期">${i.dates.slice().reverse().map(d => `<option ${d === i.report?.date ? 'selected' : ''}>${d}</option>`).join('')}</select>` : ''}</div>
     <div class="card-b"><button class="btn block primary" style="margin-bottom:12px" data-cw="query" ${W.loading || i.busy || !s.branches.length ? 'disabled' : ''}>${W.loading || i.busy ? '<span class="spinner"></span> 查詢中…' : '⟳ 立即查詢最新交易日'}</button>${chipwatchHTML(i)}</div></section>`;

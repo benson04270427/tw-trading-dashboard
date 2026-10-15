@@ -51,7 +51,7 @@ function levelLower(level) {
 }
 // 同一股票同一日的各分級列 → 千張大戶、400 張以上、50 張以下比例與股東人數
 export function holderLevels(list) {
-  let big1000 = 0, big400 = 0, small = 0, people = 0, peopleBig = 0;
+  let big1000 = 0, big400 = 0, small = 0, people = 0, peopleBig = 0, units = 0;
   const total = list.find(r => /total/i.test(r.HoldingSharesLevel));
   for (const r of list) {
     const lo = levelLower(r.HoldingSharesLevel); if (lo == null) continue;
@@ -59,9 +59,10 @@ export function holderLevels(list) {
     if (lo >= 1000001) { big1000 += pct; peopleBig += num(r.people); }
     if (lo >= 400001) big400 += pct;
     if (lo < 50001) small += pct;
-    people += num(r.people);
+    people += num(r.people); units += num(r.unit);
   }
-  return { big1000: r2(big1000), big400: r2(big400), small: r2(small), people: total ? num(total.people) : people, peopleBig };
+  // shares：集保總股數（「合計」列的股數，沒有時加總各級距）
+  return { big1000: r2(big1000), big400: r2(big400), small: r2(small), people: total ? num(total.people) : people, peopleBig, shares: total && num(total.unit) > 0 ? num(total.unit) : units };
 }
 export function parseHolders(rows) {
   const byDate = new Map();

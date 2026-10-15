@@ -165,8 +165,9 @@ async function api(req, res, url) {
     if (route === 'holders/rank/query') return send(req, res, 200, await nexus.holderRankQuery());
     if (route === 'chipwatch/settings') {
       const br = b.branches; if (br !== undefined && (!Array.isArray(br) || br.length > 20 || !br.every(x => x && typeof x.id === 'string' && /^[\w]{1,10}$/.test(x.id) && typeof x.name === 'string' && x.name.length <= 40))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
-      if ((b.auto !== undefined && typeof b.auto !== 'boolean') || (b.minLots !== undefined && !Number.isFinite(Number(b.minLots))) || (b.holdersPush !== undefined && typeof b.holdersPush !== 'boolean')) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
-      return send(req, res, 200, await nexus.chipwatchSettings({ branches: br, auto: b.auto, minLots: b.minLots, holdersPush: b.holdersPush }));
+      const nums = ['dayPct', 'minAmount', 'accumPct', 'accumDays'];
+      if ((b.auto !== undefined && typeof b.auto !== 'boolean') || nums.some(k => b[k] !== undefined && !Number.isFinite(Number(b[k]))) || (b.holdersPush !== undefined && typeof b.holdersPush !== 'boolean')) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
+      return send(req, res, 200, await nexus.chipwatchSettings({ branches: br, auto: b.auto, holdersPush: b.holdersPush, ...Object.fromEntries(nums.filter(k => b[k] !== undefined).map(k => [k, Number(b[k])])) }));
     }
     if (route === 'report/generate') { if (b.date && !validDate(b.date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 202, await nexus.reportGenerate(b.date)); }
     // 推播聯絡網址：手機開啟通知時所用的 https 網址（Nexus 設定了對外網址時以該網址為準）

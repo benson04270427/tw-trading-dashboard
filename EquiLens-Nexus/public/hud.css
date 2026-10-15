@@ -735,3 +735,6 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 .ix-rnotes button{display:block;text-align:left;padding:10px 12px;white-space:normal}.ix-rnotes b{font-size:.84rem}.ix-rnotes span{display:block;font-size:.78rem;color:var(--muted);margin-top:3px;line-height:1.55}
 .ix-pa-cond em{justify-self:start;margin-left:0}
 .ix-cw>.ix-btable{margin-bottom:14px}
+/* 分點追蹤提醒條件 */
+.ix-cw-rules{display:grid;gap:6px;font-size:.8rem}.ix-cw-rules>div{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}.ix-cw-rules b{min-width:64px}.ix-cw-rules select{padding:3px 6px}
+.ix-btable tr.ix-cw-hit td{background:rgba(34,230,255,.06)}

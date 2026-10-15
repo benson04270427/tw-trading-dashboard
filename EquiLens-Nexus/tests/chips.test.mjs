@@ -71,20 +71,45 @@ test('branch tracking: per-stock totals, average prices, ranking, streaks and al
   assert.equal(d.buy[0].streak, 3); assert.equal(d.sell[0].streak, -1);
   assert.deepEqual(d.mine.map(x => x.id), ['2330', '2317']); assert.equal(d.nets['1101'], 20000);
   assert.equal(streakOf([{ x: -1 }, { x: 2 }], 'x', 3), 2);
-  const doc = { date: '2026-10-13', branches: [{ id: '9200', name: '凱基台北', ...d }, { id: 'x', name: 'err', error: 'quota', count: 0 }] };
-  const al = brokerWatchAlerts(doc, { minLots: 100, lang: 'zh-TW' });
+  assert.deepEqual(d.signals, [], 'no volume or share data: no alert conditions');
+  assert.equal(d.buy[0].volPct, null); assert.equal(d.buy[0].accumDays, 3, 'today plus two stored days');
+  const s = normalizeChipwatch({ branches: [{ id: '9200', name: 'A' }, { id: '9200', name: 'dup' }, { id: '../x' }], dayPct: 99, accumDays: 1, minLots: 3 });
+  assert.deepEqual(s.branches, [{ id: '9200', name: 'A' }]); assert.equal(s.dayPct, 50); assert.equal(s.accumDays, 2); assert.equal(s.minAmount, 1e7); assert.equal(s.accumPct, 0.3); assert.equal(s.auto, true); assert.equal(s.minLots, undefined);
+});
+
+test('branch alerts: one-day dominance needs volume share and amount; accumulation needs N days against total shares', () => {
+  const rows = [
+    { stock_id: '3231', price: 118, buy: 1300000, sell: 0 },  // 1,300 張、1.53 億，占成交量 13%
+    { stock_id: '1101', price: 30, buy: 20000, sell: 0 },     // 占成交量 20%，但金額只有 60 萬
+    { stock_id: '2330', price: 1000, buy: 350000, sell: 0 },  // 3.5 億，但只占成交量 1.17%
+    { stock_id: '2317', price: 200, buy: 0, sell: 400000 },   // 賣超不提醒
+  ];
+  const meta = new Map([['3231', { name: '緯創' }], ['1101', { name: '台泥' }], ['2330', { name: '台積電' }], ['2317', { name: '鴻海' }]]);
+  const volumes = { 3231: 10e6, 1101: 1e5, 2330: 30e6, 2317: 2e6 }, shares = { 3231: 2.9e9, 1101: 7.7e9, 2330: 25.9e9, 2317: 13.9e9 };
+  const history = [{ 3231: 2e6 }, { 3231: 2e6, 2330: -1 }, { 3231: 2e6 }, { 3231: 2e6 }]; // 前 4 日各買超 2,000 張
+  const d = branchDay(rows, { meta, watch: new Set(['3231']), volumes, shares, history });
+  const w = d.signals.find(x => x.id === '3231');
+  assert.deepEqual(d.signals.map(x => x.id), ['3231'], 'only 3231 meets a condition');
+  assert.equal(w.volPct, 13); assert.equal(w.day, true);
+  assert.equal(w.accumNet, 9.3e6); assert.equal(w.accumDays, 5); assert.equal(w.accumPct, 0.32); assert.equal(w.accum, true);
+  assert.equal(d.buy.find(x => x.id === '1101').volPct, 20, 'shown but below the amount threshold');
+  // 累計天數未達設定（紀錄只有 2 日）時不判斷吃貨
+  assert.equal(branchDay(rows, { meta, volumes: {}, shares, history: [{ 3231: 9e7 }] }).signals.length, 0);
+  // 門檻調高後不提醒
+  assert.equal(branchDay(rows, { meta, volumes, shares, history, settings: { dayPct: 15, accumPct: 1 } }).signals.length, 0);
+  const doc = { date: '2026-10-13', branches: [{ id: '9200', name: '凱基台北', ...d }, { id: 'x', name: 'err', error: 'quota', count: 0 }, { id: 'y', name: '無訊號', ...branchDay(rows.slice(1), { meta }) }] };
+  const al = brokerWatchAlerts(doc, { lang: 'zh-TW' });
   assert.equal(al.length, 1); assert.equal(al[0].type, 'broker'); assert.equal(al[0].level, 'hi', 'watchlist stock involved');
-  assert.match(al[0].detail, /台積電 \+350（連3買）/); assert.match(al[0].detail, /鴻海 -400/); assert.doesNotMatch(al[0].detail, /1101/, 'below the threshold');
-  assert.equal(brokerWatchAlerts(doc, { minLots: 1000 }).length, 0);
-  const s = normalizeChipwatch({ branches: [{ id: '9200', name: 'A' }, { id: '9200', name: 'dup' }, { id: '../x' }], minLots: 3 });
-  assert.deepEqual(s.branches, [{ id: '9200', name: 'A' }]); assert.equal(s.minLots, 10); assert.equal(s.auto, true);
+  assert.match(al[0].detail, /單日主導：緯創（自選） \+1,300 張（占成交量 13%、1\.53 億）/);
+  assert.match(al[0].detail, /多日吃貨：緯創（自選） 5 日 \+9,300 張（占股本 0\.32%）/);
 });
 
 const level = (date, id, rows) => rows.map(([lv, people, percent]) => ({ date, stock_id: id, HoldingSharesLevel: lv, people, percent }));
 const week = (date, big, people) => [...level(date, '2330', [['1-999', people - 10, 100 - big], ['more than 1,000,001', 10, big], ['total', people, 100]]), ...level(date, '0050', [['1-999', 50, 90], ['more than 1,000,001', 1, 10]])];
 test('holder concentration: whole-market day summary, 1/4-week changes, tone and weekly alert', () => {
   const day = holderMarketDay(week('2026-10-09', 72, 5000), '2026-10-09');
-  assert.deepEqual(day['2330'], [72, 72, 28, 5000]);
+  assert.deepEqual(day['2330'], [72, 72, 28, 5000, 0]);
+  assert.equal(holderMarketDay([{ date: 'd', stock_id: '2330', HoldingSharesLevel: 'more than 1,000,001', people: 10, percent: 80, unit: 2e10 }, { date: 'd', stock_id: '2330', HoldingSharesLevel: 'total', people: 900, percent: 100, unit: 2.59e10 }], 'd')['2330'][4], 2.59e10, 'total shares from the total row');
   assert.deepEqual(parseHolders(week('2026-10-09', 72, 5000).filter(r => r.stock_id === '2330'))[0].big1000, 72, 'refactored parser unchanged');
   const D = (date, big, people) => ({ date, s: holderMarketDay(week(date, big, people), date) });
   const meta = new Map([['2330', { name: '台積電' }], ['0050', { name: '元大台灣50' }]]);
@@ -124,8 +149,8 @@ test('price alert and chip tracking APIs: validation, persistence per market, no
     // 籌碼追蹤沒有 FinMind 時：回報不可用，查詢給可讀的錯誤
     const cw = await get('chipwatch'); assert.equal(cw.capable, false); assert.deepEqual(cw.settings.branches, []);
     const q = await post('chipwatch/query', {}); assert.equal(q.status, 400); assert.match((await q.json()).error, /FinMind/);
-    const set = await (await post('chipwatch/settings', { branches: [{ id: '9200', name: '凱基台北' }], minLots: 200 })).json();
-    assert.deepEqual(set.settings.branches, [{ id: '9200', name: '凱基台北' }]); assert.equal(set.settings.minLots, 200);
+    const set = await (await post('chipwatch/settings', { branches: [{ id: '9200', name: '凱基台北' }], dayPct: 15, minAmount: 3e7 })).json();
+    assert.deepEqual(set.settings.branches, [{ id: '9200', name: '凱基台北' }]); assert.equal(set.settings.dayPct, 15); assert.equal(set.settings.minAmount, 3e7); assert.equal(set.settings.accumDays, 5);
     assert.equal((await post('chipwatch/settings', { branches: Array.from({ length: 21 }, (_, i) => ({ id: String(i), name: 'x' })) })).status, 400);
     const hr = await get('holders/rank'); assert.equal(hr.capable, false); assert.equal(hr.rank, null);
   } finally { child.kill(); await new Promise(r => child.once('close', r)); fs.rmSync(dir, { recursive: true, force: true }); }

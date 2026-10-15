@@ -604,21 +604,37 @@ async function runBrokerWatch(date,{alert=false}={}){
   try{
     const prev=bwDates().filter(d=>d<date).slice(-10).map(d=>read(`broker-watch/${d}.json`,null)).filter(Boolean);
     const {meta}=uniIndex(),watch=new Set(watchlist),research=new Set(scopeIds(researchScope)),branches=[];let any=false;
+    const vol=await dayVolumes(date),sh=await holderShares(date);
     for(const b of cs.branches){
       try{
         const rows=await fm('/taiwan_stock_trading_daily_report',{securities_trader_id:b.id,date},fmOpt());
         if(rows.length)any=true;
         const name=String(rows[0]?.securities_trader||b.name);
         const history=prev.map(d=>d.branches.find(x=>x.id===b.id)?.nets||{});
-        branches.push({id:b.id,name,...branchDay(rows,{meta,watch,research,history})});
+        branches.push({id:b.id,name,...branchDay(rows,{meta,watch,research,history,volumes:vol.volumes,shares:sh.shares,settings:cs})});
       }catch(e){branches.push({id:b.id,name:b.name,error:e.message,count:0,buy:[],sell:[],mine:[],nets:{}});if(blocked(e))break;}
     }
-    const doc={date,builtAt:new Date().toISOString(),minLots:cs.minLots,branches};
+    const doc={date,builtAt:new Date().toISOString(),rules:{dayPct:cs.dayPct,minAmount:cs.minAmount,accumPct:cs.accumPct,accumDays:cs.accumDays},volumeSource:vol.source,sharesDate:sh.date,branches};
     if(!any){const err=branches.find(b=>b.error)?.error;if(err)throw new UserError(err);return{...doc,empty:true};}
     fs.mkdirSync(path.join(LOCAL,'broker-watch'),{recursive:true});write(`broker-watch/${date}.json`,doc);
-    if(alert)addAlerts(today(),brokerWatchAlerts(doc,{minLots:cs.minLots,lot:M().lot,lang:language()}));
+    if(alert)addAlerts(today(),brokerWatchAlerts(doc,{lot:M().lot,lang:language()}));
     return doc;
   }catch(e){bw.error=e.message;throw e;}finally{bw.busy=false;}
+}
+// 當日各股成交股數（單日主導用）：熱浪圖紀錄 → 時光機收盤畫格 → 查一次全市場單日行情（建立熱浪圖）
+async function dayVolumes(date){
+  const lot=M().lot,fromHeat=h=>{const out={};for(const s of h?.sectors||[])for(const x of s.stocks||[])if(x.volume>0)out[x.id]=x.volume*lot;return out;};
+  let out=fromHeat(read('heatmap-'+date+'.json',null));if(Object.keys(out).length)return{volumes:out,source:'heatmap'};
+  const day=loadDay(date),f=day?.frames.at(-1);
+  if(f?.v&&f.t>=closeHM(M())){day.ids.forEach((id,i)=>{if(f.v[i]>0)out[id]=f.v[i]*lot;});if(Object.keys(out).length)return{volumes:out,source:'replay'};}
+  if(data.has('dailyAll')&&!heatBusy&&!job.running){try{const h=await runHeatmap(date);if(h.date===date){out=fromHeat(h);if(Object.keys(out).length)return{volumes:out,source:'heatmap'};}}catch{}}
+  return{volumes:{},source:null};
+}
+// 各股集保總股數（多日吃貨用）：日期不晚於查詢日的最近一份全市場股權分散表；沒有紀錄或舊紀錄沒有股數時先更新一次
+async function holderShares(date){
+  const pick=()=>{for(const d of hdDates().filter(x=>x<=date).reverse()){const doc=read(`holders-all/${d}.json`,null),s={};for(const [id,v] of Object.entries(doc?.s||{}))if(v[4]>0)s[id]=v[4];if(Object.keys(s).length)return{date:d,shares:s};}return null;};
+  let r=pick();if(!r&&!hd.busy){try{await refreshHolders();}catch{}r=pick();}
+  return r||{date:null,shares:{}};
 }
 // 平日 18:30 後（FinMind 約 18:00 更新）自動查當天，尚未公布時每 30 分鐘重試，最多 8 次
 setInterval(()=>{
@@ -639,7 +655,7 @@ function chipwatchInfo(date){
 const hdDates=()=>listDir('holders-all',/^(\d{4}-\d{2}-\d{2})\.json$/);
 let hd={busy:false,error:'',probeAt:0,cache:{key:'',data:null}};
 async function holderDay(date){
-  const name=`holders-all/${date}.json`,c=read(name,null);if(c?.s)return c;
+  const name=`holders-all/${date}.json`,c=read(name,null);if(c?.s&&Object.values(c.s)[0]?.length>=5)return c; // 舊紀錄沒有集保股數時重新取得
   const rows=await finmind('brokers')('TaiwanStockHoldingSharesPer',{start_date:date},fmOpt()),s=holderMarketDay(rows,date);
   if(!Object.keys(s).length)return null;
   const doc={date,at:Date.now(),s};fs.mkdirSync(path.join(LOCAL,'holders-all'),{recursive:true});write(name,doc);return doc;
@@ -1158,7 +1174,7 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/chipwatch/settings'&&req.method==='POST'){
       const b=await body(req),cur=chipSettings();
       if(b.branches!==undefined&&(!Array.isArray(b.branches)||b.branches.length>MAX_BRANCHES))throw new UserError('最多追蹤 {n} 個分點',{n:MAX_BRANCHES});
-      settings={...settings,chipwatch:normalizeChipwatch({...cur,...Object.fromEntries(['branches','auto','minLots','holdersPush'].filter(k=>b[k]!==undefined).map(k=>[k,b[k]]))})};saveSettings();
+      settings={...settings,chipwatch:normalizeChipwatch({...cur,...Object.fromEntries(['branches','auto','dayPct','minAmount','accumPct','accumDays','holdersPush'].filter(k=>b[k]!==undefined).map(k=>[k,b[k]]))})};saveSettings();
       return json(res,200,{ok:true,...chipwatchInfo()});
     }
     if(route==='/api/chipwatch/query'&&req.method==='POST'){

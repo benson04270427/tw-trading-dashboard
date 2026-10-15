@@ -1,5 +1,5 @@
 // 籌碼追蹤頁：分點追蹤（指定券商分點每日盤後進出）＋大戶集中度排行（每週股權分散表）。台股 FinMind Sponsor。
-import { esc, fmt, chipwatchHTML, branchChips, branchSearchHTML, holderRankHTML } from './insight-ui.js';
+import { esc, branchRulesForm, fmt, chipwatchHTML, branchChips, branchSearchHTML, holderRankHTML } from './insight-ui.js';
 import { t } from './i18n.js';
 let C = null; // { api, toast, page }（股票按鈕由 live.js 的 data-alert-stock 處理）
 const W = { info: null, rank: null, scope: 'mine', found: null, q: '', loading: false, hloading: false, error: '' };
@@ -24,7 +24,7 @@ export function chipPage() {
       <form class="ix-cw-search" data-cw-search><input name="q" value="${esc(W.q)}" placeholder="搜尋券商分點名稱或代號，例如 凱基台北、9200" maxlength="30" aria-label="搜尋券商分點"><button type="submit">搜尋</button></form>
       ${W.found ? branchSearchHTML(W.found, s) : ''}
       <div class="ix-cw-opts"><label class="checkbox"><input type="checkbox" data-cw-opt="auto" ${s.auto ? 'checked' : ''}>平日 18:30 後自動查詢並推播</label>
-      <label>提醒門檻 <select data-cw-opt="minLots">${[50, 100, 200, 500, 1000].map(v => `<option value="${v}" ${s.minLots === v ? 'selected' : ''}>${v} 張</option>`).join('')}</select></label><span class="fine">最多 ${i?.maxBranches || 20} 個分點 · 每個分點每日 1 次請求</span></div></div>
+${branchRulesForm(s)}<span class="fine">最多 ${i?.maxBranches || 20} 個分點 · 每個分點每日 1 次請求</span></div></div>
     ${W.error ? `<div class="notice err"><span>${esc(W.error)}</span></div>` : ''}${i?.error && !i.busy ? `<div class="notice warn"><span>${esc(i.error)}</span></div>` : ''}
     <div class="ix-cw-report">${chipwatchHTML(i)}</div></div></section>`;
   const h = `<section class="panel"><div class="panelhead"><div><h2><span class="idx">02</span>大戶集中度排行</h2><p>每週股權分散表：千張大戶持股比例 1 週／4 週變化，搭配股東人數判讀籌碼集中或渙散</p></div>

@@ -1,12 +1,13 @@
 // 籌碼追蹤（台股 FinMind Sponsor）：
 // 1. 分點追蹤：使用者指定要追的券商分點，每個交易日盤後以「依券商代碼查分點」一次取回該分點當天所有股票進出，
-//    整理成買超／賣超排行，標出自選與研究名單股票、連續買賣天數，達門檻時提醒並推播。
+//    整理成買超／賣超排行，標出自選與研究名單股票、連續買賣天數。兩種提醒：
+//    單日主導＝淨買超占當日成交量達門檻且淨買超金額達門檻；多日吃貨＝最近 N 個交易日累計淨買超占集保總股數達門檻。
 // 2. 大戶集中度排行：每週股權分散表（全市場單日一次取回），比較千張大戶比例的 1 週／4 週變化與股東人數變化，
 //    排出籌碼集中與渙散的股票（自選＋研究名單，或全市場普通股）。
 import { holderLevels } from './insight.mjs';
 import { t } from './i18n.mjs';
 
-export const CHIP_DEFAULTS = { branches: [], auto: true, minLots: 100, holdersPush: true };
+export const CHIP_DEFAULTS = { branches: [], auto: true, dayPct: 10, minAmount: 1e7, accumPct: 0.3, accumDays: 5, holdersPush: true };
 export const MAX_BRANCHES = 20;
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = v => Math.round(v * 100) / 100;
@@ -15,8 +16,8 @@ export function normalizeChipwatch(v = {}) {
   const x = v || {}, seen = new Set();
   const branches = (Array.isArray(x.branches) ? x.branches : []).filter(b => b && /^\w{1,10}$/.test(String(b.id)) && !seen.has(String(b.id)) && seen.add(String(b.id)))
     .slice(0, MAX_BRANCHES).map(b => ({ id: String(b.id), name: String(b.name || b.id).slice(0, 40) }));
-  const m = Number(x.minLots);
-  return { branches, auto: x.auto !== false, minLots: Number.isFinite(m) ? Math.min(5000, Math.max(10, Math.round(m))) : CHIP_DEFAULTS.minLots, holdersPush: x.holdersPush !== false };
+  const pick = (k, lo, hi, round = false) => { const n = Number(x[k]); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, round ? Math.round(n) : n)) : CHIP_DEFAULTS[k]; };
+  return { branches, auto: x.auto !== false, dayPct: pick('dayPct', 1, 50), minAmount: pick('minAmount', 0, 1e9, true), accumPct: pick('accumPct', 0.05, 5), accumDays: pick('accumDays', 2, 20, true), holdersPush: x.holdersPush !== false };
 }
 
 /* ---------- 分點追蹤 ---------- */
@@ -37,42 +38,53 @@ export function streakOf(history, id, todayNet) {
   let n = 1; for (let i = history.length - 1; i >= 0; i--) { if (Math.sign(history[i][id] || 0) === dir) n++; else break; }
   return n * dir;
 }
-// 單一分點的當日報告：買超、賣超前 top 名（依淨金額），另保留自選與研究名單中有進出的股票
-export function branchDay(rows, { meta = new Map(), watch = new Set(), research = new Set(), history = [], top = 15 } = {}) {
-  const list = aggregateTrader(rows).map(x => ({ ...x, name: meta.get(x.id)?.name || x.id, watch: watch.has(x.id), research: research.has(x.id), streak: streakOf(history, x.id, x.buy - x.sell) }));
+// 單一分點的當日報告：買超、賣超前 top 名（依淨金額）、自選與研究名單中有進出的股票，以及達提醒條件的股票。
+// volumes：{ 股票: 當日成交股數 }；shares：{ 股票: 集保總股數 }；history：之前各日的 { 股票: 淨股數 }（由舊到新，最近一筆是前一個交易日）
+// 每檔附上 volPct（淨買賣超占當日成交量 %）、accumNet／accumPct（含今日最近 accumDays 日累計淨買賣超、占總股數 %）
+export function branchDay(rows, { meta = new Map(), watch = new Set(), research = new Set(), history = [], top = 15, volumes = {}, shares = {}, settings = CHIP_DEFAULTS } = {}) {
+  const cs = { ...CHIP_DEFAULTS, ...settings }, past = history.slice(-(cs.accumDays - 1));
+  const list = aggregateTrader(rows).map(x => {
+    const vol = volumes[x.id], sh = shares[x.id], accumNet = past.reduce((a, d) => a + (d[x.id] || 0), x.net);
+    return { ...x, name: meta.get(x.id)?.name || x.id, watch: watch.has(x.id), research: research.has(x.id), streak: streakOf(history, x.id, x.buy - x.sell),
+      volPct: vol > 0 ? r2(x.net / vol * 100) : null, accumNet, accumDays: past.length + 1, accumPct: sh > 0 ? Math.round(accumNet / sh * 1e4) / 100 : null };
+  });
   const sorted = list.slice().sort((a, b) => b.netAmt - a.netAmt);
   const buy = sorted.filter(x => x.netAmt > 0).slice(0, top), sell = sorted.filter(x => x.netAmt < 0).reverse().slice(0, top);
   const mine = sorted.filter(x => (x.watch || x.research) && x.net !== 0);
-  const slim = x => ({ id: x.id, name: x.name, net: x.net, netAmt: x.netAmt, buy: x.buy, sell: x.sell, avgBuy: x.avgBuy, avgSell: x.avgSell, watch: x.watch, research: x.research, streak: x.streak });
+  // 提醒條件（只看淨買超）：單日主導、多日吃貨（累計天數需達設定天數）
+  const signals = sorted.filter(x => x.net > 0).map(x => ({ ...x, day: x.volPct != null && x.volPct >= cs.dayPct && x.netAmt >= cs.minAmount, accum: x.accumPct != null && x.accumDays >= cs.accumDays && x.accumPct >= cs.accumPct }))
+    .filter(x => x.day || x.accum);
+  const slim = x => ({ id: x.id, name: x.name, net: x.net, netAmt: x.netAmt, buy: x.buy, sell: x.sell, avgBuy: x.avgBuy, avgSell: x.avgSell, watch: x.watch, research: x.research, streak: x.streak, volPct: x.volPct, accumNet: x.accumNet, accumDays: x.accumDays, accumPct: x.accumPct, ...(x.day !== undefined ? { day: x.day, accum: x.accum } : {}) });
   return {
     count: list.length, buyAmt: Math.round(list.reduce((a, x) => a + x.buyAmt, 0)), sellAmt: Math.round(list.reduce((a, x) => a + x.sellAmt, 0)),
-    buy: buy.map(slim), sell: sell.map(slim), mine: mine.map(slim),
-    nets: Object.fromEntries(list.filter(x => x.net).map(x => [x.id, x.net])), // 供之後計算連續天數
+    buy: buy.map(slim), sell: sell.map(slim), mine: mine.map(slim), signals: signals.map(slim),
+    nets: Object.fromEntries(list.filter(x => x.net).map(x => [x.id, x.net])), // 供之後計算連續天數與累計
   };
 }
-// 盤後提醒：每個分點一則，列出自選／研究名單中淨買賣達門檻的股票，以及全市場買超前 3（達門檻）
-export function brokerWatchAlerts(doc, { minLots = 100, lot = 1000, lang } = {}) {
-  const out = [], min = minLots * lot, lots = v => Math.round(v / lot).toLocaleString('en-US');
+// 盤後提醒：每個分點一則，列出達「單日主導」或「多日吃貨」條件的股票（自選與研究名單優先）
+export function brokerWatchAlerts(doc, { lot = 1000, lang } = {}) {
+  const out = [], lots = v => Math.round(v / lot).toLocaleString('en-US'), yi = v => (v / 1e8).toFixed(v >= 1e9 ? 1 : 2);
   for (const b of doc.branches) {
-    if (b.error || !b.count) continue;
-    const mine = b.mine.filter(x => Math.abs(x.net) >= min), top = b.buy.filter(x => x.net >= min && !mine.some(m => m.id === x.id)).slice(0, 3);
-    if (!mine.length && !top.length) continue;
-    const item = x => `${x.name} ${x.net > 0 ? '+' : ''}${lots(x.net)}${Math.abs(x.streak) >= 3 ? t('（連{n}{d}）', { n: Math.abs(x.streak), d: t(x.streak > 0 ? '買' : '賣', null, lang) }, lang) : ''}`;
+    if (b.error || !b.count || !b.signals?.length) continue;
+    const order = x => (x.watch ? 0 : x.research ? 1 : 2), list = b.signals.slice().sort((a, c) => order(a) - order(c) || c.netAmt - a.netAmt);
+    const day = list.filter(x => x.day).slice(0, 5), accum = list.filter(x => x.accum).slice(0, 5);
+    const mark = x => x.watch ? t('（自選）', null, lang) : x.research ? t('（研究）', null, lang) : '';
     const parts = [];
-    if (mine.length) parts.push(t('自選／研究：{list}', { list: mine.slice(0, 6).map(item).join('、') }, lang));
-    if (top.length) parts.push(t('買超：{list}', { list: top.map(item).join('、') }, lang));
-    out.push({ type: 'broker', stockId: '', name: '', title: t('分點追蹤：{name}', { name: b.name }, lang), detail: `${doc.date} · ${parts.join(' · ')}${t('（張）', null, lang)}`, level: mine.some(x => x.watch) ? 'hi' : 'mid', watch: mine.some(x => x.watch), date: doc.date, branch: b.id });
+    if (day.length) parts.push(t('單日主導：{list}', { list: day.map(x => t('{name}{mark} +{lots} 張（占成交量 {pct}%、{amt} 億）', { name: x.name, mark: mark(x), lots: lots(x.net), pct: x.volPct, amt: yi(x.netAmt) }, lang)).join('、') }, lang));
+    if (accum.length) parts.push(t('多日吃貨：{list}', { list: accum.map(x => t('{name}{mark} {days} 日 +{lots} 張（占股本 {pct}%）', { name: x.name, mark: mark(x), days: x.accumDays, lots: lots(x.accumNet), pct: x.accumPct }, lang)).join('、') }, lang));
+    const mine = list.filter(x => x.watch || x.research);
+    out.push({ type: 'broker', stockId: '', name: '', title: t('分點追蹤：{name}', { name: b.name }, lang), detail: `${doc.date} · ${parts.join(' · ')}`, level: mine.some(x => x.watch) ? 'hi' : 'mid', watch: mine.some(x => x.watch), date: doc.date, branch: b.id });
   }
   return out;
 }
 
 /* ---------- 大戶集中度排行 ---------- */
-// 全市場某日股權分散表 → { 股票: [千張大戶%, 400 張以上%, 50 張以下%, 股東人數] }
+// 全市場某日股權分散表 → { 股票: [千張大戶%, 400 張以上%, 50 張以下%, 股東人數, 集保總股數] }
 export function holderMarketDay(rows, date) {
   const by = new Map();
   for (const r of rows) { if (date && r.date !== date) continue; const id = String(r.stock_id); if (!by.has(id)) by.set(id, []); by.get(id).push(r); }
   const out = {};
-  for (const [id, list] of by) { const h = holderLevels(list); if (h.people > 0) out[id] = [h.big1000, h.big400, h.small, h.people]; }
+  for (const [id, list] of by) { const h = holderLevels(list); if (h.people > 0) out[id] = [h.big1000, h.big400, h.small, h.people, h.shares || 0]; }
   return out;
 }
 // days：{ latest, prev1, prev4 }，各為 { date, s: holderMarketDay(...) }；ids：要排名的股票（null＝全部普通股）

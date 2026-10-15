@@ -210,16 +210,27 @@ const mineBadge = x => x.watch ? '<em class="ix-badge acc">自選</em>' : x.rese
 export function branchHTML(b, { top = 10 } = {}) {
   if (b.error) return `<section class="ix-cw"><h4>🏦 ${esc(b.name)} <small class="num">${esc(b.id)}</small></h4><p class="ix-note">⚠️ ${esc(b.error)}</p></section>`;
   if (!b.count) return `<section class="ix-cw"><h4>🏦 ${esc(b.name)} <small class="num">${esc(b.id)}</small></h4><p class="ix-empty">當日沒有進出</p></section>`;
-  const row = x => `<tr><td><button class="ix-cw-stock" data-alert-stock="${esc(x.id)}">${esc(x.name)} <small class="num">${esc(x.id)}</small></button>${mineBadge(x)}${streakBadge(x)}</td><td class="num ${cls(x.net)}">${x.net > 0 ? '+' : ''}${lots(x.net)}</td><td class="num ${cls(x.netAmt)}">${x.netAmt > 0 ? '+' : ''}${yi8(x.netAmt)}</td><td class="num">${fmt(x.net > 0 ? x.avgBuy : x.avgSell, 2)}</td></tr>`;
-  const table = (list, title, side) => `<div class="ix-btable"><h5 class="${side}">${title}</h5><table><thead><tr><th>股票</th><th>淨張</th><th>淨額億</th><th>均價</th></tr></thead><tbody>${list.map(row).join('') || '<tr><td colspan="4" class="muted">無</td></tr>'}</tbody></table></div>`;
+  // 占量：淨買賣超占當日成交量；占股本：最近 N 日累計淨買賣超占集保總股數（N 依設定，紀錄不足時為實際天數）
+  const p = (v, n = 1) => v == null ? '—' : `${v > 0 ? '+' : ''}${fmt(v, n)}%`;
+  const row = x => `<tr class="${x.day || x.accum ? 'ix-cw-hit' : ''}"><td><button class="ix-cw-stock" data-alert-stock="${esc(x.id)}">${esc(x.name)} <small class="num">${esc(x.id)}</small></button>${mineBadge(x)}${streakBadge(x)}${x.day ? '<em class="ix-badge acc">主導</em>' : ''}${x.accum ? '<em class="ix-badge warn">吃貨</em>' : ''}</td><td class="num ${cls(x.net)}">${x.net > 0 ? '+' : ''}${lots(x.net)}</td><td class="num ${cls(x.netAmt)}">${x.netAmt > 0 ? '+' : ''}${yi8(x.netAmt)}</td><td class="num">${p(x.volPct)}</td><td class="num">${x.accumPct == null ? '—' : `${p(x.accumPct, 2)}<small class="muted"> ${x.accumDays}日</small>`}</td><td class="num">${fmt(x.net > 0 ? x.avgBuy : x.avgSell, 2)}</td></tr>`;
+  const table = (list, title, side) => `<div class="ix-btable"><h5 class="${side}">${title}</h5><table><thead><tr><th>股票</th><th>淨張</th><th>淨額億</th><th>占量</th><th>累計占股本</th><th>均價</th></tr></thead><tbody>${list.map(row).join('') || '<tr><td colspan="6" class="muted">無</td></tr>'}</tbody></table></div>`;
   return `<section class="ix-cw"><h4>🏦 ${esc(b.name)} <small class="num">${esc(b.id)}</small></h4><div class="ix-bmeta"><span>${fmt(b.count)} 檔</span><span>買進 <b>${yi8(b.buyAmt)}</b> 億</span><span>賣出 <b>${yi8(b.sellAmt)}</b> 億</span><span>淨額 <b class="${cls(b.buyAmt - b.sellAmt)}">${yi8(b.buyAmt - b.sellAmt)}</b> 億</span></div>
-  ${b.mine.length ? table(b.mine, '自選／研究名單進出', '') : ''}<div class="ix-bgrid">${table(b.buy.slice(0, top), `買超前 ${top}`, 'up')}${table(b.sell.slice(0, top), `賣超前 ${top}`, 'down')}</div></section>`;
+  ${b.signals?.length ? table(b.signals, '🔔 達提醒條件', 'up') : ''}${b.mine.length ? table(b.mine, '自選／研究名單進出', '') : ''}<div class="ix-bgrid">${table(b.buy.slice(0, top), `買超前 ${top}`, 'up')}${table(b.sell.slice(0, top), `賣超前 ${top}`, 'down')}</div></section>`;
 }
 export function chipwatchHTML(info) {
   const r = info?.report;
   if (!r) return `<p class="ix-empty">${info?.settings?.branches?.length ? '尚無追蹤紀錄。平日 18:30 後自動查詢，也可以立即查詢。' : '先在上方加入要追蹤的券商分點。'}</p>`;
-  return `<div class="ix-bmeta"><span><b>${esc(r.date)}</b> 盤後</span><span>${r.branches.length} 個分點</span><span>提醒門檻 ${fmt(r.minLots)} 張</span><span class="muted">${esc(MK.dateTime(r.builtAt))} 取得</span></div>${r.branches.map(b => branchHTML(b)).join('')}
-  <p class="ix-foot">FinMind 券商分點（依券商代碼查詢）· 約 18:00 更新 · 「連 N 買／賣」以本機已保存的追蹤紀錄計算</p>`;
+  const R = r.rules, src = { heatmap: '熱浪圖', replay: '時光機' }[r.volumeSource];
+  const rules = R ? `<span>單日主導：占成交量 ≥ ${fmt(R.dayPct)}% 且 ≥ ${fmt(R.minAmount / 1e4)} 萬元</span><span>多日吃貨：${R.accumDays} 日累計占股本 ≥ ${fmt(R.accumPct, 2)}%</span>` : '';
+  const gaps = R ? [!src ? '當日成交量未取得，無法判斷單日主導' : '', !r.sharesDate ? '尚無股權分散表，無法判斷多日吃貨' : ''].filter(Boolean) : [];
+  return `<div class="ix-bmeta"><span><b>${esc(r.date)}</b> 盤後</span><span>${r.branches.length} 個分點</span>${rules}<span class="muted">${esc(MK.dateTime(r.builtAt))} 取得</span></div>${gaps.length ? `<p class="ix-note">⚠️ ${gaps.join('；')}</p>` : ''}${r.branches.map(b => branchHTML(b)).join('')}
+  <p class="ix-foot">FinMind 券商分點（依券商代碼查詢）· 約 18:00 更新 · 占量＝淨買賣超 ÷ 當日成交量${src ? `（${src}）` : ''} · 累計占股本＝最近 N 日累計淨買賣超 ÷ 集保總股數${r.sharesDate ? `（${esc(r.sharesDate)} 股權分散表）` : ''} · 「連 N 買／賣」與累計以本機已保存的追蹤紀錄計算</p>`;
+}
+// 提醒條件設定（電腦版與手機版共用）
+export function branchRulesForm(s) {
+  const sel = (k, opts, label) => `<select data-cw-opt="${k}" aria-label="${label}">${opts.map(([v, l]) => `<option value="${v}" ${Number(s?.[k]) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  return `<div class="ix-cw-rules"><div><b>單日主導</b><span>淨買超占當日成交量 ≥ ${sel('dayPct', [5, 10, 15, 20, 30].map(v => [v, `${v}%`]), '占成交量門檻')}，且淨買超金額 ≥ ${sel('minAmount', [[5e6, '500 萬'], [1e7, '1,000 萬'], [3e7, '3,000 萬'], [5e7, '5,000 萬'], [1e8, '1 億']], '金額門檻')}</span></div>
+  <div><b>多日吃貨</b><span>最近 ${sel('accumDays', [3, 5, 10, 20].map(v => [v, `${v} 日`]), '累計天數')} 累計淨買超占集保總股數 ≥ ${sel('accumPct', [0.1, 0.2, 0.3, 0.5, 1].map(v => [v, `${v}%`]), '占股本門檻')}</span></div></div>`;
 }
 export function branchChips(settings) {
   const list = settings?.branches || [];
