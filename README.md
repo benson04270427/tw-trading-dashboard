@@ -5,7 +5,7 @@ research, shows where money is flowing, watches the market during the session, r
 writes an after-market report with the AI model of your choice. You bring your own data sources and API keys;
 nothing is sent to anyone else.
 
-[繁體中文說明](README.zh-TW.md) · [Architecture](docs/ARCHITECTURE.md) · [Day-trade monitoring (zh-TW)](docs/DAYTRADE.zh-TW.md)
+[繁體中文說明](README.zh-TW.md) · [Feature guides (zh-TW)](docs/features/README.md) · [Changelog (zh-TW)](docs/CHANGELOG.zh-TW.md) · [Architecture](docs/ARCHITECTURE.md) · [Day-trade monitoring (zh-TW)](docs/DAYTRADE.zh-TW.md)
 
 > EquiLens is a research tool. Scores rank research, they are not trading signals, price targets or return
 > predictions. Nothing here is investment advice.
