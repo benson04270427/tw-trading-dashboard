@@ -12,7 +12,7 @@ import { LLM_INFO, listModels } from './lib/llm.mjs';
 import { recordFrame, listDays, loadDay, compactReplay, replaySummary, resetReplayCache, framePrice, frameAmount, prevPrice } from './lib/replay.mjs';
 import { normalizeRadar, validRadarInput, createRadarState, seedRadarState, scanRadar } from './lib/radar.mjs';
 import { aggregateBrokers, brokerAnalysis, parseHolders, holderSignal, replayMinuteBars, fiveMinBars, dailyKRows, replayDayBar } from './lib/insight.mjs';
-import { buildReportContext, generateReport, normalizeReportSettings } from './lib/report.mjs';
+import { buildReportContext, generateReport, normalizeReportSettings, overnightOutlook } from './lib/report.mjs';
 import { remoteConfig, isRemoteHost, verifyAccessJwt } from './lib/access.mjs';
 import { FUTURES, nearMonth, retailPosition, marginSummary, indexRow, assembleCard } from './lib/market-card.mjs';
 import { buildMarket, marketToday, WEIGHTS, FACTORS, minusDays, bars as priceBars } from './lib/engine.mjs';
@@ -661,8 +661,11 @@ async function generateDaily(date){
     let patterns=[];try{patterns=patternSnapshot(universe).stocks.flatMap(s=>s.matches.filter(m=>['量價確認','突破待次日確認'].includes(m.status)).map(m=>`${s.id} ${s.name} ${t(m.name)} ${t(m.status)} ${t('強度')}${m.score}`)).slice(0,15);}catch{}
     let news=[],agenda=null;
     try{news=(await focusNews({offset:0})).items.slice(0,20).map(i=>`[${t(i.category)}]${i.must?`[${t('必讀')}]`:''} ${i.title}`);}catch{}
-    try{const w=await weekAgenda();agenda={[t('經濟數據')]:w.macro.filter(e=>e.date>=date&&e.impact==='High').slice(0,12).map(e=>`${e.date} ${e.countryName} ${e.title}`),[t('財報')]:w.earnings.filter(e=>e.date>=date).slice(0,12).map(e=>`${e.date} ${(lang==='zh-TW'&&e.zh)||e.name}(${e.symbol}) ${e.timing}`)};}catch{}
-    const context=buildReportContext({date,heat,flows,alerts:alertsFor(date).list.filter(a=>a.type!=='report'&&a.type!=='news'),watch,movers:{[t('漲幅前5')]:research.slice(0,5).map(pick),[t('跌幅前5')]:research.slice(-5).reverse().map(pick)},patterns,news,agenda},lang);
+    let outlook=null;
+    try{const w=await weekAgenda();outlook=overnightOutlook(date,w,{market:M(),lang});agenda={[t('經濟數據')]:w.macro.filter(e=>e.date>=date&&e.impact==='High').slice(0,12).map(e=>`${e.date} ${e.countryName} ${e.title}`),[t('財報')]:w.earnings.filter(e=>e.date>=date).slice(0,12).map(e=>`${e.date} ${(lang==='zh-TW'&&e.zh)||e.name}(${e.symbol}) ${e.timing}`)};}catch{}
+    // 大盤與籌碼數據（指數、融資券、期貨、散戶多空、法人、選擇權 P/C）：與圖卡同一份資料
+    let market=null;try{if(data.finmind())market=assembleCard({date,heat,flows,...await marketInputs(date),report:null});}catch{}
+    const context=buildReportContext({date,heat,flows,market,outlook,alerts:alertsFor(date).list.filter(a=>a.type!=='report'&&a.type!=='news'),watch,movers:{[t('漲幅前5')]:research.slice(0,5).map(pick),[t('跌幅前5')]:research.slice(-5).reverse().map(pick)},patterns,news,agenda},lang);
     const r=await generateReport({llm:await llmOptions(),context,lang,marketName:marketName(),hasFlows:!!flows});
     const doc={date,createdAt:new Date().toISOString(),provider:config().llm.provider,model:r.model,usage:r.usage,lang,...r.report};
     fs.mkdirSync(path.join(LOCAL,'reports'),{recursive:true});write(`reports/${date}.json`,doc);
@@ -672,9 +675,11 @@ async function generateDaily(date){
   }catch(e){reportError=e.message;throw e;}finally{reportBusy=false;}
 }
 // 盤後籌碼整理圖卡數據：熱浪圖與日報為共通部分；台股另有加權／櫃買指數、融資、期貨與散戶多空（FinMind，約 11 次請求）
-async function buildMarketCard(date){
+let marketMemo={date:'',at:0,data:null};
+// 大盤數據：加權／櫃買指數、融資券、期貨近月、散戶小台／微台多空（日報與圖卡共用，30 分鐘內沿用）
+async function marketInputs(date){
+  if(marketMemo.date===date&&Date.now()-marketMemo.at<30*60e3)return marketMemo.data;
   const fm=data.finmind(),safe=async(ds,params)=>{try{return await fm(ds,params,fmOpt());}catch{return[];}};
-  const heat=read('heatmap-'+date+'.json',null)||(liveHeat?.data?.date===date?liveHeat.data:null),flows=read('flows-'+date+'.json',null);
   let index=read(`index-${date}.json`,null),margin=null;const futures=[],retail={};
   if(fm){
     if(!index?.twse&&date===today()&&data.has('snapshot')){try{const rows=await data.snapshot([]),ix=id=>rows.find(r=>r.stock_id===id&&String(r.date).slice(0,10)===date);index={twse:indexRow(ix('001')),tpex:indexRow(ix('101'))};if(index.twse)write(`index-${date}.json`,index);}catch{}}
@@ -682,7 +687,13 @@ async function buildMarketCard(date){
     for(const [id,name] of FUTURES){const n=nearMonth(await safe('TaiwanFuturesDaily',{data_id:id,start_date:date,end_date:date}),date);if(n)futures.push({id,name:t(name),close:Number(n.close),change:Number(n.spread),pct:Number(n.spread_per)});}
     for(const id of ['MTX','TMF'])retail[id]=retailPosition(await safe('TaiwanFuturesInstitutionalInvestors',{data_id:id,start_date:minusDays(date,10),end_date:date}),await safe('TaiwanFuturesDaily',{data_id:id,start_date:date,end_date:date}),date);
   }
-  const card=assembleCard({date,index,heat,flows,margin,futures,retail:{mini:retail.MTX,micro:retail.TMF},report:read(`reports/${date}.json`,null)});
+  const out={index,margin,futures,retail:{mini:retail.MTX,micro:retail.TMF}};
+  if(fm)marketMemo={date,at:Date.now(),data:out};
+  return out;
+}
+async function buildMarketCard(date){
+  const heat=read('heatmap-'+date+'.json',null)||(liveHeat?.data?.date===date?liveHeat.data:null),flows=read('flows-'+date+'.json',null);
+  const card=assembleCard({date,heat,flows,...await marketInputs(date),report:read(`reports/${date}.json`,null)});
   write(`card-${date}.json`,card);return card;
 }
 setInterval(()=>{
