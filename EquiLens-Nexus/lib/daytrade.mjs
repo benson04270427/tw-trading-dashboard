@@ -12,8 +12,10 @@ export const signalTitle = s => (s.version === 2 ? DT_TITLES : { 'dt-breakout': 
 // 分數權重（研究用初始值）：日 K 20、60 分 K 25、5 分 K 30、五檔 25
 export const DT_WEIGHTS = Object.freeze({ daily: 20, hour: 25, five: 30, book: 25 });
 export const DT_PLANS = ['auto', 'basic', 'developer', 'advanced'];
+export const DT_SCOPES = ['all', 'watchlist'];
 export const DT_DEFAULTS = Object.freeze({
   enabled: true, plan: 'auto', top: 20, minScore: 60,
+  scope: 'all',                                  // 掃描範圍：all＝全部研究族群＋自選（即時推播訂閱的股票）；watchlist＝只掃自選
   signals: { breakout: true, vwap: true, bid: true, weak: true, risk: true },
   bookWindowSeconds: 30, bookMaxAgeSeconds: 10, quoteMaxAgeSeconds: 15, bookImbalance: 0.3,
   watchFrom: '09:15', stopNew: '13:10',          // 開盤觀察期結束、停止發出新訊號的時間
@@ -29,7 +31,7 @@ const round = (x, n = 2) => x == null || !Number.isFinite(x) ? null : Math.round
 export function normalizeDaytrade(input = {}) {
   const d = DT_DEFAULTS, s = input || {}, c = s.costs || {}, num = (v, lo, hi, def) => { const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : def; };
   return {
-    enabled: s.enabled !== false, plan: DT_PLANS.includes(s.plan) ? s.plan : d.plan,
+    enabled: s.enabled !== false, plan: DT_PLANS.includes(s.plan) ? s.plan : d.plan, scope: DT_SCOPES.includes(s.scope) ? s.scope : d.scope,
     top: Math.round(num(s.top, 5, 50, d.top)), minScore: Math.round(num(s.minScore, 0, 100, d.minScore)),
     signals: Object.fromEntries(Object.keys(d.signals).map(k => [k, s.signals?.[k] !== false])),
     watchFrom: HM.test(s.watchFrom) ? s.watchFrom : d.watchFrom, stopNew: HM.test(s.stopNew) ? s.stopNew : d.stopNew,
@@ -80,7 +82,8 @@ function fill(a) { for (let e = 1; e < a.length; e++) if (!(a[e] > 0)) a[e] = a[
 
 /* ---------- 盤中引擎 ---------- */
 // meta：Map(id → { name, groups:[族群 id] })；prep：{ eligible:Set|null, disposition:Set, suspended:Set, sellFirstOff:Set, ref:Map(id → 參考價), avgAmount:Map, avgVolume:Map }
-export function createDayTrade({ market: p, date, ids, meta = new Map(), watch = new Set(), baseline = null, prep = {}, settings = DT_DEFAULTS, offset = 8 * 3600e3, lang }) {
+// watch：自選（標示用）；scan：掃描與發訊號的股票（未提供時同 watch）
+export function createDayTrade({ market: p, date, ids, meta = new Map(), watch = new Set(), scan = null, baseline = null, prep = {}, settings = DT_DEFAULTS, offset = 8 * 3600e3, lang }) {
   const S = new Map(), log = [], lot = p.lot || 1000, T = (msg, params) => t(msg, params, lang), unit = p.unit?.[lang || 'zh-TW'] || T('股');
   let cfg = normalizeDaytrade(settings), info = { eligible: null, disposition: new Set(), suspended: new Set(), sellFirstOff: new Set(), ref: new Map(), avgAmount: new Map(), avgVolume: new Map(), ...prep };
   let gaps = new Set(), feedOk = false, fullFeed = false, stopNotified = false;
@@ -235,11 +238,11 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
       const m = ms.get(s.id), gs = (meta.get(s.id)?.groups || []).map(g => groupChg.get(g)).filter(x => x?.[1] > 1), gc = gs.length ? Math.max(...gs.map(([a, n]) => a / n)) : null;
       const sc = score(s, m, gc, marketChg), why = filters(s, m);
       for (const f of why) counts[f] = (counts[f] || 0) + 1;
-      const item = { id: s.id, name: meta.get(s.id)?.name || s.id, watch: watch.has(s.id), price: m.last, change: round(m.change), gap: round(m.gap), vwap: round(m.vwap, 2), vwapDist: m.vwap > 0 ? round((m.last / m.vwap - 1) * 100) : null,
+      const item = { id: s.id, name: meta.get(s.id)?.name || s.id, watch: watch.has(s.id), scan: (scan || watch).has(s.id), price: m.last, change: round(m.change), gap: round(m.gap), vwap: round(m.vwap, 2), vwapDist: m.vwap > 0 ? round((m.last / m.vwap - 1) * 100) : null,
         rvol: round(m.rvol), r1: round(m.r1), outer5: m.outer5 == null ? null : round(m.outer5 * 100, 0), obi: round(m.obi), spread: m.spread, score: sc.total, part: sc.part, filters: why, pending: gaps.has(s.id), context: m.context, reference: s.reference, last: s.lastSignal || null, at: hmsOf(s.lastAt) };
       list.push(item);
       // Risk alerts continue after the entry cutoff, and never depend on a high long score.
-      if (!cfg.enabled || !watch.has(s.id) || !['scan', 'stop'].includes(ph) || !feedOk || gaps.has(s.id) || !m.context.quoteFresh || why.includes('suspended')) continue;
+      if (!cfg.enabled || !item.scan || !['scan', 'stop'].includes(ph) || !feedOk || gaps.has(s.id) || !m.context.quoteFresh || why.includes('suspended')) continue;
       for (const a of detect(s, m, cur, sc, now, ph === 'scan' && !why.length && sc.total >= cfg.minScore)) { if (!a.muted) alerts.push({ ...a, stockId: s.id, name: item.name, close: m.last, change: item.change, t: hmsOf(now), watch: item.watch, level: 'hi', score: sc.total });
         s.lastSignal = { type: a.type, t: hmsOf(now) }; log.push({ ...a, version: 2, id: s.id, name: item.name, at: now, m: cur, t: hmsOf(now), price: m.last, vwap: round(m.vwap, 2), score: sc.total, part: sc.part, evidence: m.context }); }
     }
@@ -285,6 +288,7 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
     setPrep(next) { const av = new Map([...info.avgVolume, ...(next.avgVolume || [])]), aa = new Map([...info.avgAmount, ...(next.avgAmount || [])]); info = { ...info, ...next, avgVolume: av, avgAmount: aa }; },
     setSettings(next) { cfg = normalizeDaytrade(next); },
     setWatch(next) { watch = next; },
+    setScan(next) { scan = next; },
     // 斷線：這些股票在補完資料前不發訊號；feed：連線是否正常
     markGap(list) { for (const id of list) { gaps.add(id); const s = S.get(id); if (s) { s.books = []; s.obi = []; } } },
     setFeed(ok) { feedOk = !!ok; },

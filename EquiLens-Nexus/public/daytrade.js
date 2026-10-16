@@ -67,9 +67,9 @@ function row(x, i) {
 function scanView(d) {
   const list = [...d.top, ...(d.watched || []).filter(x => !d.top.some(y => y.id === x.id))];
   const hs = d.history || [], ready = hs.filter(x => x.status === 'ready').length;
-  return `<div class="dt-status"><b>30 日日 K → 60 分 K → 5 分 K → 即時五檔</b><span>歷史就緒 ${ready}/${hs.length}</span><span>僅提醒觀察名單；新增股票自動準備資料</span></div>
+  return `<div class="dt-status"><b>30 日日 K → 60 分 K → 5 分 K → 即時五檔</b><span>歷史就緒 ${ready}/${hs.length}</span><span>${d.scope === 'watchlist' ? '只掃描自選股' : `掃描全部研究族群＋自選 ${fmt(d.total || 0)} 檔（自選優先）`}；新增股票自動準備資料</span></div>
     ${hs.filter(x => x.error).map(x => `<p class="notice warn">${esc(x.id)} · ${esc(x.error)}</p>`).join('')}
-    ${list.length ? `<div class="dt-table"><table><tr><th>觀察股票</th><th>現價</th><th>監控狀態／排序分數</th><th>30 日日 K</th><th>60 分 K</th><th>5 分 K 量比／結構</th><th>五檔／變化／秒數</th><th>參考停損</th><th>最近警示</th></tr>${list.map(row).join('')}</table></div>` : '<div class="empty">請先將股票加入觀察名單。</div>'}
+    ${list.length ? `<div class="dt-table"><table><tr><th>股票</th><th>現價</th><th>監控狀態／排序分數</th><th>30 日日 K</th><th>60 分 K</th><th>5 分 K 量比／結構</th><th>五檔／變化／秒數</th><th>參考停損</th><th>最近警示</th></tr>${list.map(row).join('')}</table></div>` : '<div class="empty">請先將股票加入觀察名單。</div>'}
     <p class="dt-foot">做多須通過四層確認；風險提醒不受分數門檻限制。參考停損來自先前訊號的 5 分 K 低點下一檔，不代表實際持倉或已送出委託。</p>
     <p class="dt-foot">只使用已完成 K 棒；五檔連續 30 秒、每筆間隔不超過 10 秒。分數僅供排序，門檻尚未經歷史五檔回放驗證。</p>`;
 }
@@ -86,11 +86,13 @@ function settingsView(d) {
   const s = D.draft || d.settings, plans = d.plans || {}, need = d.need || {};
   const sel = (key, opts, fmtv = v => v) => `<select data-dtset="${key}">${opts.map(v => `<option value="${v}" ${String(key.split('.').reduce((o, k) => o?.[k], s)) === String(v) ? 'selected' : ''}>${fmtv(v)}</option>`).join('')}</select>`;
   const chk = (key, label) => `<label class="lv-rule"><input type="checkbox" data-dtset="${key}" ${key.split('.').reduce((o, k) => o?.[k], s) ? 'checked' : ''}><span>${label}</span></label>`;
-  const advice = `觀察名單 ${need.watched || 0} 檔優先，每檔需要 3 個訂閱；不足時顯示等待，不發做多警示`;
+  const advice = `掃描 ${fmt(need.scanned || 0)} 檔（自選 ${need.watched || 0} 檔優先），每檔需要 3 個訂閱；不足時顯示等待，不發做多警示`;
   return `<div class="lv-settings">
     ${chk('enabled', '啟用當沖監控（盤中掃描、當沖訊號推播、收盤檢討）')}
     <label class="dt-field"><span>富果方案</span>${sel('plan', ['auto', 'advanced', 'developer', 'basic'], v => ({ auto: '自動判斷', advanced: '進階（2,000 訂閱）', developer: '開發者（300 訂閱）', basic: '基本（5 訂閱）' })[v])}</label>
     <p class="dt-foot">${advice}。自動判斷時先嘗試完整模式，訂閱不足就當天改用精簡模式。</p>
+    <label class="dt-field"><span>掃描範圍</span>${sel('scope', ['all', 'watchlist'], v => ({ all: '全部研究族群＋自選', watchlist: '只掃自選' })[v])}</label>
+    <p class="dt-foot">全部研究族群時，30 日歷史資料每天開盤前首次載入約需 20 分鐘（富果歷史 API 每分鐘 60 次），自選股優先；載入完成前的股票顯示等待，不發做多警示。</p>
     <label class="dt-field"><span>顯示前幾名</span>${sel('top', [10, 20, 30])}</label>
     <label class="dt-field"><span>訊號分數門檻</span>${sel('minScore', [40, 50, 60, 70, 80])}</label>
     ${chk('signals.breakout', '💥 多週期突破：日 K、60 分 K 偏多，5 分 K 放量突破，五檔確認')}
@@ -160,6 +162,6 @@ document.addEventListener('change', async e => {
   if (t.dataset?.bkdate) { B.date = t.value; B.stocks = null; await loadBooks(); return X.repaint(); }
   if (t.dataset?.bkset && B.draft) { B.draft[t.dataset.bkset] = t.type === 'checkbox' ? t.checked : Number(t.value); return; }
   if (!t.dataset?.dtset || !D.draft) return;
-  const keys = t.dataset.dtset.split('.'), v = t.type === 'checkbox' ? t.checked : /^(auto|advanced|developer|basic|\d{2}:\d{2})$/.test(t.value) ? t.value : Number(t.value);
+  const keys = t.dataset.dtset.split('.'), v = t.type === 'checkbox' ? t.checked : /^(auto|advanced|developer|basic|all|watchlist|\d{2}:\d{2})$/.test(t.value) ? t.value : Number(t.value);
   keys.slice(0, -1).reduce((o, k) => o[k], D.draft)[keys.at(-1)] = v;
 });

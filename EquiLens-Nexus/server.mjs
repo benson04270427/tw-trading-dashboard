@@ -192,6 +192,8 @@ function onStreamRows(rows){
   if(fresh.length)try{runRadar(date,fresh);}catch(e){console.error(t('異動雷達失敗：')+e.message);}
 }
 const streamUniverse=()=>[...new Set([...watchlist,...scopeIds(researchScope),...ruleIds()])];
+// 當沖掃描範圍：預設全部研究族群＋自選（自選排前面，歷史資料與補資料先處理），可在設定改成只掃自選
+const dtScanIds=()=>dtSettings().scope==='watchlist'?[...watchlist]:[...new Set([...watchlist,...scopeIds(researchScope)])];
 // 開盤前 10 分鐘先連線並確認訂閱（台股 08:50），收盤集合競價結束後關閉
 const feedWindow=()=>{const p=M(),x=clock();return x.weekday>=1&&x.weekday<=5&&x.minute>=p.open-10&&x.minute<p.close+p.settle;};
 const dtSettings=()=>normalizeDaytrade(settings.daytrade);
@@ -216,7 +218,7 @@ async function streamTick(){
   if(dtSettings().enabled){try{ensureDt();dt.engine.syncIds(streamUniverse());refreshDtMeta(streamUniverse());dtReady=true;}catch(e){dtError=e.message;console.error(t('當沖監控計算失敗：')+e.message);}}
   const plan=streamPlanNow(p,dtReady);
   subscribedIds=new Set(plan.ids);
-  if(dtReady){const e=dt.engine;e.setMode(plan.full?'full':'lite');dtHistory.load({ids:watchlist.filter(id=>subscribedIds.has(id)),date:dt.date,source:p.id,engine:e,active:()=>dt?.engine===e&&feedWindow(),interval:Math.ceil(60000/plan.plan.perMinute)+10}).catch(()=>{});}
+  if(dtReady){const e=dt.engine;e.setMode(plan.full?'full':'lite');dtHistory.load({ids:dtScanIds().filter(id=>subscribedIds.has(id)),date:dt.date,source:p.id,engine:e,active:()=>dt?.engine===e&&feedWindow(),interval:Math.ceil(60000/plan.plan.perMinute)+10}).catch(()=>{});}
   if(stream&&streamState.provider!==p.id){stream.close();stream=null;}
   streamState={...streamState,dtError};
   const meta={provider:p.id,mode:plan.full?'full':'lite',plan:plan.planId,limit:plan.plan.limit,perMinute:plan.plan.perMinute,total:plan.total};
@@ -348,7 +350,7 @@ function ensureDt(){
   const date=today();if(dt?.date===date)return dt.engine;
   dtHistory.reset();
   const ids=streamUniverse();refreshDtMeta(ids);
-  const baseline=dtBaseline(ids,date),engine=createDayTrade({market:M(),date,ids,meta:dtMeta,watch:new Set(watchlist),baseline,prep:dtPrepFor(date,ids),settings:settings.daytrade,offset:tzOffset(M().tz),lang:language()});
+  const baseline=dtBaseline(ids,date),engine=createDayTrade({market:M(),date,ids,meta:dtMeta,watch:new Set(watchlist),scan:new Set(dtScanIds()),baseline,prep:dtPrepFor(date,ids),settings:settings.daytrade,offset:tzOffset(M().tz),lang:language()});
   engine.restore(read(`daytrade/${date}.json`,null)?.signals);
   dt={date,engine,baselineDays:baseline.days,baselineStocks:baseline.stock.size};return engine;
 }
@@ -369,7 +371,7 @@ async function dtPrepare(){
 async function backfillAll(onlyGaps=false){
   const e=dt?.engine;if(!e)return;
   if(backfill.busy){if(Date.now()-backfill.started>30e3)backfill.again=true;return;}
-  const ids=[...new Set([...watchlist,...e.ids])].filter(id=>subscribedIds.has(id)&&(!onlyGaps||e.gaps.has(id)));
+  const ids=[...new Set([...dtScanIds(),...e.ids])].filter(id=>subscribedIds.has(id)&&(!onlyGaps||e.gaps.has(id)));
   e.markGap(ids);backfill={busy:true,again:false,started:Date.now(),done:0,total:ids.length,error:''};
   const interval=Math.ceil(60000/(streamState.perMinute||600))+10;
   try{for(const id of ids){if(dt?.engine!==e||!feedWindow())break;try{const value=await data.streamBackfill(id,{interval});if(dt?.engine!==e)break;e.backfill(id,value||{});const r=e.row(id);if(r)onStreamRows([r]);}catch(x){backfill.error=x.message;if(blocked(x))break;}backfill.done++;}}
@@ -385,7 +387,7 @@ function dtClose(){
 // 每秒：更新分數與排名、偵測訊號（訊號進入異動雷達並推播到手機）
 setInterval(()=>{
   if(!dt||dt.date!==today()||!feedWindow())return;
-  const e=dt.engine;e.setFeed(streamFresh()&&streamState.subscribed>=streamState.expected);e.setMode(streamState.mode);e.setWatch(new Set(watchlist));
+  const e=dt.engine;e.setFeed(streamFresh()&&streamState.subscribed>=streamState.expected);e.setMode(streamState.mode);e.setWatch(new Set(watchlist));e.setScan(new Set(dtScanIds()));
   const count=e.signals.length;let alerts=[];try{alerts=e.tick(Date.now());}catch(x){console.error(t('當沖監控計算失敗：')+x.message);}
   if(alerts.length)addAlerts(today(),alerts);
   if(alerts.length||e.signals.length!==count)saveDtLog();
@@ -403,12 +405,12 @@ function dtInfo(){
   const s=dtSettings(),p=data.pick('stream'),n=streamUniverse().length,e=dt?.date===today()?dt.engine:null,r=e?.ranking(),pd=dtPrep.date===today()?dtPrep.data:null;
   const plan=p?.stream?.plan?p.stream.plan(providerInfo()[p.id],s.plan==='auto'?(dtFallback===today()?'developer':'advanced'):s.plan):null;
   return{enabled:s.enabled,capable:!!p,provider:p?.id||null,settings:s,cost:Math.round(roundTripCost(s.costs)*1000)/1000,
-    history:dtHistory.status(watchlist),scope:'watchlist',
-    need:{symbols:n,watched:watchlist.length,full:n*(p?.stream?.channels?.full?.length||3),lite:n},plans:p?.stream?.plans||null,plan,fallback:dtFallback===today(),
+    history:dtHistory.status(dtScanIds()),scope:s.scope,
+    need:{symbols:n,watched:watchlist.length,scanned:dtScanIds().length,full:n*(p?.stream?.channels?.full?.length||3),lite:n},plans:p?.stream?.plans||null,plan,fallback:dtFallback===today(),
     feed:{...streamInfo(),window:feedWindow(),backfill:{busy:backfill.busy,done:backfill.done,total:backfill.total,error:backfill.error},pending:e?e.gaps.size:0},
     prep:pd?{date:pd.date,eligible:pd.eligible?pd.eligible.length:null,tpex:pd.tpex??null,disposition:pd.disposition.length,suspended:pd.suspended.length,sellFirstOff:pd.sellFirstOff.length,ref:Object.keys(pd.ref||{}).length,errors:pd.errors,at:pd.at}:null,
     baselineDays:dt?.baselineDays??null,baselineStocks:dt?.baselineStocks??null,phase:e&&feedWindow()?e.phase(Date.now()):null,phaseName:e&&feedWindow()?PHASES[e.phase(Date.now())]:null,
-    asOf:r?.at||null,marketChange:r?.marketChange??null,top:(r?.list||[]).filter(x=>x.watch&&!x.filters.length).slice(0,s.top),excluded:(r?.list||[]).filter(x=>x.watch).reduce((out,x)=>{for(const key of x.filters)out[key]=(out[key]||0)+1;return out;},{}),watched:watchlist.map(id=>(r?.list||[]).find(x=>x.id===id)||{id,name:dtMeta.get(id)?.name||id,watch:true,score:0,part:{},filters:[],pending:true,context:{ready:false,reasons:[subscribedIds.has(id)?'waitingQuote':'subscription']}}),total:watchlist.length,signals:(e?.signals||[]).slice(-30).reverse()};
+    asOf:r?.at||null,marketChange:r?.marketChange??null,top:(r?.list||[]).filter(x=>x.scan&&!x.filters.length).slice(0,s.top),excluded:(r?.list||[]).filter(x=>x.scan).reduce((out,x)=>{for(const key of x.filters)out[key]=(out[key]||0)+1;return out;},{}),watched:watchlist.map(id=>(r?.list||[]).find(x=>x.id===id)||{id,name:dtMeta.get(id)?.name||id,watch:true,score:0,part:{},filters:[],pending:true,context:{ready:false,reasons:[subscribedIds.has(id)?'waitingQuote':'subscription']}}),total:dtScanIds().length,signals:(e?.signals||[]).slice(-30).reverse()};
 }
 function dtReview(){
   const dir=path.join(LOCAL,'daytrade');let files=[];try{files=fs.readdirSync(dir).filter(f=>/^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().slice(-60);}catch{}

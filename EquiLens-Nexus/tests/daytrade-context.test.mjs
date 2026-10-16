@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { aggregateMinutes, prepareContext, appendBook, bookWindow, analyzeContext } from '../lib/daytrade-context.mjs';
-import { createDayTrade, DT_DEFAULTS, evaluateSignal, reviewStats } from '../lib/daytrade.mjs';
+import { createDayTrade, DT_DEFAULTS, evaluateSignal, reviewStats, normalizeDaytrade } from '../lib/daytrade.mjs';
 import fugle from '../lib/providers/fugle.mjs';
 import { marketProfile } from '../lib/markets.mjs';
 import { createHistoryLoader } from '../lib/daytrade-history.mjs';
@@ -229,4 +229,25 @@ test('history loader caches only complete data and retries errors; generation ch
   loader.reset(); const other = ready({ historyValue: null }); await loader.load({ ...args, engine: other }); assert.equal(calls, 2); assert.equal(other.historyReady('2330'), true);
   let release; const pending = createHistoryLoader({ read: () => null, write() { throw Error('should not write'); }, fetchHistory: () => new Promise(r => { release = r; }) });
   const work = pending.load(args); pending.reset(); release(hist); await work; assert.equal(pending.status(['2330'])[0].status, 'pending');
+});
+
+test('scan scope: a research-list stock outside the watchlist is scanned when it is in the scan set; settings default to all', () => {
+  const e = ready({ watch: false });
+  assert.equal(e.tick(at('09:40:00')).length, 0, 'not in the watchlist and no scan set: no alerts');
+  const scanned = ready({ watch: false }); scanned.setScan(new Set(['2330']));
+  const alerts = scanned.tick(at('09:40:00'));
+  assert.ok(alerts.length > 0, 'scanned stock gets alerts');
+  assert.equal(scanned.ranking().list[0].scan, true); assert.equal(scanned.ranking().list[0].watch, false);
+  assert.equal(normalizeDaytrade({}).scope, 'all'); assert.equal(normalizeDaytrade({ scope: 'watchlist' }).scope, 'watchlist'); assert.equal(normalizeDaytrade({ scope: 'x' }).scope, 'all');
+});
+
+test('history loader caches incomplete history for the day instead of refetching every 10 minutes', async () => {
+  let calls = 0, clock = 0; const files = new Map(), e = ready({ historyValue: null });
+  const thin = { ...hist, minutes: hist.minutes.filter((_, i) => i % 3 === 0) }; // 成交稀疏：大部分分鐘沒有 K 棒
+  const loader = createHistoryLoader({ read: k => files.get(k), write: (k, v) => files.set(k, v), now: () => clock, fetchHistory: async () => { calls++; return thin; } });
+  const args = { ids: ['2330'], date, source: 'fixture', engine: e };
+  await loader.load(args); assert.equal(loader.status(['2330'])[0].status, 'incomplete'); assert.equal(files.size, 1);
+  clock = 3600e3; await loader.load(args); assert.equal(calls, 1, 'not refetched');
+  const restarted = createHistoryLoader({ read: k => files.get(k), write: (k, v) => files.set(k, v), now: () => clock, fetchHistory: async () => { calls++; return thin; } });
+  await restarted.load({ ...args, engine: ready({ historyValue: null }) }); assert.equal(calls, 1, 'cache used after a restart');
 });

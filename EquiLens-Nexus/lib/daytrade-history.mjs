@@ -1,4 +1,7 @@
-// One serial queue, cache by trading date/provider, and retry incomplete data with backoff.
+// One serial queue, cache by trading date/provider; errors retry with backoff.
+// History covers past sessions only, so data that is fetched but incomplete (e.g. thinly traded stocks with missing minutes)
+// is cached for the day and not fetched again: refetching ~4 historical requests per stock every 10 minutes would
+// exhaust Fugle's 60-per-minute historical limit once the whole research list is scanned.
 // The engine receives history only; this loader never sends notifications.
 import { prepareContext } from './daytrade-context.mjs';
 export function createHistoryLoader({ read, write, fetchHistory, now = Date.now }) {
@@ -18,12 +21,12 @@ export function createHistoryLoader({ read, write, fetchHistory, now = Date.now 
           try {
             const key = `daytrade-history/${id}.json`, cached = read(key, null);
             let value = cached?.date === date && cached.source === source && cached.version === 2 ? cached.value : null;
-            if (!value || !prepareContext(value, date).complete) value = await fetchHistory(id, date, { interval });
+            const fetched = !value; if (fetched) value = await fetchHistory(id, date, { interval });
             if (version !== generation || !active()) break;
             engine.setHistory(id, value);
             const ready = engine.historyReady(id);
-            if (ready) write(key, { version: 2, date, source, value });
-            states.set(id, { date, source, status: ready ? 'ready' : 'incomplete', retryAt: now() + 600000 });
+            if (fetched) write(key, { version: 2, date, source, value });
+            states.set(id, { date, source, status: ready ? 'ready' : 'incomplete', retryAt: ready ? now() + 600000 : Infinity });
           } catch (error) {
             if (version !== generation || !active()) break;
             states.set(id, { date, source, status: 'error', error: error.message, retryAt: now() + 600000 });

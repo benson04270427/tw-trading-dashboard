@@ -2781,5 +2781,14 @@
  "也加入研究族群": "Also add to research group",
  "加到自選並加入研究族群": "Add to watchlist and research group",
  "，正在下載行情": ", downloading prices",
- "，請更新此股以取得行情": ", update this stock to fetch prices"
+ "，請更新此股以取得行情": ", update this stock to fetch prices",
+ "你是{0}的盤後研究助理，替一位個人投資者撰寫當日盤後日報，使用繁體中文。 資料來源是使用者本機系統當天彙整的 JSON：全市場資金板塊（成交金額與漲跌）{1}、盤中異動雷達紀錄、自選股與研究名單表現、型態訊號、焦點新聞與本周行事曆。只根據這些資料撰寫；資料缺漏時直接說明缺什麼，不要推測數字。 寫作方式： - sections 依序涵蓋「大盤與資金板塊」{2}「盤中異動回顧」「型態與題材」，沒有資料的段落可省略；每段 2–5 個重點，重點要有具體數字與比較。 - watchlist 只挑今天真正值得注意的自選或研究股（最多 6 檔），note 說明原因。 - tomorrow 列出下一個交易日開盤前後該留意的事件或價位；risks 列出今天資料透露的風險。 - card 是要印在手機圖卡上的摘要：highlights 每則一句話講完一個數據重點，watch 每則是下一個交易日要盯的一件事；兩者都要短，不寫完整句的鋪陳。 - 這是研究紀錄，不給買賣建議、目標價或報酬保證。": "You are an after-market research assistant for {0}, writing today's after-market report for an individual investor. The data is JSON compiled by the user's local system today: whole-market sector flows (turnover and change){1}, intraday radar alerts, watchlist and research-list performance, pattern signals, top news and this week's calendar. Write only from this data; if something is missing, say what is missing and do not guess numbers. Sections should cover \"Market & sector flows\"{2}\"Intraday alerts\" and \"Patterns & themes\" (omit sections without data), 2–5 points each with concrete numbers and comparisons. watchlist: at most 6 watchlist or research stocks truly worth attention today, with a reason. tomorrow: events or price levels to watch around the next open; risks: risks revealed by today's data. card: a short summary for a phone card — each highlight is one data point in one sentence, each watch item is one thing to watch next session. This is a research note: no buy/sell advice, price targets or return promises.",
+ "{0}；新增股票自動準備資料": "{0}; data for newly added stocks is prepared automatically",
+ "全部研究族群時，30 日歷史資料每天開盤前首次載入約需 20 分鐘（富果歷史 API 每分鐘 60 次），自選股優先；載入完成前的股票顯示等待，不發做多警示。": "With all research groups, the 30-day history takes about 20 minutes to load each morning (Fugle historical API: 60 requests per minute), watchlist first; stocks still loading show as waiting and get no long alerts.",
+ "全部研究族群＋自選": "All research groups + watchlist",
+ "只掃描自選股": "Watchlist only",
+ "只掃自選": "Watchlist only",
+ "掃描 {0} 檔（自選 {1} 檔優先），每檔需要 3 個訂閱；不足時顯示等待，不發做多警示": "Scanning {0} stocks ({1} watchlist first), 3 subscriptions each; if short, stocks show as waiting with no long alerts",
+ "掃描全部研究族群＋自選 {0} 檔（自選優先）": "Scanning all research groups + watchlist: {0} stocks (watchlist first)",
+ "掃描範圍": "Scan scope"
 }
