@@ -15,13 +15,21 @@ export function planOf(info, setting = 'auto') {
 }
 const LABEL = 'Fugle 富果';
 const queue = limiter(150);
+// 歷史 K 線 API 另有每分鐘 60 次上限（盤中 REST 依方案 600／2000 次，見回應標頭 x-ratelimit-limit）：
+// 獨立排隊、間隔至少 1.05 秒；遇到 429 依 Retry-After 等待後重試（最多 2 次），不讓盤中補資料的間隔套用到歷史 API
+export const HISTORY_INTERVAL = 1050;
+const historyQueue = limiter(HISTORY_INTERVAL);
+const pause = (ms, signal) => new Promise(r => { const t = setTimeout(r, ms); signal?.addEventListener?.('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 async function get(path, ctx) {
-  return queue(async () => {
-    const r = await fetchJSON(BASE + path, { headers: { 'X-API-KEY': ctx.key }, signal: ctx.signal, label: LABEL });
+  const history = path.startsWith('/historical/'), q = history ? historyQueue : queue;
+  const opts = history ? { ...ctx, interval: Math.max(ctx.interval ?? 0, ctx.historyInterval ?? HISTORY_INTERVAL) } : ctx;
+  for (let attempt = 0; ; attempt++) {
+    const r = await q(() => fetchJSON(BASE + path, { headers: { 'X-API-KEY': ctx.key }, signal: ctx.signal, label: LABEL }), opts);
+    if (r.status === 429 && history && attempt < 2 && !ctx.signal?.aborted) { await pause(Math.min(65, Number(r.headers?.get?.('retry-after')) || 30) * 1000, ctx.signal); continue; }
     if (r.status === 404) return null; // 查詢範圍沒有資料
     if (!r.ok) throw httpError(LABEL, r.status, r.body?.message);
     return r.body;
-  }, ctx);
+  }
 }
 const hmOf = iso => /T(\d{2}:\d{2})/.exec(String(iso))?.[1] || null;
 
@@ -100,13 +108,17 @@ export default {
     if (!rows.length) return { daily: [], minutes: [], source: 'fugle' };
     const original = new Map((raw?.data || []).map(b => [b.date, b]));
     const factors = new Map(rows.filter(b => original.get(b.date)?.close > 0).map(b => [b.date, b.close / original.get(b.date).close]));
-    // Fetch each session separately: bounded response size and no cross-day truncation.
+    // 1 分 K：每 15 個交易日一次請求（30 日共 2 次，歷史 API 每分鐘只有 60 次），再依日期分開；
+    // 某個交易日在區間回應中沒有資料時才單獨補抓那一天（避免回應被截斷造成缺日）
+    const byDay = new Map(), minuteUrl = (a, b) => `/historical/candles/${id}?timeframe=1&from=${a}&to=${b}&sort=asc&fields=open,high,low,close,volume`;
+    const take = candles => { for (const c of candles?.data || []) { const d = String(c.date).slice(0, 10); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(c); } };
+    for (let i = 0; i < rows.length; i += 15) { const part = rows.slice(i, i + 15); take(await get(minuteUrl(part[0].date, part.at(-1).date), ctx)); }
+    for (const b of rows) if (!byDay.has(b.date) && b.volume > 0) take(await get(minuteUrl(b.date, b.date), ctx));
     const minutes = [];
     for (const b of rows) {
-      const candles = await get(`/historical/candles/${id}?timeframe=1&from=${b.date}&to=${b.date}&sort=asc&fields=open,high,low,close,volume`, ctx);
       const factor = factors.get(b.date); if (!(factor > 0)) continue;
-      for (const c of candles?.data || []) {
-        const time = Date.parse(c.date); if (!Number.isFinite(time) || !String(c.date).startsWith(b.date)) continue;
+      for (const c of (byDay.get(b.date) || []).sort((x, y) => String(x.date).localeCompare(String(y.date)))) {
+        const time = Date.parse(c.date); if (!Number.isFinite(time)) continue;
         minutes.push({ time, o: c.open * factor, h: c.high * factor, l: c.low * factor, c: c.close * factor, v: c.volume });
       }
     }

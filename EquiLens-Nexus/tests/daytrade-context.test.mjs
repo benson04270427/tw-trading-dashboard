@@ -196,14 +196,26 @@ test('Fugle history loads exactly 30 sessions, uses adjusted price factors and k
       const factor = u.searchParams.has('adjusted') ? 0.5 : 1;
       return Response.json({ data: hist.daily.map(b => ({ date: b.date, open: b.o * factor, high: b.h * factor, low: b.l * factor, close: b.c * factor, volume: 1000000, turnover: 50000000 })) });
     }
-    const day = u.searchParams.get('from');
-    return Response.json({ data: [{ date: `${day}T09:00:00+08:00`, open: 50, high: 51, low: 49, close: 50, volume: 12 }] });
+    // 1 分 K 區間請求：區間內每個交易日回一根（第 5 個交易日故意缺，應單獨補抓）
+    const from = u.searchParams.get('from'), to = u.searchParams.get('to'), skip = hist.daily[4].date;
+    return Response.json({ data: hist.daily.filter(b => b.date >= from && b.date <= to && (from === to || b.date !== skip)).map(b => ({ date: `${b.date}T09:00:00+08:00`, open: 50, high: 51, low: 49, close: 50, volume: 12 })) });
   };
   try {
-    const h = await fugle.streamHistory('2330', date, { key: 'fixture', interval: 0 });
-    assert.equal(calls.length, 32); assert.equal(h.daily.length, 30); assert.equal(h.minutes.length, 30);
+    const h = await fugle.streamHistory('2330', date, { key: 'fixture', interval: 0, historyInterval: 0 });
+    // 日 K 2 次＋1 分 K 每 15 日 1 次（2 次）＋缺日補抓 1 次（原本每日一次共 32 次，超過歷史 API 每分鐘 60 次的上限）
+    assert.equal(calls.length, 5); assert.equal(h.daily.length, 30); assert.equal(h.minutes.length, 30);
     assert.equal(h.minutes[0].c, 25); assert.equal(h.minutes[0].v, 12); assert.equal(h.daily[0].v, 1000); assert.equal(h.daily[0].amount, 50000000);
+    assert.ok(h.minutes.every((m, i) => !i || m.time > h.minutes[i - 1].time), 'minutes in time order');
     assert.equal(prepareContext(h, date).complete, false, 'one minute per session is not complete context');
+  } finally { globalThis.fetch = original; }
+});
+
+test('Fugle historical API: 429 waits for Retry-After and retries instead of failing every stock', async () => {
+  const original = globalThis.fetch; let n = 0;
+  globalThis.fetch = async () => (++n === 1 ? new Response(JSON.stringify({ statusCode: 429, message: 'Rate limit exceeded' }), { status: 429, headers: { 'retry-after': '0.01' } }) : Response.json({ data: [] }));
+  try {
+    const h = await fugle.streamHistory('2330', date, { key: 'fixture', interval: 0, historyInterval: 0 });
+    assert.equal(n, 3, 'raw daily retried once, then adjusted daily'); assert.deepEqual(h.daily, []);
   } finally { globalThis.fetch = original; }
 });
 
