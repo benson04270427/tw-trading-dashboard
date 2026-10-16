@@ -57,7 +57,7 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-gr],[data-gr-group],[data-gr-stock]'); if (!b || !C) return;
   try {
     if (b.dataset.gr === 'query') { G.view = 'live'; return await query(); }
-    if (b.dataset.grStock) { const id = b.dataset.grStock; if (C.inScope(id)) await C.openStock(id); return; }
+    if (b.dataset.grStock) { await C.openStock(b.dataset.grStock); return; }
     if (b.dataset.grGroup) { const id = b.dataset.grGroup; G.open.has(id) ? G.open.delete(id) : G.open.add(id); return repaint(); }
   } catch (err) { C.toast(err.message); }
 });

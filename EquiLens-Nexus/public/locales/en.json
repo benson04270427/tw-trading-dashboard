@@ -2878,5 +2878,8 @@
  "點指數卡看走勢、日 K、成交金額與漲跌家數": "Tap an index card for the intraday chart, daily candles, turnover and breadth",
  "依成交加權漲跌幅": "By turnover-weighted change",
  "成交加權漲跌 · 漲停 {0}": "Turnover-weighted change · limit-up {0}",
- "成交加權漲跌%": "Turnover-weighted change %"
+ "成交加權漲跌%": "Turnover-weighted change %",
+ "滑過方塊檢視明細，點擊方塊鎖定個股；點擊板塊標題放大。雙擊個股開啟走勢／五檔。": "Hover a tile for details, click to lock a stock, click a sector title to zoom. Double-click a stock to open its intraday chart and order book.",
+ "走勢／五檔 ↗": "Intraday / book ↗",
+ "開啟走勢／五檔": "Open intraday chart and order book"
 }

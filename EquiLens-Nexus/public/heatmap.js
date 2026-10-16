@@ -219,11 +219,11 @@ function movers(agg) {
 }
 function inspector(agg) {
   const s = H.selected && agg?.byId.get(H.selected);
-  if (!s) return `<section class="panel inspector"><p class="eyebrow">Inspector</p><p class="fine">滑過方塊檢視明細，點擊方塊鎖定個股；點擊板塊標題放大。雙擊研究名單內個股可開啟個股診斷。</p></section>`;
+  if (!s) return `<section class="panel inspector"><p class="eyebrow">Inspector</p><p class="fine">滑過方塊檢視明細，點擊方塊鎖定個股；點擊板塊標題放大。雙擊個股開啟走勢／五檔。</p></section>`;
   const sector = agg.sectors.find(x => x.name === s.sector), inScope = ctx.inScope(s.id);
   return `<section class="panel inspector"><p class="eyebrow">Locked · ${esc(s.market)}</p><h2>${esc(s.name)} <span class="stockcode">${s.id}</span></h2><div class="big ${cls(s.change)}">${fmt(s.close, 2)} <small>${pct(s.change)}</small></div>
     <dl><dt>產業板塊</dt><dd style="font-family:var(--sans)">${esc(s.sector)}</dd><dt>成交金額</dt><dd>${yi(s.money)} 億</dd><dt>占板塊</dt><dd>${fmt(sector ? s.money / sector.money * 100 : null, 1)}%</dd><dt>成交量</dt><dd>${fmt(s.volume)} ${MK.unit()}</dd><dt>較前日量能</dt><dd class="${cls(s.prevMoney ? s.money / s.prevMoney - 1 : null)}">${s.prevMoney ? pct((s.money / s.prevMoney - 1) * 100, 0) : '—'}</dd><dt>開／高／低</dt><dd>${fmt(s.open, 2)} / ${fmt(s.high, 2)} / ${fmt(s.low, 2)}</dd></dl>
-    <div class="actions" style="margin-top:12px">${inScope ? `<button class="primary" data-stock="${s.id}">個股診斷 ↗</button>` : '<span class="fine">不在研究名單；可於「市場族群」新增個股。</span>'}<button data-heat-sector="${esc(s.sector)}">放大板塊</button></div></section>`;
+    <div class="actions" style="margin-top:12px"><button class="primary" data-stock="${s.id}">走勢／五檔 ↗</button>${inScope ? `<button data-stock-detail="${s.id}">個股診斷</button>` : ''}<button data-heat-sector="${esc(s.sector)}">放大板塊</button></div></section>`;
 }
 
 /* ---------- treemap render ---------- */
@@ -310,7 +310,7 @@ document.addEventListener('click', async e => {
   else if (a === 'fullscreen') { H.fullscreen = !H.fullscreen; ctx.redraw(); }
   else if (a === 'export') exportCSV();
 });
-document.addEventListener('dblclick', e => { const el = e.target.closest('[data-hm-stock]'); if (el && ctx?.inScope(el.dataset.hmStock)) ctx.openStock(el.dataset.hmStock); });
+document.addEventListener('dblclick', e => { const el = e.target.closest('[data-hm-stock]'); if (el) ctx.openStock(el.dataset.hmStock); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && H.fullscreen) { H.fullscreen = false; ctx.redraw(); } });
 document.addEventListener('change', e => {
   if (e.target.id === 'heat-date') { H.date = e.target.value; }

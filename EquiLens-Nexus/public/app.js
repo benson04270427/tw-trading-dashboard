@@ -3,7 +3,7 @@ import { initHeatmap, heatPage, mountHeatmap } from './heatmap.js';
 import { initBriefing, briefPage, mountBriefing } from './briefing.js';
 import { getPrefs, setPrefs, prefsPanel, DEFAULTS as PREF_DEFAULTS } from './prefs.js';
 import { initGroupRank, groupRankPage, enterGroupRank } from './grouprank.js';
-import { initLive, livePage, enterLive, detailExtrasShell, fillDetailExtras, reportPanel, claudeSettings, newsSettings } from './live.js';
+import { initLive, livePage, enterLive, detailExtrasShell, fillDetailExtras, reportPanel, claudeSettings, newsSettings, openChart } from './live.js';
 import { initSetup, setupWizard, systemSettings } from './setup.js';
 import { initChipwatch, chipPage, enterChips } from './chipwatch.js';
 import { setLanguage } from './i18n.js';
@@ -71,9 +71,9 @@ function toast(message) { const p = getPrefs(); if (!p.toast) return; $('#toast'
 function applyState(next) { state = next; MK.setMarket(state.marketProfile, state.upColor, state.config?.language); Object.assign(C, MK.upColors()); }
 async function load(render = true) { applyState(await api('state')); if (render) draw(); }
 const inScope = id => !!state?.stocks.some(s => s.id === id);
-initHeatmap({ api, toast, state: () => state, inScope, openStock: id => openStock(id), redraw: () => { if (page === 'heatmap') draw(); } });
+initHeatmap({ api, toast, state: () => state, inScope, openStock: id => openChart(id, 'live'), redraw: () => { if (page === 'heatmap') draw(); } });
 initBriefing({ esc, toast, state: () => state });
-initGroupRank({ api, toast, redraw: () => draw(), page: () => page, openStock: id => openStock(id), inScope, esc });
+initGroupRank({ api, toast, redraw: () => draw(), page: () => page, openStock: id => openChart(id, 'live'), inScope, esc });
 initLive({ api, toast, state: () => state, redraw: () => draw(), page: () => page, openStock: id => openStock(id), inScope, setPage: p => setPage(p), reload: () => load() });
 initChipwatch({ api, toast, page: () => page });
 initSetup({ api, toast, state: () => state, reload: () => load(), redraw: () => draw(), page: () => page, esc });
@@ -276,7 +276,8 @@ function renderDetail(s) {
 document.addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return; try {
     if (b.dataset.page) { setPage(b.dataset.page); return; }
-    if (b.dataset.stock) { await openStock(b.dataset.stock); return; }
+    if (b.dataset.stock) { await openChart(b.dataset.stock, 'live'); return; }
+    if (b.dataset.stockDetail) { await openStock(b.dataset.stockDetail); return; }
     if (b.dataset.sector) { sectorFilter = b.dataset.sector; query = ''; marketFilter = '全部'; scoreFilter = ''; completeOnly = false; sort = 'group'; page = 'overview'; index = 0; draw(); return; }
     if (b.dataset.market) { marketFilter = b.dataset.market; index = 0; draw(); return; }
     if (b.dataset.watch) { const id = b.dataset.watch; await api('watchlist', { ids: state.watchlist.includes(id) ? state.watchlist.filter(v => v !== id) : [...state.watchlist, id] }); await load(); if ($('#detail-dialog').open) await openStock(selectedId); return; }

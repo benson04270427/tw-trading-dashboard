@@ -68,7 +68,7 @@ function newsBlock() {
 }
 
 function newsItem(i) {
-  const st = ctx.state(), tw = i.tw.map(id => { const s = st?.stocks.find(x => x.id === id); return s ? `<button class="bi-chip in" data-stock="${esc(id)}" title="開啟個股研究">${esc(s.name)} <span class="mono">${esc(id)}</span></button>` : `<span class="bi-chip mono">${esc(id)}</span>`; });
+  const st = ctx.state(), tw = i.tw.map(id => { const s = st?.stocks.find(x => x.id === id); return s ? `<button class="bi-chip in" data-stock="${esc(id)}" title="開啟走勢／五檔">${esc(s.name)} <span class="mono">${esc(id)}</span></button>` : `<button class="bi-chip mono" data-stock="${esc(id)}" title="開啟走勢／五檔">${esc(id)}</button>`; });
   const us = i.us.map(u => `<span class="bi-chip us">${esc(u.name)}</span>`);
   return `<li class="brief-item ${i.must ? 'must' : ''}"><div class="bi-meta"><time class="mono">${mdhm(i.time)}</time><span class="bi-cat">${esc(i.category)}</span>${i.must ? '<span class="bi-must">必讀</span>' : ''}</div>
   <a class="bi-title" href="${esc(i.url)}" target="_blank" rel="noopener noreferrer">${esc(i.title)}</a>${i.summary ? `<p class="bi-sum">${esc(i.summary)}</p>` : ''}${tw.length || us.length ? `<div class="bi-tags">${[...tw, ...us].join('')}</div>` : ''}</li>`;
