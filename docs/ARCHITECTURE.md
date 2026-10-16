@@ -28,6 +28,7 @@ mobile UI and Web Push relay. There is no database and no build step: plain ES m
 | `lib/stream.mjs` | Live-stream client (WebSocket): auth, per-channel batched subscriptions, heartbeat check, reconnect with backoff, events flushed in batches; `createStreamPool` spreads symbols over several connections |
 | `lib/daytrade.mjs` | Day-trade engine (pure): per-stock state from trades / 1-minute bars / order book (or aggregates), VWAP, same-time volume baseline from the time machine, order-book imbalance, multi-timeframe score, three long opportunities and two risk alerts, exclusions, backfill, after-close evaluation and versioned review statistics |
 | `lib/daytrade-context.mjs`, `lib/daytrade-history.mjs` | 30-session adjusted daily/minute history, completed 5m/60m aggregation, time-weighted full-depth book confirmation, watchlist history queue/cache |
+| `lib/daytrade-market.mjs` | Day-trade market context (pure, record-only): per-index minute series (TAIEX / TPEx) fed from snapshot rows `001`/`101` or Fugle index candles, change, 15-minute change, time-weighted intraday average, breadth; tailwind / neutral / headwind and relative-strength rules; the `market` record stored with each signal and used to group the review |
 | `lib/patterns.mjs`, `lib/pattern-service.mjs` | Pattern detection and the whole-market pattern snapshot |
 | `lib/grouprank.mjs` | Research-group ranking (turnover-weighted gain) |
 | `lib/llm.mjs`, `lib/report.mjs` | AI providers (structured JSON output) and the after-market report |
@@ -82,8 +83,13 @@ suspensions, sell-first bans, reference prices) and TWSE/TPEx disposition lists.
 start) every stock is backfilled through `streamBackfill` before it can signal again. Signals go to the radar
 (`dt-*` alert types) and push; after the close they are evaluated against 1-minute bars and stored in
 `.local/daytrade/<date>.json`. APIs: `GET /api/daytrade`, `GET /api/daytrade/review`, `POST /api/daytrade/settings`.
-V2 evaluates entries only for the manual watchlist. Full mode prioritizes that list; missing history, incomplete candles, stale books or failed backfill pause entry alerts. Risk alerts bypass entry scores and continue until 13:25. See the linked guide for exact defaults and limitations.
-Details and formulas: [DAYTRADE.zh-TW.md](DAYTRADE.zh-TW.md).
+V2 scans all research groups plus the watchlist by default (`scope: watchlist` limits it to the watchlist). Full mode prioritizes the watchlist; missing history, incomplete candles, stale books or failed backfill pause entry alerts. Risk alerts bypass entry scores and continue until 13:25. See the linked guide for exact defaults and limitations.
+Market context (record only): every signal stores a `market` record for its own index — TAIEX for listed stocks, TPEx
+for OTC stocks — taken from the snapshot index rows every 10 seconds (no extra requests); when the snapshot has no index
+rows for 90 seconds, or a mid-session start misses the open, the server polls Fugle index quote + 1-minute candles at most
+once a minute per index. `GET /api/daytrade` returns the current `market` state; `GET /api/daytrade/review` groups v2 long
+signals by regime and relative strength. Scores, thresholds and alerts do not use it.
+Details and formulas: [DAYTRADE.zh-TW.md](DAYTRADE.zh-TW.md), [features/daytrade-market.md](features/daytrade-market.md).
 
 All providers return the internal row format (FinMind field names, so scoring and patterns work unchanged):
 

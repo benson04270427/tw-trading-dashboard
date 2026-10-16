@@ -27,6 +27,7 @@ import { createStreamPool, splitSymbols, spreadSymbols } from './lib/stream.mjs'
 import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV, exportDay } from './lib/bookrec.mjs';
 import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffset, evaluateSignal, reviewStats, signalTitle, DT_TITLES } from './lib/daytrade.mjs';
 import { createHistoryLoader } from './lib/daytrade-history.mjs';
+import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
 import { dispositions, tpexDayTrade } from './lib/providers/twse.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
@@ -156,6 +157,7 @@ function onSnapshot(rows,heat){
   if(lastSnap?.date!==heat.date)try{compactReplay(heat.date);}catch{}
   lastSnap={at:Date.now(),date:heat.date,asOf:heat.asOf,rows:day,byId:new Map(day.map(r=>[r.stock_id,r]))};
   try{if(recordFrame(heat.date,String(heat.asOf||'').slice(11,16),day,ids,{all:rows})&&M().id==='TW'){const ix=id=>rows.find(r=>r.stock_id===id&&String(r.date).slice(0,10)===heat.date);write(`index-${heat.date}.json`,{twse:indexRow(ix('001')),tpex:indexRow(ix('101'))});}}catch(e){console.error(t('時光機記錄失敗：')+e.message);}
+  try{dtIndexFromSnapshot(rows,heat);}catch{}
   // 有即時推播的股票由推播資料判斷異動，快照只負責其餘股票（避免兩份不同時間的報價混在一起）
   try{runRadar(heat.date,streamFresh()?day.filter(r=>!streamRows.has(r.stock_id)):day);}catch(e){console.error(t('異動雷達失敗：')+e.message);}
 }
@@ -352,7 +354,7 @@ function bookStocks(date){
 function refreshDtMeta(ids){
   const {meta}=uniIndex(),groups=new Map();
   for(const g of researchScope.groups)for(const id of g.stockIds){if(!groups.has(id))groups.set(id,[]);groups.get(id).push(g.id);}
-  for(const id of ids)dtMeta.set(id,{name:meta.get(id)?.name||id,groups:groups.get(id)||[]});
+  for(const id of ids)dtMeta.set(id,{name:meta.get(id)?.name||id,groups:groups.get(id)||[],exchange:meta.get(id)?.market||null});
 }
 // 同時段歷史量：時光機最近 20 個交易日的每分鐘累計量
 function dtBaseline(ids,date){
@@ -397,6 +399,31 @@ async function backfillAll(onlyGaps=false){
   try{for(const id of ids){if(dt?.engine!==e||!feedWindow())break;try{const value=await data.streamBackfill(id,{interval});if(dt?.engine!==e)break;e.backfill(id,value||{});const r=e.row(id);if(r)onStreamRows([r]);}catch(x){backfill.error=x.message;if(blocked(x))break;}backfill.done++;}}
   finally{backfill.busy=false;if(backfill.again)setTimeout(()=>backfillAll().catch(()=>{}),1000).unref();}
 }
+// 大盤環境紀錄（當沖，只記錄、不影響訊號）：快照中的加權（001）、櫃買（101）指數每 10 秒餵入引擎；全市場快照另提供上市／上櫃漲跌家數
+function dtIndexFromSnapshot(rows,heat){
+  const e=dt?.date===heat.date?dt.engine:null;if(!e||M().id!=='TW')return;
+  const whole=data.snapshotMode()!=='symbols',now=Date.now();
+  for(const [key,id] of [['twse','001'],['tpex','101']]){
+    const r=rows.find(x=>x.stock_id===id&&String(x.date).slice(0,10)===heat.date),ix=indexRow(r);
+    if(ix?.close>0)e.indexSample(key,{at:Date.parse(String(r.date).slice(0,19).replace(' ','T')+'+08:00'),price:ix.close,ref:ix.change!=null?ix.close-ix.change:null,source:'snapshot'});
+    const b=heat.total?.[key];if(whole&&b?.count)e.indexBreadth(key,{up:b.up,down:b.down,at:now});
+  }
+}
+// 快照沒有指數（例如快照來自富果）或服務盤中才啟動、缺少開盤後的資料時，改向富果取指數報價與當日 1 分 K：
+// 每個指數每分鐘最多 1 次（報價＋1 分 K 共 2 個請求，與指數詳細資訊共用快取）；取不到時 5 分鐘後再試
+const dtIndexPoll={at:{},until:0};
+async function dtIndexFallback(){
+  const e=dt?.date===today()?dt.engine:null,x=clock(),p=M(),now=Date.now();
+  if(!e||p.id!=='TW'||!data.has('stream')||x.minute<p.open+1||x.minute>=p.close||now<dtIndexPoll.until)return;
+  for(const [key,id] of [['twse','TAIEX'],['tpex','TPEX']]){
+    if((e.indexAge(key,now)<90e3&&e.indexHasOpen(key))||now-(dtIndexPoll.at[key]||0)<60e3)continue;
+    dtIndexPoll.at[key]=now;
+    const r=await indexReport(id);
+    if(r?.source!=='fugle'||!r.minutes.m.length){dtIndexPoll.until=now+5*60e3;return;}
+    const at=r.quote.time?Date.parse(`${r.date}T${r.quote.time}+08:00`):now;
+    e.indexSeries(key,{ref:r.ref,price:r.quote.last,at,minutes:r.minutes.m.map((m,i)=>[m,r.minutes.c[i]]),source:'fugle'});
+  }
+}
 function saveDtLog(extra={}){if(!dt)return;fs.mkdirSync(path.join(LOCAL,'daytrade'),{recursive:true});write(`daytrade/${dt.date}.json`,{date:dt.date,mode:streamState.mode||null,plan:streamState.plan||null,signals:dt.engine.signals,...extra});}
 // 收盤後：以分 K 檢討今天每個訊號（扣除滑價、手續費、證交稅）
 function dtClose(){
@@ -417,6 +444,7 @@ setInterval(()=>{
   const x=clock(),p=M();if(!data.has('stream')||!dtSettings().enabled||x.weekday<1||x.weekday>5)return;
   const date=today();
   if(dt?.date===date&&dt.engine.gaps.size&&streamState.connected&&Date.now()-backfill.started>60000)backfillAll(true).catch(()=>{});
+  dtIndexFallback().catch(()=>{});
   if(x.minute>=p.open-30&&x.minute<p.close&&(dtPrep.date!==date||((!dtPrep.data?.eligible||(M().id==='TW'&&dtPrep.data?.tpex==null))&&Date.now()-dtPrep.at>10*60e3&&x.minute<p.open+30)))dtPrepare().catch(()=>{dtPrep={...dtPrep,busy:false};});
   if(x.minute>=p.close+p.settle+1&&dt?.date===date&&dtSaved!==date)try{dtClose();}catch(e){console.error(t('當沖訊號檢討失敗：')+e.message);}
 },20e3).unref();
@@ -430,7 +458,7 @@ function dtInfo(){
     feed:{...streamInfo(),window:feedWindow(),backfill:{busy:backfill.busy,done:backfill.done,total:backfill.total,error:backfill.error},pending:e?e.gaps.size:0},
     prep:pd?{date:pd.date,eligible:pd.eligible?pd.eligible.length:null,tpex:pd.tpex??null,disposition:pd.disposition.length,suspended:pd.suspended.length,sellFirstOff:pd.sellFirstOff.length,ref:Object.keys(pd.ref||{}).length,errors:pd.errors,at:pd.at}:null,
     baselineDays:dt?.baselineDays??null,baselineStocks:dt?.baselineStocks??null,phase:e&&feedWindow()?e.phase(Date.now()):null,phaseName:e&&feedWindow()?PHASES[e.phase(Date.now())]:null,
-    asOf:r?.at||null,marketChange:r?.marketChange??null,top:(r?.list||[]).filter(x=>x.scan&&!x.filters.length&&x.score>=s.displayMin).slice(0,s.top),hidden:(r?.list||[]).filter(x=>x.scan&&x.score<s.displayMin).length,displayMin:s.displayMin,excluded:(r?.list||[]).filter(x=>x.scan).reduce((out,x)=>{for(const key of x.filters)out[key]=(out[key]||0)+1;return out;},{}),watched:watchlist.map(id=>(r?.list||[]).find(x=>x.id===id)||{id,name:dtMeta.get(id)?.name||id,watch:true,score:0,part:{},filters:[],pending:true,context:{ready:false,reasons:[subscribedIds.has(id)?'waitingQuote':'subscription']}}).filter(x=>x.score>=s.displayMin),total:dtScanIds().length,signals:(e?.signals||[]).slice(-30).reverse()};
+    asOf:r?.at||null,marketChange:r?.marketChange??null,market:e&&feedWindow()?e.marketState(Date.now()):null,top:(r?.list||[]).filter(x=>x.scan&&!x.filters.length&&x.score>=s.displayMin).slice(0,s.top),hidden:(r?.list||[]).filter(x=>x.scan&&x.score<s.displayMin).length,displayMin:s.displayMin,excluded:(r?.list||[]).filter(x=>x.scan).reduce((out,x)=>{for(const key of x.filters)out[key]=(out[key]||0)+1;return out;},{}),watched:watchlist.map(id=>(r?.list||[]).find(x=>x.id===id)||{id,name:dtMeta.get(id)?.name||id,watch:true,score:0,part:{},filters:[],pending:true,context:{ready:false,reasons:[subscribedIds.has(id)?'waitingQuote':'subscription']}}).filter(x=>x.score>=s.displayMin),total:dtScanIds().length,signals:(e?.signals||[]).slice(-30).reverse()};
 }
 // 個股即時走勢（手機版與電腦版點個股）：每分鐘價量、當日均價線、所屬族群均價線、五檔、最近成交。
 // 來源依序：當沖引擎的即時推播（逐筆、1 分 K、五檔）→ 富果盤中 REST（未訂閱即時推播的股票；3 次請求，3 秒內共用）→ 時光機每分鐘畫格。
@@ -495,7 +523,7 @@ function indexSummary(){
 function dtReview(){
   const dir=path.join(LOCAL,'daytrade');let files=[];try{files=fs.readdirSync(dir).filter(f=>/^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().slice(-60);}catch{}
   const days=files.map(f=>read(`daytrade/${f}`,null)).filter(d=>d?.closedAt);
-  return{...reviewStats(days),cost:Math.round(roundTripCost(dtSettings().costs)*1000)/1000,recent:days.slice(-5).reverse().map(d=>({date:d.date,mode:d.mode,signals:d.signals.map(({type,id,name,t,price,score,outcome,purpose,reference,version})=>({purpose,reference,version,type,title:signalTitle({type,version}),id,name,t,price,score,outcome}))}))};
+  return{...reviewStats(days),cost:Math.round(roundTripCost(dtSettings().costs)*1000)/1000,recent:days.slice(-5).reverse().map(d=>({date:d.date,mode:d.mode,signals:d.signals.map(({type,id,name,t,price,score,outcome,purpose,reference,version,market})=>({purpose,reference,version,type,title:signalTitle({type,version}),id,name,t,price,score,outcome,market:market||null,regime:regimeOf(market),strength:strengthOf(market)}))}))};
 }
 
 /* ---------- 異動雷達 ---------- */

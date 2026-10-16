@@ -42,6 +42,7 @@ small{font-size:.78rem}
 .dt-score{display:flex;align-items:center;gap:8px}
 .dt-bar{display:inline-flex;width:100px;height:7px;background:rgba(80,200,255,.08);border-radius:4px;overflow:hidden}.dt-bar i{display:block;height:100%}
 .dt-foot{font-size:.76rem;color:var(--muted);margin:8px 0 0}
+.dt-sub{margin:18px 0 0;font-size:.86rem;font-weight:500}
 .dt-field{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:.84rem;color:var(--muted);margin:8px 0}.dt-field.sub{margin-left:26px}
 .dt-day{margin-top:8px;font-size:.82rem}.dt-day summary{cursor:pointer;color:var(--muted)}
 .dt-sig{display:flex;flex-wrap:wrap;gap:4px 12px;padding:4px 0;border-bottom:1px solid var(--line)}

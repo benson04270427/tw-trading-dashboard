@@ -37,6 +37,10 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
   Three long setups are accompanied by weakness and reference-stop alerts; risk alerts continue after the entry cutoff.
   Missing history, stale data or an incomplete feed pause confirmation. Each stock shows its evidence and readiness;
   v1/v2 after-close outcome statistics remain separate. See [the rules and limitations](docs/DAYTRADE.zh-TW.md).
+  Each signal also records the state of its own index (TAIEX for listed stocks, TPEx for OTC stocks: change, 15-minute
+  change, position against the intraday average) and the stock's relative strength; the review groups outcomes by
+  tailwind / neutral / headwind and stronger / weaker than the market. This is recorded only — scores, thresholds and
+  alerts are unchanged ([details, zh-TW](docs/features/daytrade-market.md)).
 - **Group ranking** – your research groups ranked by turnover-weighted gain, with daily close records.
 - **Pattern scanner** – 10 classic patterns over 90 sessions with conditional entry and stop levels.
 - **AI after-market report** – written by Claude, OpenAI, Gemini or any OpenAI-compatible endpoint (including local

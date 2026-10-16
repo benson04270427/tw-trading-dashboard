@@ -5,6 +5,7 @@ import { createDayTrade, DT_DEFAULTS, evaluateSignal, reviewStats, normalizeDayt
 import fugle from '../lib/providers/fugle.mjs';
 import { marketProfile } from '../lib/markets.mjs';
 import { createHistoryLoader } from '../lib/daytrade-history.mjs';
+import { regimeOf } from '../lib/daytrade-market.mjs';
 const date = '2026-10-14', market = marketProfile('TW');
 const at = t => Date.parse(`${date}T${t}+08:00`);
 function history() {
@@ -32,8 +33,8 @@ function books(e, time = at('09:40:00'), negative = false) {
 }
 let serial = 0;
 const trade = (time, price = 50.6) => ({ kind: 'trade', id: '2330', time, price, size: 1, serial: ++serial, ask: price, bid: price - 0.1 });
-function ready({ watch = true, historyValue = hist, negativeBook = false, settings = {} } = {}) {
-  const e = createDayTrade({ market, date, ids: ['2330'], watch: new Set(watch ? ['2330'] : []), settings: { ...DT_DEFAULTS, minDailyAmount: 0, ...settings }, prep: { eligible: new Set(['2330']), ref: new Map([['2330', hist.rawClose]]) } });
+function ready({ watch = true, historyValue = hist, negativeBook = false, settings = {}, meta = new Map() } = {}) {
+  const e = createDayTrade({ market, date, ids: ['2330'], meta, watch: new Set(watch ? ['2330'] : []), settings: { ...DT_DEFAULTS, minDailyAmount: 0, ...settings }, prep: { eligible: new Set(['2330']), ref: new Map([['2330', hist.rawClose]]) } });
   if (historyValue) e.setHistory('2330', historyValue);
   e.setFeed(true); e.setMode('full');
   for (let m = 0; m < 40; m++) {
@@ -81,6 +82,23 @@ test('complete multi-timeframe breakout emits once, saves evidence and reference
   assert.ok(e.signals[0].reference.stop < alerts[0].close);
   assert.equal(e.tick(at('09:40:01')).length, 0);
   const restored = ready(); restored.restore(e.signals); assert.equal(restored.tick(at('09:40:01')).length, 0);
+});
+
+test('signals record the market regime at signal time; alerts are identical with or without index data', () => {
+  const meta = new Map([['2330', { name: '台積電', groups: [], exchange: '上市' }]]), key = a => [a.type, a.score, a.detail, a.close];
+  const plain = ready({ meta }), base = plain.tick(at('09:40:00')).map(key);
+  assert.equal(base.length, 1); assert.equal(plain.signals[0].market.reason, 'noIndex');
+  for (const [want, price] of [['tailwind', m => 22000 + m * 5], ['headwind', m => 22000 - m * 10]]) {
+    const e = ready({ meta });
+    for (let m = 0; m < 40; m++) e.indexSample('twse', { at: at('09:00:50') + m * 60000, price: price(m), ref: 22000 });
+    assert.deepEqual(e.tick(at('09:40:00')).map(key), base, `${want}: record only`);
+    const mk = e.signals[0].market;
+    assert.equal(regimeOf(mk), want); assert.equal(mk.index, 'twse'); assert.ok(mk.stock.r15 > 0.8);
+    assert.equal(mk.rs15, Math.round((mk.stock.r15 - mk.r15) * 100) / 100);
+    assert.equal(e.marketState(at('09:40:00')).twse.regime, want); assert.equal(e.marketState(at('09:40:00')).tpex, null);
+    const restored = ready({ meta }); restored.restore(e.signals); assert.equal(restored.signals[0].market.index, 'twse');
+  }
+  const unknown = ready(); unknown.tick(at('09:40:00')); assert.equal(unknown.signals[0].market.reason, 'exchange');
 });
 
 test('not watched, disabled, lite, missing history, stale quote, disconnected, and failed backfill never create entries', () => {

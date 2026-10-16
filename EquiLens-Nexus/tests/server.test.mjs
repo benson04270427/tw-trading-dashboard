@@ -18,7 +18,7 @@ test('local API persists watchlist/evidence, validates settings, blocks cross-or
   // 已收盤檢討過的當沖訊號紀錄（未檢討完的不計入）
   fs.mkdirSync(path.join(directory,'daytrade'),{recursive:true});
   const outcome={r5:0.3,r15:-0.2,r30:0.5,rClose:-1,mfe:1.2,mae:-0.4,cost:0.435};
-  fs.writeFileSync(path.join(directory,'daytrade','2026-10-06.json'),JSON.stringify({date:'2026-10-06',mode:'full',closedAt:'2026-10-06T05:36:00Z',signals:[{type:'dt-breakout',id:'2330',name:'台積電',t:'09:40:01',price:1450,score:72,outcome},{type:'dt-bid',id:'2330',name:'台積電',t:'10:05:00',price:1460,score:65,outcome:{...outcome,r15:0.4}}]}));
+  fs.writeFileSync(path.join(directory,'daytrade','2026-10-06.json'),JSON.stringify({date:'2026-10-06',mode:'full',closedAt:'2026-10-06T05:36:00Z',signals:[{type:'dt-breakout',id:'2330',name:'台積電',t:'09:40:01',price:1450,score:72,outcome},{type:'dt-bid',id:'2330',name:'台積電',t:'10:05:00',price:1460,score:65,outcome:{...outcome,r15:0.4}},{type:'dt-vwap',version:2,purpose:'opportunity',id:'2330',name:'台積電',t:'10:30:00',price:1470,score:80,outcome,market:{index:'twse',chg:0.5,r15:0.2,vsAvg:0.1,rs15:0.3}}]}));
   fs.writeFileSync(path.join(directory,'daytrade','2026-10-07.json'),JSON.stringify({date:'2026-10-07',signals:[{type:'dt-vwap',id:'2330',price:1,m:600}]}));
   const child=spawn(process.execPath,['server.mjs'],{cwd:root,env:{...process.env,PORT:'4399',EQUITY_DATA_DIR:directory,FINMIND_API_TOKEN:''},windowsHide:true,stdio:['ignore','pipe','pipe']});
   try{
@@ -75,7 +75,9 @@ test('local API persists watchlist/evidence, validates settings, blocks cross-or
     assert.deepEqual([dts.settings.plan,dts.settings.top,dts.settings.costs.feeDiscount,dts.settings.costs.taxRate],['advanced',20,0.28,0.0015]);
     assert.equal((await(await fetch(base+'daytrade')).json()).cost,0.23);
     const rv=await(await fetch(base+'daytrade/review')).json();
-    assert.deepEqual([rv.days,rv.signals,rv.types.map(x=>[x.type,x.n,x.win15]).sort()],[1,2,[['dt-bid',1,100],['dt-breakout',1,0]]]);
+    assert.deepEqual([rv.days,rv.signals,rv.types.map(x=>[x.type,x.n,x.win15]).sort()],[1,3,[['dt-bid',1,100],['dt-breakout',1,0],['dt-vwap',1,0]]]);
+    assert.deepEqual([rv.market.signals,rv.market.recorded,rv.market.since,rv.market.regimes.find(x=>x.key==='tailwind').n],[1,1,'2026-10-06',1]);
+    assert.deepEqual([rv.recent[0].signals[2].regime,rv.recent[0].signals[2].strength,rv.recent[0].signals[0].regime],['tailwind','strong',null]);
     assert.equal(rv.recent[0].signals[0].title,'爆量突破');
     const bd=(await(await fetch(base+'board?ids=2330')).json()).stocks[0];assert.deepEqual([bd.spark,bd.sparkX,bd.prev],[[1005,1010,1008],[0,0.5,1],1000]);
     assert.equal((await fetch(base+'detail?id=999999')).status,404);

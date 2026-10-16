@@ -5,6 +5,7 @@
 import { elapsedTrading, tickSize, hhmm, minuteOf, limitPrices } from './markets.mjs';
 import { t } from './i18n.mjs';
 import { prepareContext, analyzeContext, appendBook, contextDate, validBar } from './daytrade-context.mjs';
+import { createMarketTracker, marketRecord, regimeOf, regimeKey, strengthKey, INDEX_KEYS, MARKET_RULES, REGIMES, STRENGTHS } from './daytrade-market.mjs';
 
 export const DT_TYPES = { breakout: 'dt-breakout', vwap: 'dt-vwap', bid: 'dt-bid', weak: 'dt-weak', risk: 'dt-risk' };
 export const DT_TITLES = { 'dt-breakout': '多週期爆量突破', 'dt-vwap': '多週期回測轉強', 'dt-bid': '五檔增強確認', 'dt-weak': '多單轉弱警示', 'dt-risk': '跌破參考停損', 'dt-stop': '停止新增部位' };
@@ -82,13 +83,15 @@ export function buildBaseline(days, ids, p, { minDays = 3 } = {}) {
 function fill(a) { for (let e = 1; e < a.length; e++) if (!(a[e] > 0)) a[e] = a[e - 1]; }
 
 /* ---------- 盤中引擎 ---------- */
-// meta：Map(id → { name, groups:[族群 id] })；prep：{ eligible:Set|null, disposition:Set, suspended:Set, sellFirstOff:Set, ref:Map(id → 參考價), avgAmount:Map, avgVolume:Map }
+// meta：Map(id → { name, groups:[族群 id], exchange:'上市'／'上櫃' })；prep：{ eligible:Set|null, disposition:Set, suspended:Set, sellFirstOff:Set, ref:Map(id → 參考價), avgAmount:Map, avgVolume:Map }
 // watch：自選（標示用）；scan：掃描與發訊號的股票（未提供時同 watch）
 export function createDayTrade({ market: p, date, ids, meta = new Map(), watch = new Set(), scan = null, baseline = null, prep = {}, settings = DT_DEFAULTS, offset = 8 * 3600e3, lang }) {
   const S = new Map(), log = [], lot = p.lot || 1000, T = (msg, params) => t(msg, params, lang), unit = p.unit?.[lang || 'zh-TW'] || T('股');
   let cfg = normalizeDaytrade(settings), info = { eligible: null, disposition: new Set(), suspended: new Set(), sellFirstOff: new Set(), ref: new Map(), avgAmount: new Map(), avgVolume: new Map(), ...prep };
   let gaps = new Set(), feedOk = false, fullFeed = false, stopNotified = false;
   const history = new Map();
+  // 大盤環境（只記錄）：上市對照加權、上櫃對照櫃買；server.mjs 餵入指數資料，訊號紀錄附上當下狀態，不影響分數與訊號
+  const market = createMarketTracker({ date, open: p.open, offset });
   const modOf = ms => Math.floor((ms + offset) / 60000) % 1440;
   const hmsOf = ms => { const s = Math.floor((ms + offset) / 1000) % 86400; return `${hhmm(Math.floor(s / 60))}:${String(s % 60).padStart(2, '0')}`; };
   const eOf = m => elapsedTrading(p, m + 1); // 分鐘 m 結束時已交易的分鐘數
@@ -200,6 +203,8 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
       outer5: ask5 + bid5 > 0 ? ask5 / (ask5 + bid5) : null, obi: context.book.obi ?? obiAvg, obiMin, spread, bookStale, tick, context };
   }
   const sumVol = bars => bars.reduce((x, b) => x + vol(b), 0);
+  // 個股近 15 分鐘漲跌（%）：現價對 15 分鐘前最後一根完成 1 分 K 的收盤
+  const recentChange = (m, cur) => { const b = m.done.filter(x => x.m <= cur - MARKET_RULES.window).at(-1); return b?.c > 0 && m.last > 0 ? (m.last / b.c - 1) * 100 : null; };
 
   // 排除條件：不可當沖、處置、暫停交易、價差過大、流動性不足、已漲停（買不到）
   function filters(s, m) {
@@ -249,7 +254,7 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
       // Risk alerts continue after the entry cutoff, and never depend on a high long score.
       if (!cfg.enabled || !item.scan || !['scan', 'stop'].includes(ph) || !feedOk || gaps.has(s.id) || !m.context.quoteFresh || why.includes('suspended')) continue;
       for (const a of detect(s, m, cur, sc, now, ph === 'scan' && !why.length && sc.total >= cfg.minScore)) { if (!a.muted) alerts.push({ ...a, stockId: s.id, name: item.name, close: m.last, change: item.change, t: hmsOf(now), watch: item.watch, level: 'hi', score: sc.total });
-        s.lastSignal = { type: a.type, t: hmsOf(now) }; log.push({ ...a, version: 2, id: s.id, name: item.name, at: now, m: cur, t: hmsOf(now), price: m.last, vwap: round(m.vwap, 2), score: sc.total, part: sc.part, evidence: m.context }); }
+        s.lastSignal = { type: a.type, t: hmsOf(now) }; log.push({ ...a, version: 2, id: s.id, name: item.name, at: now, m: cur, t: hmsOf(now), price: m.last, vwap: round(m.vwap, 2), score: sc.total, part: sc.part, evidence: m.context, market: marketRecord(market, meta.get(s.id)?.exchange, { chg: m.change, r15: recentChange(m, cur) }, now) }); }
     }
     if (cfg.enabled && ph === 'stop' && !stopNotified && Object.values(cfg.signals).some(Boolean)) { stopNotified = true; alerts.push({ type: 'dt-stop', stockId: '', name: '', detail: T('{time} 起停止做多機會提醒；轉弱與參考停損仍監控至 13:25', { time: cfg.stopNew }), t: hmsOf(now), level: 'hi', watch: true }); }
     list.sort((a, b) => (a.filters.length ? 1 : 0) - (b.filters.length ? 1 : 0) || b.score - a.score);
@@ -302,6 +307,10 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
     get gaps() { return gaps; },
     get ids() { return [...S.keys()]; },
     modOf, hmsOf, phase: now => phase(modOf(now)),
+    // 大盤環境（只記錄）：指數快照、富果指數 1 分 K、漲跌家數；目前狀態（介面顯示用）
+    indexSample: (key, x) => market.sample(key, x), indexSeries: (key, x) => market.series(key, x), indexBreadth: (key, x) => market.breadth(key, x),
+    indexAge: (key, now) => market.age(key, now), indexHasOpen: key => market.hasOpen(key),
+    marketState(now) { return Object.fromEntries(INDEX_KEYS.map(k => { const x = market.state(k, now); return [k, x && { ...x, regime: x.stale ? null : regimeOf(x) }]; })); },
   };
 }
 const usTime = v => { const n = Number(v); return n > 1e14 ? n / 1000 : n > 1e11 ? n : n > 0 ? n * 1000 : 0; };
@@ -318,11 +327,23 @@ export function evaluateSignal(sig, bars, p, costs) {
   const w = after.filter(b => b.m <= sig.m + 30), hi = w.length ? Math.max(...w.map(b => b.h)) : null, lo = w.length ? Math.min(...w.map(b => b.l)) : null;
   return { r5: net(exitAt(5)), r15: net(exitAt(15)), r30: net(exitAt(30)), rClose: net(list.at(-1)?.c ?? null), mfe: hi == null ? null : round((hi / entry - 1) * 100), mae: lo == null ? null : round((lo / entry - 1) * 100), cost: round(cost, 3) };
 }
-// 多日訊號紀錄的統計：每種訊號的次數、15 分鐘勝率與平均淨報酬
+// 多日訊號紀錄的統計：每種訊號的次數、15 分鐘勝率與平均淨報酬；v2 做多訊號另依訊號當下的大盤環境與相對強弱分組
+const summarize = xs => {
+  const avg = k => { const v = xs.map(o => o[k]).filter(n => n != null); return v.length ? round(v.reduce((a, b) => a + b, 0) / v.length) : null; }, v15 = xs.filter(o => o.r15 != null);
+  return { n: xs.length, win15: v15.length ? round(v15.filter(o => o.r15 > 0).length / v15.length * 100, 0) : null, r5: avg('r5'), r15: avg('r15'), r30: avg('r30'), rClose: avg('rClose'), mfe: avg('mfe'), mae: avg('mae') };
+};
+const groupBy = (list, keyOf, keys) => keys.map(key => ({ key, ...summarize(list.filter(s => keyOf(s) === key).map(s => s.outcome)) }));
 export function reviewStats(days) {
-  const by = new Map();
-  for (const d of days) for (const s of d.signals || []) { if (!s.outcome || s.purpose === 'risk') continue; const key = `${s.version || 1}:${s.type}`; let x = by.get(key); if (!x) by.set(key, x = { type: s.type, version: s.version || 1, outcomes: [] }); x.outcomes.push(s.outcome); }
-  const avg = (xs, k) => { const v = xs.map(o => o[k]).filter(n => n != null); return v.length ? round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
-  const types = [...by.values()].map(({ type, version, outcomes: xs }) => { const v15 = xs.filter(o => o.r15 != null); return { type, version, title: signalTitle({ type, version }), n: xs.length, win15: v15.length ? round(v15.filter(o => o.r15 > 0).length / v15.length * 100, 0) : null, r5: avg(xs, 'r5'), r15: avg(xs, 'r15'), r30: avg(xs, 'r30'), rClose: avg(xs, 'rClose'), mfe: avg(xs, 'mfe'), mae: avg(xs, 'mae') }; });
-  return { days: days.length, signals: types.reduce((a, t) => a + t.n, 0), types: types.sort((a, b) => b.n - a.n), byDay: days.map(d => ({ date: d.date, n: (d.signals || []).length })) };
+  const by = new Map(), v2 = [];
+  for (const d of days) for (const s of d.signals || []) {
+    if (!s.outcome || s.purpose === 'risk') continue;
+    const key = `${s.version || 1}:${s.type}`; let x = by.get(key); if (!x) by.set(key, x = { type: s.type, version: s.version || 1, list: [] }); x.list.push(s);
+    if (s.version === 2) v2.push({ ...s, date: d.date });
+  }
+  const regimeRows = [...REGIMES, 'none'], types = [...by.values()].map(({ type, version, list }) => ({ type, version, title: signalTitle({ type, version }), ...summarize(list.map(s => s.outcome)),
+    ...(version === 2 ? { regimes: Object.fromEntries(groupBy(list, regimeKey, regimeRows).map(({ key, ...x }) => [key, x])) } : {}) }));
+  const recorded = v2.filter(s => s.market), complete = recorded.filter(s => regimeOf(s.market));
+  return { days: days.length, signals: types.reduce((a, t) => a + t.n, 0), types: types.sort((a, b) => b.n - a.n), byDay: days.map(d => ({ date: d.date, n: (d.signals || []).length })),
+    market: { signals: v2.length, recorded: complete.length, since: recorded.map(s => s.date).filter(Boolean).sort()[0] || null, rules: MARKET_RULES,
+      regimes: groupBy(v2, regimeKey, regimeRows), strength: groupBy(v2, strengthKey, [...STRENGTHS, 'none']) } };
 }

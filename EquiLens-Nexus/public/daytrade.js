@@ -32,6 +32,21 @@ const FILTERS = { noDayTrade: '不可當沖', disposition: '處置', suspended: 
 const PARTS = [['daily', '日 K', 20, 'var(--amber)'], ['hour', '60 分 K', 25, 'var(--cyan)'], ['five', '5 分 K', 30, 'var(--magenta)'], ['book', '五檔', 25, 'var(--violet)']];
 const SIG = { 'dt-breakout': '💥 爆量突破', 'dt-vwap': '📈 VWAP 延續', 'dt-bid': '🟢 五檔增強', 'dt-weak': '⚠️ 多單轉弱', 'dt-risk': '🛑 參考停損' };
 const n0 = v => v == null ? '—' : fmt(v, 0), n1 = v => v == null ? '—' : fmt(v, 1), n2 = v => v == null ? '—' : fmt(v, 2);
+// 大盤環境紀錄（只記錄，不影響分數、門檻與推播）
+const REGIME = { tailwind: '順風', neutral: '中性', headwind: '逆風', none: '未記錄' };
+const REGIME_TAG = { tailwind: '大盤順風', neutral: '大盤中性', headwind: '大盤逆風' };
+const STRENGTH = { strong: '強於大盤', weak: '弱於大盤', none: '未記錄' };
+const INDEX_NAME = { twse: '加權', tpex: '櫃買' };
+const MK_REASON = { exchange: '非上市櫃', noIndex: '沒有指數資料', stale: '指數資料過期', warmup: '開盤未滿 15 分鐘' };
+function marketLine(mk) {
+  if (!mk) return '';
+  const one = k => {
+    const x = mk[k]; if (!x) return `<span>${INDEX_NAME[k]} <span class="muted">等待指數資料</span></span>`;
+    const state = x.stale ? '<b class="warn">資料過期</b>' : x.regime ? `<b>${REGIME[x.regime]}</b>` : '<span class="muted">累積中</span>';
+    return `<span title="近 15 分鐘 ${pct(x.r15)} · 日內均價 ${n2(x.avg)}${x.up != null ? ` · 上漲 ${fmt(x.up)}／下跌 ${fmt(x.down)} 家` : ''}">${INDEX_NAME[k]} <b class="mono ${cls(x.chg)}">${pct(x.chg)}</b> · 15 分 <span class="mono ${cls(x.r15)}">${pct(x.r15)}</span>${x.vsAvg == null ? '' : x.vsAvg >= 0 ? ' · 均價之上' : ' · 均價之下'} · ${state}</span>`;
+  };
+  return `<div class="dt-status"><b>大盤環境（只記錄）</b>${one('twse')}${one('tpex')}</div>`;
+}
 
 function feedLine(d) {
   const f = d.feed, plan = PLAN_NAMES[d.plan] || d.plan || '—', lim = d.plans?.[d.plan]?.limit;
@@ -70,20 +85,34 @@ function row(x, i) {
 function scanView(d) {
   const list = [...d.top, ...(d.watched || []).filter(x => !d.top.some(y => y.id === x.id))];
   const hs = d.history || [], ready = hs.filter(x => x.status === 'ready').length;
-  return `<div class="dt-status"><b>30 日日 K → 60 分 K → 5 分 K → 即時五檔</b><span>歷史就緒 ${ready}/${hs.length}</span><span>${d.scope === 'watchlist' ? '只掃描自選股' : `掃描全部研究族群＋自選 ${fmt(d.total || 0)} 檔（自選優先）`}；新增股票自動準備資料</span>${d.displayMin ? `<span>只顯示 ${d.displayMin} 分以上${d.hidden ? `（未達 ${fmt(d.hidden)} 檔）` : ''}</span>` : ''}</div>
+  return `${marketLine(d.market)}<div class="dt-status"><b>30 日日 K → 60 分 K → 5 分 K → 即時五檔</b><span>歷史就緒 ${ready}/${hs.length}</span><span>${d.scope === 'watchlist' ? '只掃描自選股' : `掃描全部研究族群＋自選 ${fmt(d.total || 0)} 檔（自選優先）`}；新增股票自動準備資料</span>${d.displayMin ? `<span>只顯示 ${d.displayMin} 分以上${d.hidden ? `（未達 ${fmt(d.hidden)} 檔）` : ''}</span>` : ''}</div>
     ${hs.filter(x => x.error).map(x => `<p class="notice warn">${esc(x.id)} · ${esc(x.error)}</p>`).join('')}
     ${list.length ? `<div class="dt-table"><table><tr><th>股票</th><th>現價</th><th>監控狀態／排序分數</th><th>30 日日 K</th><th>60 分 K</th><th>5 分 K 量比／結構</th><th>五檔／變化／秒數</th><th>參考停損</th><th>最近警示</th></tr>${list.map(row).join('')}</table></div>` : `<div class="empty">${d.displayMin && d.total ? `目前沒有 ${d.displayMin} 分以上的股票，達到後會自動出現（每秒更新）。` : '請先將股票加入觀察名單。'}</div>`}
     <p class="dt-foot">做多須通過四層確認；風險提醒不受分數門檻限制。參考停損來自先前訊號的 5 分 K 低點下一檔，不代表實際持倉或已送出委託。</p>
     <p class="dt-foot">只使用已完成 K 棒；五檔連續 30 秒、每筆間隔不超過 10 秒。分數僅供排序，門檻尚未經歷史五檔回放驗證。</p>`;
 }
+const rv = x => x == null ? '—' : `<span class="${cls(x)}">${x > 0 ? '+' : ''}${fmt(x, 2)}%</span>`;
+const statCells = x => `<td class="mono">${x.n}</td><td class="mono">${x.win15 == null ? '—' : x.win15 + '%'}</td><td class="mono">${rv(x.r15)}</td><td class="mono">${rv(x.r30)}</td><td class="mono">${rv(x.rClose)}</td><td class="mono">${rv(x.mfe)}／${rv(x.mae)}</td>`;
+// 依訊號當下的大盤環境、相對強弱分組（v2 做多訊號）
+function marketReview(r) {
+  const mk = r.market; if (!mk?.signals) return '';
+  const head = (label) => `<tr><th>${label}</th><th>次數</th><th>15 分鐘勝率</th><th>15 分鐘</th><th>30 分鐘</th><th>持有到收盤</th><th>最大有利／不利</th></tr>`;
+  const regimes = `<div class="dt-table"><table>${head('大盤環境')}${mk.regimes.filter(x => x.n || x.key !== 'none').map(x => `<tr><td>${REGIME[x.key]}</td>${statCells(x)}</tr>`).join('')}</table></div>`;
+  const strength = `<div class="dt-table"><table>${head('相對強弱')}${mk.strength.filter(x => x.n || x.key !== 'none').map(x => `<tr><td>${STRENGTH[x.key]}</td>${statCells(x)}</tr>`).join('')}</table></div>`;
+  const v2 = r.types.filter(x => x.regimes), cell = x => x?.n ? `${x.n} 則 · ${x.win15 == null ? '—' : x.win15 + '%'} · ${rv(x.r15)}` : '—';
+  const byType = v2.length ? `<div class="dt-table"><table><tr><th>訊號（次數 · 15 分鐘勝率 · 15 分鐘）</th><th>順風</th><th>中性</th><th>逆風</th></tr>${v2.map(x => `<tr><td>${esc(x.title)}</td><td class="mono">${cell(x.regimes.tailwind)}</td><td class="mono">${cell(x.regimes.neutral)}</td><td class="mono">${cell(x.regimes.headwind)}</td></tr>`).join('')}</table></div>` : '';
+  return `<h4 class="dt-sub">依大盤環境分組（只記錄，不影響訊號）</h4>${regimes}${strength}${byType}
+    <p class="dt-foot">上市股對照加權指數、上櫃股對照櫃買指數，以訊號當下判斷。順風＝指數在日內均價之上且近 15 分鐘未下跌；逆風＝在均價之下且近 15 分鐘下跌，或近 15 分鐘跌幅達 0.5%；其餘為中性。相對強弱＝個股近 15 分鐘漲跌減指數近 15 分鐘漲跌。</p>
+    <p class="dt-foot">${mk.since ? `從 ${esc(mk.since)} 開始記錄，v2 做多訊號 ${mk.signals} 則中有 ${mk.recorded} 則有完整大盤資料` : '尚無大盤紀錄（這個版本之後的訊號才會記錄）'}。各組累積到數十則以上再比較；組間差異不明顯時，不需要加入大盤條件。</p>`;
+}
 function reviewView() {
   const r = D.review; if (!r) return '<div class="empty"><span class="spinner"></span></div>';
   if (!r.signals) return `<div class="empty"><p>尚無訊號紀錄。每個交易日收盤後，系統會以分 K 檢討當天的當沖訊號。</p></div>`;
-  const v = x => x == null ? '—' : `<span class="${cls(x)}">${x > 0 ? '+' : ''}${fmt(x, 2)}%</span>`;
   const table = `<div class="dt-table"><table><tr><th>訊號</th><th>次數</th><th>15 分鐘勝率</th><th>5 分鐘</th><th>15 分鐘</th><th>30 分鐘</th><th>持有到收盤</th><th title="30 分鐘內最大有利／不利幅度（未扣成本）">最大有利／不利</th></tr>
-    ${r.types.map(x => `<tr><td>${esc(x.title)} <small>v${x.version || 1}</small></td><td class="mono">${x.n}</td><td class="mono">${x.win15 == null ? '—' : x.win15 + '%'}</td><td class="mono">${v(x.r5)}</td><td class="mono">${v(x.r15)}</td><td class="mono">${v(x.r30)}</td><td class="mono">${v(x.rClose)}</td><td class="mono">${v(x.mfe)}／${v(x.mae)}</td></tr>`).join('')}</table></div>`;
-  const recent = r.recent.map(d => `<details class="dt-day"><summary>${esc(d.date)} · ${d.signals.length} 則${d.mode === 'lite' ? ' · 精簡模式' : ''}</summary>${d.signals.map(s => `<div class="dt-sig"><span class="mono">${esc(s.t?.slice(0, 5))}</span><b>${esc(s.name)}</b> <small class="mono">${esc(s.id)}</small><span>${SIG[s.type] || esc(s.title)}</span><span class="mono">${n2(s.price)}</span><span class="mono">15 分 ${v(s.purpose === 'risk' ? null : s.outcome?.r15)}</span><span class="mono">收盤 ${v(s.outcome?.rClose)}</span></div>`).join('')}</details>`).join('');
-  return `${table}<p class="dt-foot">共 ${r.days} 個交易日、${r.signals} 則訊號。淨報酬以訊號價加滑價買進、到時以收盤價減滑價賣出，已扣除手續費與證交稅（來回約 ${fmt(r.cost, 3)}%）；樣本少時僅供參考。</p>${recent}`;
+    ${r.types.map(x => `<tr><td>${esc(x.title)} <small>v${x.version || 1}</small></td><td class="mono">${x.n}</td><td class="mono">${x.win15 == null ? '—' : x.win15 + '%'}</td><td class="mono">${rv(x.r5)}</td><td class="mono">${rv(x.r15)}</td><td class="mono">${rv(x.r30)}</td><td class="mono">${rv(x.rClose)}</td><td class="mono">${rv(x.mfe)}／${rv(x.mae)}</td></tr>`).join('')}</table></div>`;
+  const mkTag = s => s.version !== 2 ? '' : s.regime ? `<span>${REGIME_TAG[s.regime]}</span>${s.market?.rs15 != null ? `<span class="mono">相對大盤 ${pct(s.market.rs15)}</span>` : ''}` : `<span class="muted">${MK_REASON[s.market?.reason] || '大盤未記錄'}</span>`;
+  const recent = r.recent.map(d => `<details class="dt-day"><summary>${esc(d.date)} · ${d.signals.length} 則${d.mode === 'lite' ? ' · 精簡模式' : ''}</summary>${d.signals.map(s => `<div class="dt-sig"><span class="mono">${esc(s.t?.slice(0, 5))}</span><b>${esc(s.name)}</b> <small class="mono">${esc(s.id)}</small><span>${SIG[s.type] || esc(s.title)}</span><span class="mono">${n2(s.price)}</span><span class="mono">15 分 ${rv(s.purpose === 'risk' ? null : s.outcome?.r15)}</span><span class="mono">收盤 ${rv(s.outcome?.rClose)}</span>${mkTag(s)}</div>`).join('')}</details>`).join('');
+  return `${table}<p class="dt-foot">共 ${r.days} 個交易日、${r.signals} 則訊號。淨報酬以訊號價加滑價買進、到時以收盤價減滑價賣出，已扣除手續費與證交稅（來回約 ${fmt(r.cost, 3)}%）；樣本少時僅供參考。</p>${marketReview(r)}${recent}`;
 }
 function settingsView(d) {
   const s = D.draft || d.settings, plans = d.plans || {}, need = d.need || {};
