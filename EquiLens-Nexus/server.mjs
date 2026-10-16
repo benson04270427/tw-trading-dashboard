@@ -24,7 +24,7 @@ import { buildGroupRanking, compareRanks, quotesFromSnapshot, quotesFromReplay, 
 import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGroup, removeGroup, reorderGroups, addStock, removeStock, importGroups, selectedUpdateIds } from './lib/scope.mjs';
 import { patternSnapshot, clearPatterns, updatePatternData } from './lib/pattern-service.mjs';
 import { createStreamPool, splitSymbols, spreadSymbols } from './lib/stream.mjs';
-import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV } from './lib/bookrec.mjs';
+import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV, exportDay } from './lib/bookrec.mjs';
 import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffset, evaluateSignal, reviewStats, signalTitle, DT_TITLES } from './lib/daytrade.mjs';
 import { createHistoryLoader } from './lib/daytrade-history.mjs';
 import { dispositions, tpexDayTrade } from './lib/providers/twse.mjs';
@@ -274,7 +274,11 @@ function bookExtras(main,slots){
 }
 function bookStart(plan){
   if(!bookSettings().enabled||bookDay.date!==today()){if(bookRec){const r=bookRec;bookRec=null;r.close();}return;}
-  if(!bookRec)try{bookRec=createBookRecorder({dir:BOOKS,date:today()});bookError='';}catch(e){bookError=e.message;return;}
+  if(!bookRec){
+    try{bookRec=createBookRecorder({dir:BOOKS,date:today()});bookError='';}catch(e){bookError=e.message;return;}
+    // 開盤後才開始錄（盤中重新啟動、金鑰修復後）：推播清單的逐筆也有缺口，收盤後一併以 REST 補齊
+    if(clock().minute>M().open&&!bookDay.gap){bookDay.gap=true;saveBookMeta();}
+  }
   const main=new Set(plan.ids);let added=false;for(const id of plan.extra)if(!bookDay.ever.has(id)){bookDay.ever.add(id);added=true;}
   bookDay.extraSet=new Set([...bookDay.ever].filter(id=>!main.has(id)));bookDay.current=plan.extra;bookDay.slots=plan.slots;
   if(added||String(plan.ids)!==String(bookDay.main)){bookDay.main=plan.ids;saveBookMeta();}
@@ -298,7 +302,8 @@ async function bookFinish(){
   if(bookBusy||bookRec)return;
   const x=clock(),p=M(),date=today();
   for(const d of listBookDays(BOOKS)){
-    const m=readMeta(BOOKS,d)||{date:d};if(m.compacted)continue;
+    const m=readMeta(BOOKS,d)||{date:d};
+    if(m.compacted){if(exportDue(m))await bookExport(d);continue;}
     if(d===date&&(feedWindow()||x.minute<p.close+p.settle+1))continue;
     bookBusy=true;
     try{
@@ -313,13 +318,24 @@ async function bookFinish(){
       writeMeta(BOOKS,d,{...(readMeta(BOOKS,d)||m),compacted:true,stocks:Object.keys(stocks).length,at:new Date().toISOString()});
       pruneDays(BOOKS,bookSettings().keepDays);
     }finally{bookBusy=false;}
+    if(exportDue(readMeta(BOOKS,d)||{}))await bookExport(d);
   }
+}
+// 每日匯出：整理完成後寫成 ZIP（每檔 CSV）到設定的匯出資料夾（例如 Dropbox 同步資料夾）；失敗時 1 小時後或改了資料夾再試
+const exportDue=m=>{const dir=bookSettings().exportDir;return!!dir&&!!m.compacted&&!m.exported&&(!m.exportError||m.exportDirTried!==dir||Date.now()-(m.exportTriedAt||0)>3600e3);};
+let bookExporting='';
+async function bookExport(d){
+  const dir=bookSettings().exportDir;if(!dir)return;
+  bookBusy=true;bookExporting=d;
+  try{const r=await exportDay(BOOKS,d,dir,bookStocks(d)||[],{tz:M().tz});writeMeta(BOOKS,d,{...readMeta(BOOKS,d),exported:{file:r.file,bytes:r.bytes,entries:r.entries,at:new Date().toISOString()},exportError:null});console.log(t('五檔成交已匯出：{file}',{file:r.file}));}
+  catch(e){bookError=t('五檔匯出失敗：')+e.message;writeMeta(BOOKS,d,{...readMeta(BOOKS,d),exportError:e.message,exportTriedAt:Date.now(),exportDirTried:dir});}
+  finally{bookBusy=false;bookExporting='';}
 }
 setInterval(()=>{try{bookSwap();}catch(e){bookError=e.message;}bookFinish().catch(e=>{bookError=e.message;});},20e3).unref();
 function bookInfo(){
   const d=bookDay.date===today()?bookDay:null;
-  const days=listBookDays(BOOKS).reverse().map(x=>{const m=readMeta(BOOKS,x)||{};return{date:x,compacted:!!m.compacted,stocks:m.stocks??null,main:(m.main||[]).length,extra:(m.ever||[]).length,swaps:(m.swaps||[]).length,gap:!!m.gap};});
-  return{settings:bookSettings(),recording:!!bookRec,stats:bookRec?.stats||null,busy:bookBusy,error:bookError,days,
+  const days=listBookDays(BOOKS).reverse().map(x=>{const m=readMeta(BOOKS,x)||{};return{date:x,compacted:!!m.compacted,exported:m.exported?{file:m.exported.file,bytes:m.exported.bytes,at:m.exported.at}:null,exportError:m.exportError||null,stocks:m.stocks??null,main:(m.main||[]).length,extra:(m.ever||[]).length,swaps:(m.swaps||[]).length,gap:!!m.gap};});
+  return{settings:bookSettings(),recording:!!bookRec,stats:bookRec?.stats||null,busy:bookBusy,exporting:bookExporting||null,error:bookError,days,
     today:d?{main:d.main.length,extras:d.current.length,ever:d.ever.size,slots:d.slots,subscribed:streamState.extraSubscribed||0,liquidityDays:d.liq?.days||0,swaps:d.swaps.slice(-10),gap:!!d.gap,fill:d.fill}:null};
 }
 function bookStocks(date){

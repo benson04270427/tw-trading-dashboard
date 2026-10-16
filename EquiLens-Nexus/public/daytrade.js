@@ -119,13 +119,15 @@ function booksView() {
   const exp = b.days.length ? `<div class="dt-field"><span>匯出日期</span><select data-bkdate>${b.days.map(x => `<option value="${x.date}" ${x.date === B.date ? 'selected' : ''}>${x.date}${x.compacted ? '' : '（整理前）'}</option>`).join('')}</select>
       <span>股票代號</span><input data-bkid list="bk-stocks" value="${esc(B.id)}" placeholder="例如 3406" size="10" autocomplete="off"><datalist id="bk-stocks">${opts}</datalist><button class="primary" data-bkexport>下載 CSV</button></div>
     <p class="dt-foot">每次五檔變動與每筆成交各一列，成交列附上當下的五檔（委買／委賣各 5 檔價格與張數）。整理前（盤中）匯出需逐檔篩選，可能要等數十秒。</p>` : '<div class="empty"><p>尚無錄製紀錄。</p></div>';
-  const days = b.days.length ? `<div class="dt-table"><table><tr><th>日期</th><th>狀態</th><th>股票數</th><th>推播清單</th><th>加錄</th><th>換股</th></tr>${b.days.map(x => `<tr><td class="mono">${x.date}</td><td>${x.compacted ? '已整理' : '<span class="warn">待整理</span>'}${x.gap ? ' · 曾中斷' : ''}</td><td class="mono">${x.stocks ?? '—'}</td><td class="mono">${fmt(x.main)}</td><td class="mono">${fmt(x.extra)}</td><td class="mono">${x.swaps}</td></tr>`).join('')}</table></div>` : '';
+  const days = b.days.length ? `<div class="dt-table"><table><tr><th>日期</th><th>狀態</th><th>股票數</th><th>推播清單</th><th>加錄</th><th>換股</th><th>匯出</th></tr>${b.days.map(x => `<tr><td class="mono">${x.date}</td><td>${x.compacted ? '已整理' : '<span class="warn">待整理</span>'}${x.gap ? ' · 曾中斷' : ''}</td><td class="mono">${x.stocks ?? '—'}</td><td class="mono">${fmt(x.main)}</td><td class="mono">${fmt(x.extra)}</td><td class="mono">${x.swaps}</td><td>${x.exported ? `<span title="${esc(x.exported.file)}">✓ ${fmt(x.exported.bytes / 1048576, 0)} MB</span>` : b.exporting === x.date ? '<span class="warn">匯出中…</span>' : x.exportError ? `<span class="warn" title="${esc(x.exportError)}">失敗</span>` : '—'}</td></tr>`).join('')}</table></div>` : '';
   const sel = (key, list, f = v => v) => `<select data-bkset="${key}">${list.map(v => `<option value="${v}" ${s[key] === v ? 'selected' : ''}>${f(v)}</option>`).join('')}</select>`;
   const set = `<details class="dt-day"><summary>錄製設定</summary><div class="lv-settings">
     <label class="lv-rule"><input type="checkbox" data-bkset="enabled" ${s.enabled ? 'checked' : ''}><span>啟用五檔錄製（隨即時推播盤中錄製，收盤後整理）</span></label>
     <label class="dt-field"><span>加錄股票上限</span>${sel('extra', [0, 300, 500, 800, 1000, 1100], v => v ? `${fmt(v)} 檔` : '不加錄')}<span>保留</span>${sel('keepDays', [5, 10, 20, 40, 60], v => `${v} 個交易日`)}</label>
     <label class="lv-rule"><input type="checkbox" data-bkset="swap" ${s.swap ? 'checked' : ''}><span>盤中換股：開盤後 5 分鐘（第一根 5 分 K）起每 30 分鐘，把冷清的加錄股換成爆量、大漲跌或族群轉強的股票</span></label>
     <p class="dt-foot">加錄只用推播剩下的訂閱數（保留 50 個餘裕），每檔只訂閱五檔 1 個；富果進階方案（2,000 訂閱）扣掉推播清單後約可加錄 1,000 檔。加錄股票的逐筆成交於收盤後以 REST 補齊。</p>
+    <label class="dt-field"><span>每日匯出資料夾</span><input data-bkdir value="${esc(s.exportDir || '')}" placeholder="例如 C:\\Users\\你的名字\\Dropbox\\TW_trade" style="flex:1;min-width:260px" spellcheck="false"></label>
+    <p class="dt-foot">收盤整理完成後，把當天全部錄製股票匯出成「日期_五檔成交.zip」（每檔一個 CSV，格式同上方下載）。放在 Dropbox 等同步資料夾內即可自動上傳；留空＝不匯出。全部錄製約 1,300 檔時每天約 250–300 MB。</p>
     <div class="form-actions"><button class="primary" data-bksave>儲存錄製設定</button></div></div></details>`;
   return `<div class="dt-status">${status}</div>${swaps}${exp}${days}${set}`;
 }
@@ -161,6 +163,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', async e => {
   const t = e.target; if (!X) return;
   if (t.dataset?.bkdate) { B.date = t.value; B.stocks = null; await loadBooks(); return X.repaint(); }
+  if ('bkdir' in (t.dataset || {}) && B.draft) { B.draft.exportDir = t.value.trim(); return; }
   if (t.dataset?.bkset && B.draft) { B.draft[t.dataset.bkset] = t.type === 'checkbox' ? t.checked : Number(t.value); return; }
   if (!t.dataset?.dtset || !D.draft) return;
   const keys = t.dataset.dtset.split('.'), v = t.type === 'checkbox' ? t.checked : /^(auto|advanced|developer|basic|all|watchlist|\d{2}:\d{2})$/.test(t.value) ? t.value : Number(t.value);

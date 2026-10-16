@@ -12,11 +12,13 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import readline from 'node:readline';
 
-export const BOOK_DEFAULTS = { enabled: true, extra: 1000, keepDays: 20, swap: true };
+export const BOOK_DEFAULTS = { enabled: true, extra: 1000, keepDays: 20, swap: true, exportDir: '' };
 export function normalizeBooks(s) {
   const x = { ...BOOK_DEFAULTS, ...(s && typeof s === 'object' ? s : {}) };
-  return { enabled: x.enabled !== false, extra: Math.max(0, Math.min(1900, Math.round(Number(x.extra) || 0))), keepDays: Math.max(1, Math.min(120, Math.round(Number(x.keepDays) || BOOK_DEFAULTS.keepDays))), swap: x.swap !== false };
+  return { enabled: x.enabled !== false, extra: Math.max(0, Math.min(1900, Math.round(Number(x.extra) || 0))), keepDays: Math.max(1, Math.min(120, Math.round(Number(x.keepDays) || BOOK_DEFAULTS.keepDays))), swap: x.swap !== false, exportDir: validExportDir(x.exportDir) ? path.resolve(String(x.exportDir).trim()) : '' };
 }
+// 匯出資料夾：本機絕對路徑（例如 Dropbox 同步資料夾裡的 TW_trade），空字串＝不匯出
+export const validExportDir = v => typeof v === 'string' && v.trim().length > 2 && v.length < 260 && path.isAbsolute(v.trim()) && !/[<>"|?*]/.test(v.replace(/^[A-Za-z]:/, ''));
 const validDate = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
 const validId = id => typeof id === 'string' && /^[0-9A-Za-z]{1,12}$/.test(id);
 // 換股檢查點（開盤後第幾分鐘）：第一根 5 分 K 走完，之後每 30 分鐘到收盤前 1 小時
@@ -155,7 +157,9 @@ export async function readStock(dir, date, id) {
   return rows.length ? rows : null;
 }
 export function toCSV(rows, { tz = 'Asia/Taipei' } = {}) {
-  const time = ms => { const d = new Date(ms); return d.toLocaleTimeString('en-GB', { timeZone: tz, hour12: false }) + '.' + String(d.getUTCMilliseconds()).padStart(3, '0'); };
+  // 時差只在第一筆用 Intl 算一次（盤中不會遇到日光節約切換），之後純算術：逐筆呼叫 toLocaleTimeString 每百萬列要約 60 秒
+  const off = rows.length ? tzOffsetAt(rows[0][2], tz) : 0, p2 = n => (n < 10 ? '0' : '') + n;
+  const time = ms => { const t = ((ms + off) % 86400000 + 86400000) % 86400000, s = Math.floor(t / 1000), f = t % 1000; return `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}.${f < 10 ? '00' : f < 100 ? '0' : ''}${f}`; };
   const head = ['時間', '類型', '成交價', '成交量(張)', '累計量(張)', '內外盤', ...[1, 2, 3, 4, 5].flatMap(i => [`委買${i}價`, `委買${i}量`]), ...[1, 2, 3, 4, 5].flatMap(i => [`委賣${i}價`, `委賣${i}量`]), '試撮'];
   let bid = [], ask = [];
   const lv = a => Array.from({ length: 10 }, (_, i) => a[i] ?? '');
@@ -166,4 +170,46 @@ export function toCSV(rows, { tz = 'Asia/Taipei' } = {}) {
     return [time(t), '成交', price, size, volume ?? '', side, ...lv(bid), ...lv(ask), trial ? '試撮' : ''].join(',');
   });
   return '﻿' + head.join(',') + '\n' + lines.join('\n') + '\n';
+}
+
+/* ---------- 每日匯出（ZIP，內含每檔 CSV） ---------- */
+// 寫到 <匯出資料夾>/<日期>_五檔成交.zip：每檔一個「代號_名稱.csv」（格式同 toCSV）＋「股票清單.csv」。
+// 先寫成 .partial 再改名，雲端同步資料夾（例如 Dropbox）不會同步到寫一半的檔案。ZIP 以 deflate 壓縮，檔名 UTF-8。
+const u16 = n => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; }, u32 = n => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+const dosTime = d => [((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xffff, (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xffff];
+const deflate = buf => new Promise((res, rej) => zlib.deflateRaw(buf, { level: 6 }, (e, out) => e ? rej(e) : res(out)));
+export async function writeZip(file, entries) {
+  const tmp = file + '.partial', out = fs.openSync(tmp, 'w'), central = [], [time, day] = dosTime(new Date());
+  let offset = 0;
+  try {
+    for await (const { name, data } of entries) {
+      const raw = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8'), comp = await deflate(raw), crc = zlib.crc32(raw), nm = Buffer.from(name, 'utf8');
+      if (offset + comp.length > 0xfffffff0) throw new Error('ZIP 超過 4 GB');
+      const local = Buffer.concat([u32(0x04034b50), u16(20), u16(0x0800), u16(8), u16(time), u16(day), u32(crc), u32(comp.length), u32(raw.length), u16(nm.length), u16(0), nm]);
+      fs.writeSync(out, local); fs.writeSync(out, comp);
+      central.push(Buffer.concat([u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(8), u16(time), u16(day), u32(crc), u32(comp.length), u32(raw.length), u16(nm.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), nm]));
+      offset += local.length + comp.length;
+    }
+    const cd = Buffer.concat(central);
+    fs.writeSync(out, cd); fs.writeSync(out, Buffer.concat([u32(0x06054b50), u16(0), u16(0), u16(central.length), u16(central.length), u32(cd.length), u32(offset), u16(0)]));
+  } catch (e) { fs.closeSync(out); fs.rmSync(tmp, { force: true }); throw e; }
+  fs.closeSync(out); fs.renameSync(tmp, file);
+  return { file, entries: central.length, bytes: offset };
+}
+// 某日的錄製（已整理）→ ZIP。stocks：[{ id, name, sector, main, books, trades, from, to }]
+export async function exportDay(dir, date, outDir, stocks, { tz = 'Asia/Taipei' } = {}) {
+  if (!validDate(date)) throw new Error('日期格式錯誤');
+  fs.mkdirSync(outDir, { recursive: true });
+  const safe = s => String(s || '').replace(/[\\/:*?"<>|\s]+/g, '').slice(0, 30), time = ms => ms ? new Date(ms).toLocaleTimeString('en-GB', { timeZone: tz, hour12: false }) : '';
+  const list = '\uFEFF代號,名稱,產業,類別,五檔變動筆數,成交筆數,開始,結束\n' + stocks.map(s => [s.id, s.name, s.sector, s.main ? '推播清單' : '加錄', s.books ?? '', s.trades ?? '', time(s.from), time(s.to)].join(',')).join('\n') + '\n';
+  async function* entries() {
+    yield { name: '股票清單.csv', data: list };
+    for (const s of stocks) { const rows = await readStock(dir, date, s.id); if (rows?.length) yield { name: `${s.id}_${safe(s.name) || s.id}.csv`, data: toCSV(rows, { tz }) }; }
+  }
+  return writeZip(path.join(outDir, `${date}_五檔成交.zip`), entries());
+}
+// 某時刻所在時區相對 UTC 的毫秒差
+function tzOffsetAt(ms, tz) {
+  const o = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(ms)).map(x => [x.type, x.value]));
+  return Date.UTC(+o.year, +o.month - 1, +o.day, +o.hour, +o.minute, +o.second) - Math.floor(ms / 1000) * 1000;
 }

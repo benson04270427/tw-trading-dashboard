@@ -11,8 +11,8 @@ const TW = { open: 540, close: 810 };
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'books-'));
 
 test('books: settings normalized; checkpoints start after the first 5-minute bar', () => {
-  assert.deepEqual(normalizeBooks(null), { enabled: true, extra: 1000, keepDays: 20, swap: true });
-  assert.deepEqual(normalizeBooks({ enabled: false, extra: 99999, keepDays: 0, swap: false }), { enabled: false, extra: 1900, keepDays: 20, swap: false });
+  assert.deepEqual(normalizeBooks(null), { enabled: true, extra: 1000, keepDays: 20, swap: true, exportDir: '' });
+  assert.deepEqual(normalizeBooks({ enabled: false, extra: 99999, keepDays: 0, swap: false }), { enabled: false, extra: 1900, keepDays: 20, swap: false, exportDir: '' });
   assert.deepEqual(checkpoints(TW), [5, 30, 60, 90, 120, 150, 180, 210]);
 });
 
@@ -105,4 +105,28 @@ test('books: meta round trip and retention keeps the newest days', () => {
   assert.deepEqual(readMeta(dir, '2026-10-02').main, ['2330']);
   pruneDays(dir, 2);
   assert.deepEqual(listBookDays(dir), ['2026-10-02', '2026-10-05']);
+});
+
+test('books: daily export writes a valid ZIP (UTF-8 names, one CSV per stock and a stock list) via a temporary file', async () => {
+  const { exportDay, normalizeBooks: nb } = await import('../lib/bookrec.mjs');
+  const dir = tmp(), out = path.join(tmp(), 'TW_trade'), date = '2026-10-16', T0 = Date.UTC(2026, 9, 16, 1, 0, 0);
+  const rec = createBookRecorder({ dir, date });
+  rec.record({ kind: 'book', id: '3406', time: T0, bids: [{ price: 1100, size: 10 }], asks: [{ price: 1105, size: 3 }] });
+  rec.record({ kind: 'trade', id: '3406', time: T0 + 500, price: 1105, size: 7, volume: 7, bid: 1100, ask: 1105, serial: 1 });
+  rec.record({ kind: 'trade', id: '2330', time: T0 + 600, price: 1450, size: 2, volume: 2, bid: 1445, ask: 1450, serial: 1 });
+  await rec.close(); const idx = await compactDay(dir, date);
+  const r = await exportDay(dir, date, out, [{ id: '3406', name: '玉晶光', sector: '光電業', main: true, ...idx['3406'] }, { id: '2330', name: '台積電', sector: '半導體業', main: false, ...idx['2330'] }]);
+  assert.equal(r.file, path.join(out, `${date}_五檔成交.zip`)); assert.deepEqual(fs.readdirSync(out), [`${date}_五檔成交.zip`], 'no .partial left behind');
+  // 解析 ZIP：中央目錄 → 每個檔案解壓並比對
+  const z = fs.readFileSync(r.file), eocd = z.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])), n = z.readUInt16LE(eocd + 10), cdAt = z.readUInt32LE(eocd + 16), files = {};
+  for (let i = 0, p = cdAt; i < n; i++) {
+    const comp = z.readUInt32LE(p + 20), nl = z.readUInt16LE(p + 28), el = z.readUInt16LE(p + 30), cl = z.readUInt16LE(p + 32), off = z.readUInt32LE(p + 42), name = z.subarray(p + 46, p + 46 + nl).toString('utf8');
+    assert.equal(z.readUInt16LE(p + 8) & 0x0800, 0x0800, 'UTF-8 file names');
+    const lnl = z.readUInt16LE(off + 26), lel = z.readUInt16LE(off + 28), data = zlib.inflateRawSync(z.subarray(off + 30 + lnl + lel, off + 30 + lnl + lel + comp));
+    assert.equal(zlib.crc32(data), z.readUInt32LE(p + 16)); files[name] = data.toString('utf8'); p += 46 + nl + el + cl;
+  }
+  assert.deepEqual(Object.keys(files), ['股票清單.csv', '3406_玉晶光.csv', '2330_台積電.csv']);
+  assert.match(files['股票清單.csv'], /3406,玉晶光,光電業,推播清單,1,1,09:00:00,09:00:00/);
+  assert.match(files['3406_玉晶光.csv'], /09:00:00\.500,成交,1105,7,7,外盤,1100,10/);
+  assert.equal(nb({ exportDir: 'relative/path' }).exportDir, '', 'only absolute paths'); assert.equal(nb({}).exportDir, '');
 });

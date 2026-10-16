@@ -2833,5 +2833,16 @@
  "（{0} {1} 檔，量能加權）": " ({0}, {1} stocks, value-weighted)",
  "{0} · 量 {1}": "{0} · vol {1}",
  "{0} · 點卡片看即時走勢（均價線、族群均價線）、五檔與日 K／5 分 K": "{0} · tap a card for the intraday chart (average and group average lines), order book and daily / 5-min candles",
- "· 今日外盤 {0}／內盤 {1} 張": "· today at ask {0} / at bid {1} lots"
+ "· 今日外盤 {0}／內盤 {1} 張": "· today at ask {0} / at bid {1} lots",
+ "ZIP 超過 4 GB": "ZIP exceeds 4 GB",
+ "uFEFF代號,名稱,產業,類別,五檔變動筆數,成交筆數,開始,結束": "uFEFFSymbol,Name,Industry,Type,Book updates,Trades,Start,End",
+ "{0}_五檔成交.zip": "{0}_orderbook-trades.zip",
+ "五檔匯出失敗：": "Order-book export failed: ",
+ "五檔成交已匯出：{file}": "Order-book data exported: {file}",
+ "匯出": "Export",
+ "失敗": "Failed",
+ "收盤整理完成後，把當天全部錄製股票匯出成「日期_五檔成交.zip」（每檔一個 CSV，格式同上方下載）。放在 Dropbox 等同步資料夾內即可自動上傳；留空＝不匯出。全部錄製約 1,300 檔時每天約 250–300 MB。": "After the close is organized, all recorded stocks are exported to \"date_orderbook-trades.zip\" (one CSV per stock, same format as the download above). Put it in a synced folder such as Dropbox to upload automatically; leave empty to disable. With about 1,300 recorded stocks this is roughly 250–300 MB per day.",
+ "每日匯出資料夾": "Daily export folder",
+ "股票清單.csv": "stock-list.csv",
+ "例如 C:\\Users\\你的名字\\Dropbox\\TW_trade": "e.g. C:\\Users\\you\\Dropbox\\TW_trade"
 }
