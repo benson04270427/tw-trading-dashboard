@@ -33,3 +33,12 @@ test('time-machine frames give the same series when the live stream is not avail
   assert.equal(vwapLine(s)[1], 31e6 / 1000 / 30, 'amount in TWD converted to price × lots');
   assert.equal(replayRef(day, '2330', tw), 1000); assert.equal(seriesFromReplay(day, '9999', tw).m.length, 0);
 });
+
+test('engine backfill resets VWAP to the quote average even when the stream volume is slightly ahead of the quote', async () => {
+  const { createDayTrade, DT_DEFAULTS } = await import('../lib/daytrade.mjs');
+  const date = '2026-10-15', at = hms => Date.parse(`${date}T${hms}+08:00`);
+  const e = createDayTrade({ market: tw, date, ids: ['6278'], settings: DT_DEFAULTS, prep: { ref: new Map([['6278', 290]]) } });
+  e.ingest([{ kind: 'trade', id: '6278', time: at('12:24:50'), price: 304.5, size: 10, volume: 47600, bid: 304, ask: 304.5, serial: 1 }]); // 重連後第一筆：累計量比 REST 報價新
+  assert.equal(e.backfill('6278', { quote: { referencePrice: 290, avgPrice: 296.17, closePrice: 303.5, closeTime: at('12:24:40') * 1000, lastUpdated: at('12:24:40') * 1000, total: { tradeVolume: 47584, tradeValue: 296.17 * 47584 * 1000 } }, candles: [{ date: '2026-10-15T09:00:00.000+08:00', open: 288, high: 289, low: 287, close: 288.5, volume: 900 }] }) !== false, true);
+  assert.equal(Math.round(e.quote('6278').vwap * 100) / 100, 296.17);
+});

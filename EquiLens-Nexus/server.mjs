@@ -427,7 +427,7 @@ function intradayReport(id,groupId){
   const tape=(q?.tape||[]).slice().reverse().map(([t,px,size,side])=>[e.hmsOf(t),px,size,side]);
   return{id,name:uniIndex().meta.get(id)?.name||id,date,source:q&&e.bars(id).size?'stream':s.m.length?'replay':null,live:liveWindow()&&streamFresh()&&!!q,open:p.open,close:p.close,ref,limitUp:lim?.up??null,limitDown:lim?.down??null,
     quote:{last,change:ref>0&&last>0?Math.round((last/ref-1)*1e4)/100:null,changePrice:ref>0&&last>0?Math.round((last-ref)*1e4)/1e4:null,open:q?.open??s.c[0]??null,high:q?.high??(s.c.length?Math.max(...s.c):null),low:q?.low??(s.c.length?Math.min(...s.c):null),
-      volume:q?.cumVol||s.cv.at(-1)||0,vwap:q?.vwap??vw.at(-1)??null,lastSize:q?.tape?.at(-1)?.[2]??null,time:q?.lastAt?e.hmsOf(q.lastAt):s.m.length?`${String(Math.floor(s.m.at(-1)/60)).padStart(2,'0')}:${String(s.m.at(-1)%60).padStart(2,'0')}`:null,atAsk:q?.atAsk??null,atBid:q?.atBid??null},
+      volume:q?.cumVol||s.cv.at(-1)||0,vwap:vw.at(-1)??q?.vwap??null,lastSize:q?.tape?.at(-1)?.[2]??null,time:q?.lastAt?e.hmsOf(q.lastAt):s.m.length?`${String(Math.floor(s.m.at(-1)/60)).padStart(2,'0')}:${String(s.m.at(-1)%60).padStart(2,'0')}`:null,atAsk:q?.atAsk??null,atBid:q?.atBid??null},
     minutes:{m:s.m,c:s.c,v:s.v,vwap:vw.map(x=>x==null?null:Math.round(x*1e4)/1e4),group:line},
     group:g?{id:g.id,name:g.name,members:members.length,choices:groups.map(x=>({id:x.id,name:x.name}))}:null,
     book:book?{bids:(book.bids||[]).slice(0,5),asks:(book.asks||[]).slice(0,5),bidTotal:sum(book.bids),askTotal:sum(book.asks),time:q.bookAt?e.hmsOf(q.bookAt):null}:null,tape};

@@ -156,7 +156,9 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
     if (q) {
       const t = q.total || {}, at = quoteTime;
       if (q.referencePrice > 0) s.ref = q.referencePrice;
-      if (t.tradeVolume >= s.cumVol) { s.cumVol = t.tradeVolume; s.cumAmt = t.tradeValue ?? s.cumAmt; s.atAsk = t.tradeVolumeAtAsk ?? s.atAsk; s.atBid = t.tradeVolumeAtBid ?? s.atBid; if (q.avgPrice > 0) { s.vNum = q.avgPrice * s.cumVol; s.vDen = s.cumVol; } }
+      if (t.tradeVolume >= s.cumVol) { s.cumVol = t.tradeVolume; s.cumAmt = t.tradeValue ?? s.cumAmt; s.atAsk = t.tradeVolumeAtAsk ?? s.atAsk; s.atBid = t.tradeVolumeAtBid ?? s.atBid; }
+      // 均價一律以報價的全日均價重設：推播的累計量可能比 REST 報價稍新，若沿用上面的條件，VWAP 只會剩下重連後的成交
+      if (q.avgPrice > 0 && t.tradeVolume > 0) { s.vNum = q.avgPrice * t.tradeVolume; s.vDen = t.tradeVolume; }
       if (q.openPrice > 0) s.open = q.openPrice; if (q.highPrice > 0) s.high = q.highPrice; if (q.lowPrice > 0) s.low = q.lowPrice;
       if (q.closePrice > 0 && at >= s.lastAt) { s.last = q.closePrice; s.lastAt = at; s.quoteAt = at; }
       if (q.lastTrade?.serial > s.serial) s.serial = q.lastTrade.serial;
