@@ -289,7 +289,7 @@ document.addEventListener('mousemove', e => {
     t.innerHTML = `<h4>${esc(s.name)} <span>${s.id} · ${esc(s.market)}</span></h4><dl><dt>收盤</dt><dd>${fmt(s.close, 2)}</dd><dt>漲跌幅</dt><dd class="${cls(s.change)}">${pct(s.change)}</dd><dt>成交金額</dt><dd>${yi(s.money)} 億</dd><dt>板塊占比</dt><dd>${fmt(sec ? s.money / sec.money * 100 : null, 1)}%</dd><dt>成交量</dt><dd>${fmt(s.volume)} ${MK.unit()}</dd><dt>量能較前日</dt><dd class="${cls(s.prevMoney ? s.money - s.prevMoney : null)}">${s.prevMoney ? pct((s.money / s.prevMoney - 1) * 100, 0) : '—'}</dd><dt>板塊</dt><dd style="font-family:var(--sans)">${esc(s.sector)}</dd></dl>`;
   } else {
     const s = lastAgg.sectors.find(x => x.name === target.dataset.hmSector); if (!s) return hideTip();
-    t.innerHTML = `<h4>${esc(s.name)} <span>${s.count} 檔</span></h4><dl><dt>成交金額</dt><dd>${yi(s.money)} 億</dd><dt>市場占比</dt><dd>${fmt(s.share, 1)}%</dd><dt>加權漲跌</dt><dd class="${cls(s.change)}">${pct(s.change)}</dd><dt>漲／跌／平</dt><dd><span class="up">${s.up}</span> / <span class="down">${s.down}</span> / ${s.flat}</dd><dt>漲停／跌停</dt><dd>${s.limitUp} / ${s.limitDown}</dd><dt>資金較前日</dt><dd class="${cls(s.moneyChange)}">${pct(s.moneyChange, 1)}</dd></dl>`;
+    t.innerHTML = `<h4>${esc(s.name)} <span>${s.count} 檔</span></h4><dl><dt>成交金額</dt><dd>${yi(s.money)} 億</dd><dt>市場占比</dt><dd>${fmt(s.share, 1)}%</dd><dt>成交加權漲跌</dt><dd class="${cls(s.change)}">${pct(s.change)}</dd><dt>漲／跌／平</dt><dd><span class="up">${s.up}</span> / <span class="down">${s.down}</span> / ${s.flat}</dd><dt>漲停／跌停</dt><dd>${s.limitUp} / ${s.limitDown}</dd><dt>資金較前日</dt><dd class="${cls(s.moneyChange)}">${pct(s.moneyChange, 1)}</dd></dl>`;
   }
   t.classList.add('show');
   const r = t.getBoundingClientRect(), x = e.clientX + 16 + r.width > innerWidth ? e.clientX - r.width - 14 : e.clientX + 16, y = e.clientY + 16 + r.height > innerHeight ? e.clientY - r.height - 12 : e.clientY + 16;
@@ -329,7 +329,7 @@ document.addEventListener('input', e => {
 function exportCSV() {
   if (!lastAgg || !H.data) return;
   const safe = v => `"${String(v ?? '').replace(/^[=+@\-]/, "'$&").replace(/"/g, '""')}"`;
-  const rows = [['日期', '市場', '板塊', '檔數', '成交金額(億)', '成交占比%', '加權漲跌%', '上漲', '下跌', '平盤', '漲停', '跌停', '資金較前日%'],
+  const rows = [['日期', '市場', '板塊', '檔數', '成交金額(億)', '成交占比%', '成交加權漲跌%', '上漲', '下跌', '平盤', '漲停', '跌停', '資金較前日%'],
     ...lastAgg.sectors.map(s => [H.data.date, H.market, s.name, s.count, (s.money / 1e8).toFixed(2), s.share.toFixed(2), s.change?.toFixed(2), s.up, s.down, s.flat, s.limitUp, s.limitDown, s.moneyChange?.toFixed(1)])];
   const url = URL.createObjectURL(new Blob(['﻿' + rows.map(r => r.map(safe).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = `Nexus-資金板塊-${H.data.date}-${H.market}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);

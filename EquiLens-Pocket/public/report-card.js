@@ -141,7 +141,7 @@ export function drawCard(ctx, d) {
   // 第 4 排：類股強弱
   y = 1180; h = 290; const cw2 = (W - 2 * M - G) / 2;
   [['類股強勢 Top 5', d.sectors?.strong || [], M, C.up], ['類股弱勢 Top 5', d.sectors?.weak || [], M + cw2 + G, C.down]].forEach(([title, list, x, color]) => {
-    panel(ctx, x, y, cw2, h, title, '依加權漲跌幅');
+    panel(ctx, x, y, cw2, h, title, '依成交加權漲跌幅');
     const cx = [x + 40, x + 74, x + cw2 * .62, x + cw2 * .81, x + cw2 - 18];
     [['類股', cx[1], 'left'], ['漲跌幅', cx[2], 'right'], ['成交比重', cx[3], 'right'], ['漲／跌', cx[4], 'right']].forEach(([t, xx, a]) => text(ctx, t, xx, y + 100, { size: 21, color: C.muted, align: a }));
     list.forEach((s, i) => { const yy = y + 136 + i * 35; if (i % 2) { ctx.fillStyle = C.rowAlt; ctx.fillRect(x + 10, yy - 26, cw2 - 20, 36); }

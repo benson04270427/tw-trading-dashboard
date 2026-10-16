@@ -355,7 +355,7 @@ function paintReplay() {
   C.$('#rp-rot').innerHTML = rotationSVG(R.rot, { w: 360, h: 150, cursor: R.i });
   const el = C.$('#hm'); if (el) C.renderTreemap(el, R.agg, { focus: C.S.heat.focus, selected: null });
 }
-const kpiHTML = t => `<div class="kpi"><span>累計成交</span><b class="num">${yi(t.money)}<small>億</small></b></div><div class="kpi"><span>加權漲跌 · 漲停 ${t.limitUp}</span><b class="num ${cls(t.change)}">${pct(t.change)}</b></div>`;
+const kpiHTML = t => `<div class="kpi"><span>累計成交</span><b class="num">${yi(t.money)}<small>億</small></b></div><div class="kpi"><span>成交加權漲跌 · 漲停 ${t.limitUp}</span><b class="num ${cls(t.change)}">${pct(t.change)}</b></div>`;
 let playTimer = null;
 function setPlaying(on) {
   const R = L.replay; if (!R) return; R.playing = on; clearInterval(playTimer);

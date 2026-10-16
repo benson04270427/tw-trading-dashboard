@@ -74,7 +74,7 @@ export function buildHeatmap(date, { universe = [], rows = [], previous = [], pr
     };
   }).sort((a, b) => b.money - a.money);
   const priced = stocks.filter(s => s.change != null);
-  const byMarket = m => { const l = stocks.filter(s => s.market === m); return { count: l.length, money: l.reduce((a, s) => a + s.money, 0) }; };
+  const byMarket = m => { const l = stocks.filter(s => s.market === m), p = l.filter(s => s.change != null); return { count: l.length, money: l.reduce((a, s) => a + s.money, 0), up: p.filter(s => s.change > 0).length, down: p.filter(s => s.change < 0).length, flat: p.filter(s => s.change === 0).length, limitUp: LIMIT ? p.filter(s => s.change >= LIMIT).length : null, limitDown: LIMIT ? p.filter(s => s.change <= -LIMIT).length : null }; };
   const prevTotalBoth = stocks.filter(s => s.prevMoney > 0);
   const nowB = prevTotalBoth.reduce((a, s) => a + s.money, 0), prevB = prevTotalBoth.reduce((a, s) => a + s.prevMoney, 0);
   return {

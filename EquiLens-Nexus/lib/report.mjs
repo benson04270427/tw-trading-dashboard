@@ -80,7 +80,7 @@ export function buildReportContext({ date, heat, flows, market = null, outlook =
   const top = heat?.sectors?.slice(0, 12).map(s => ({ [k('板塊')]: s.name, [k('成交億')]: Math.round(s.money / 1e8), [k('占比')]: s.share, [k('漲跌')]: s.change, [k('漲跌家數')]: `${s.up}/${s.down}`, ...(s.limitUp != null ? { [k('漲停')]: s.limitUp } : {}), [k('較前日量能')]: s.moneyChange }));
   return {
     [k('日期')]: date,
-    [k('大盤')]: heat ? { [k('成交金額億')]: Math.round(heat.total.money / 1e8), [k('加權漲跌')]: heat.total.change, [k('上漲')]: heat.total.up, [k('下跌')]: heat.total.down, [k('漲停')]: heat.total.limitUp, [k('跌停')]: heat.total.limitDown, [k('較前日量能')]: heat.total.moneyChange, [k('資料')]: k(heat.live ? '盤中最後快照' : '收盤日資料') } : null,
+    [k('大盤')]: heat ? { [k('成交金額億')]: Math.round(heat.total.money / 1e8), [k('成交加權漲跌')]: heat.total.change, [k('上漲')]: heat.total.up, [k('下跌')]: heat.total.down, [k('漲停')]: heat.total.limitUp, [k('跌停')]: heat.total.limitDown, [k('較前日量能')]: heat.total.moneyChange, [k('資料')]: k(heat.live ? '盤中最後快照' : '收盤日資料') } : null,
     [k('資金板塊')]: top || null,
     [k('法人')]: flows ? { [k('日期')]: flows.date, [k('現貨')]: flows.summary, [k('外資台指期')]: flows.futures, [k('選擇權')]: flows.options?.positions } : null,
     [k('盤中異動')]: alerts.slice(-60).map(a => `${a.t} ${a.stockId} ${a.name} ${a.title} ${a.detail}`),
