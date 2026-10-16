@@ -2,7 +2,7 @@
 // 金鑰與訂閱保存在 .local/push.json；手機在 App 內按「開啟通知」後才會建立訂閱。
 import crypto from 'node:crypto';
 import { read, write } from './storage.mjs';
-import { tx } from '../public/i18n.js';
+import { tx, t } from '../public/i18n.js';
 
 const b64u = buf => Buffer.from(buf).toString('base64url');
 const unb64u = s => Buffer.from(String(s), 'base64url');
@@ -80,6 +80,31 @@ export const localize = n => ({ ...n, title: tx(n.title), body: n.body ? tx(n.bo
 // 將雷達、新聞與日報事件轉成通知；同一批太多時合併成一則摘要。
 const ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰', 'dt-weak': '⚠️', 'dt-risk': '🛑', custom: '🔔', broker: '🏦', holders: '🐋' };
 export function notificationsFor(alerts) { return build(alerts).map(localize); }
+// 當沖做多訊號每 5 分鐘彙整成一則推播（在整 5 分鐘時送出，例如 09:20、09:25）；
+// 多單轉弱、跌破參考停損、停止新增部位等風險提醒不彙整，仍立即推播。
+export const DT_DIGEST_TYPES = new Set(['dt-breakout', 'dt-vwap', 'dt-bid']);
+export const DIGEST_MS = 5 * 60e3;
+export const digestSlot = (t, ms = DIGEST_MS) => Math.floor(t / ms) * ms; // 台北時差是整點，UTC 的 5 分鐘格線與當地一致
+export function createDigest({ ms = DIGEST_MS, now = Date.now } = {}) {
+  let held = [], slot = digestSlot(now(), ms);
+  return {
+    // 分出要彙整的訊號，其餘回傳立即推播
+    split(alerts) { const later = alerts.filter(a => DT_DIGEST_TYPES.has(a.type)); held.push(...later); return alerts.filter(a => !DT_DIGEST_TYPES.has(a.type)); },
+    // 跨過整 5 分鐘時，回傳上一段時間累積的訊號（沒有就回傳空陣列）
+    due() { const s = digestSlot(now(), ms); if (s === slot) return []; slot = s; const out = held; held = []; return out; },
+    get size() { return held.length; },
+  };
+}
+export function digestNotification(alerts, at = Date.now()) {
+  if (!alerts.length) return null;
+  const latest = new Map(); for (const a of alerts) latest.set(`${a.stockId}:${a.type}`, a); // 同一檔同一種訊號只留最新一則
+  const list = [...latest.values()];
+  if (list.length === 1) return build(list).map(localize)[0];
+  const hm = new Date(digestSlot(at)).toLocaleTimeString('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false });
+  const lines = list.slice(0, 8).map(a => `${ICON[a.type] || '📡'} ${a.name} ${a.stockId} ${tx(a.title)} ${a.close ?? ''}（${a.change > 0 ? '+' : ''}${a.change ?? '—'}%）`);
+  if (list.length > 8) lines.push(t('…另 {n} 則', { n: list.length - 8 }));
+  return { title: t('📡 當沖訊號 {n} 則（{time} 前 5 分鐘）', { n: list.length, time: hm }), body: lines.join('\n'), tag: `dt-digest:${digestSlot(at)}`, url: '/#live' };
+}
 function build(alerts) {
   if (!alerts.length) return [];
   const report = alerts.filter(a => a.type === 'report').map(a => ({ title: '📰 AI 盤後日報', body: a.detail, tag: 'report', url: '/#brief' }));

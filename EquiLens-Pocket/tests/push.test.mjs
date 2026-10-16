@@ -78,3 +78,22 @@ test('custom alerts are never folded into the radar batch; chip summaries open t
   const burst = push.notificationsFor(Array.from({ length: 7 }, (_, i) => c(i)));
   assert.equal(burst.length, 1); assert.match(burst[0].title, /7 則/);
 });
+
+test('day-trade long signals are held and sent as one digest at each 5-minute mark; risk alerts stay immediate', () => {
+  let clock = Date.parse('2026-10-15T09:21:10+08:00');
+  const d = push.createDigest({ now: () => clock });
+  const sig = (type, id, name, extra = {}) => ({ type, stockId: id, name, title: { 'dt-breakout': '多週期爆量突破', 'dt-vwap': '多週期回測轉強', 'dt-risk': '跌破參考停損' }[type], close: 50, change: 2.5, detail: 'x', watch: false, ...extra });
+  const now = d.split([sig('dt-breakout', '2330', '台積電'), sig('dt-risk', '2317', '鴻海'), sig('dt-vwap', '3406', '玉晶光'), { type: 'news', stockId: '2330', name: '台積電', title: '新聞', detail: 'y' }]);
+  assert.deepEqual(now.map(a => a.type), ['dt-risk', 'news'], 'risk alert and news go out immediately');
+  assert.deepEqual(d.due(), [], 'still inside 09:20–09:25');
+  d.split([sig('dt-breakout', '2330', '台積電', { close: 51 })]); // 同一檔同一種訊號：彙整時只留最新
+  clock = Date.parse('2026-10-15T09:25:01+08:00');
+  const held = d.due(); assert.equal(held.length, 3);
+  const n = push.digestNotification(held, clock);
+  assert.match(n.title, /當沖訊號 2 則（09:25 前 5 分鐘）/);
+  assert.match(n.body, /台積電 2330 多週期爆量突破 51/); assert.match(n.body, /玉晶光 3406 多週期回測轉強/);
+  assert.equal(n.tag, `dt-digest:${push.digestSlot(clock)}`);
+  assert.deepEqual(d.due(), [], 'emptied after sending');
+  assert.equal(push.digestNotification([]), null);
+  assert.match(push.digestNotification([sig('dt-vwap', '3406', '玉晶光')]).title, /玉晶光 3406 多週期回測轉強/, 'a single signal keeps the normal format');
+});

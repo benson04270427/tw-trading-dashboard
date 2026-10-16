@@ -2790,5 +2790,7 @@
  "只掃自選": "Watchlist only",
  "掃描 {0} 檔（自選 {1} 檔優先），每檔需要 3 個訂閱；不足時顯示等待，不發做多警示": "Scanning {0} stocks ({1} watchlist first), 3 subscriptions each; if short, stocks show as waiting with no long alerts",
  "掃描全部研究族群＋自選 {0} 檔（自選優先）": "Scanning all research groups + watchlist: {0} stocks (watchlist first)",
- "掃描範圍": "Scan scope"
+ "掃描範圍": "Scan scope",
+ "…另 {n} 則": "… {n} more",
+ "📡 當沖訊號 {n} 則（{time} 前 5 分鐘）": "📡 {n} day-trade signals (5 minutes to {time})"
 }
