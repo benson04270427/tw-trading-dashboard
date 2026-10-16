@@ -2792,5 +2792,13 @@
  "掃描全部研究族群＋自選 {0} 檔（自選優先）": "Scanning all research groups + watchlist: {0} stocks (watchlist first)",
  "掃描範圍": "Scan scope",
  "…另 {n} 則": "… {n} more",
- "📡 當沖訊號 {n} 則（{time} 前 5 分鐘）": "📡 {n} day-trade signals (5 minutes to {time})"
+ "📡 當沖訊號 {n} 則（{time} 前 5 分鐘）": "📡 {n} day-trade signals (5 minutes to {time})",
+ "{0} 分以上": "{0}+",
+ "全部顯示": "Show all",
+ "只顯示 {0} 分以上{1}": "Showing scores {0}+{1}",
+ "目前沒有 {0} 分以上的股票，達到後會自動出現。": "No stocks scoring {0}+ right now; they appear automatically once they qualify.",
+ "目前沒有 {0} 分以上的股票，達到後會自動出現（每秒更新）。": "No stocks scoring {0}+ right now; they appear automatically once they qualify (updated every second).",
+ "顯示門檻": "Display threshold",
+ "顯示門檻只決定掃描清單顯示哪些股票，不影響訊號與推播（訊號看「訊號分數門檻」）。": "The display threshold only decides which stocks the scan list shows; it does not affect signals or pushes (those use the signal score threshold).",
+ "（未達 {0} 檔）": " ({0} below)"
 }

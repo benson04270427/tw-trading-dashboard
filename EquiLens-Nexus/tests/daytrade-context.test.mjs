@@ -251,3 +251,8 @@ test('history loader caches incomplete history for the day instead of refetching
   const restarted = createHistoryLoader({ read: k => files.get(k), write: (k, v) => files.set(k, v), now: () => clock, fetchHistory: async () => { calls++; return thin; } });
   await restarted.load({ ...args, engine: ready({ historyValue: null }) }); assert.equal(calls, 1, 'cache used after a restart');
 });
+
+test('display threshold defaults to 80 and is bounded; it is separate from the signal threshold', () => {
+  assert.equal(normalizeDaytrade({}).displayMin, 80);
+  assert.deepEqual([normalizeDaytrade({ displayMin: 0 }).displayMin, normalizeDaytrade({ displayMin: 150 }).displayMin, normalizeDaytrade({ displayMin: 70, minScore: 60 }).minScore], [0, 80, 60]);
+});

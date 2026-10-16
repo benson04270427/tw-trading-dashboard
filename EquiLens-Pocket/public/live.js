@@ -92,7 +92,7 @@ function daytradeView() {
   const ex = Object.entries(d.excluded || {}).filter(([, v]) => v).map(([k, v]) => `${DT_FILTERS[k] || k} ${v}`);
   const r = DT.review, review = !r ? '<div class="empty"><button class="btn" data-dtreview>載入訊號檢討</button></div>' : !r.signals ? '<p class="foot">尚無訊號紀錄，收盤後會自動檢討當天的訊號。</p>'
     : `<section class="card"><h3>訊號檢討（${r.days} 天、${r.signals} 則）</h3>${r.types.map(t => `<div class="dt-rv"><span>${esc(t.title)} v${t.version || 1}</span><span class="num">${t.n} 則 · 15 分勝率 ${t.win15 ?? '—'}% · 平均 ${t.r15 == null ? '—' : (t.r15 > 0 ? '+' : '') + fmt(t.r15, 2) + '%'}</span></div>`).join('')}<p class="foot">已扣除滑價、手續費與證交稅（來回約 ${fmt(r.cost, 3)}%）</p></section>`;
-  return head + (list ? `<div class="dt-list">${list}</div>` : `<div class="empty">${f.window ? '尚無報價，開盤後開始計算。' : '盤中才會計算當沖分數。'}</div>`) + (ex.length ? `<p class="foot">已排除：${ex.join(' · ')}</p>` : '') + `<p class="foot">做多須通過日 K、60 分 K、5 分 K 與五檔確認。風險提醒持續至 13:25；參考停損不代表實際持倉。</p>` + review;
+  return head + (d.displayMin && f.window ? `<p class="foot">只顯示 ${d.displayMin} 分以上${d.hidden ? `（未達 ${fmt(d.hidden)} 檔）` : ''}</p>` : '') + (list ? `<div class="dt-list">${list}</div>` : `<div class="empty">${!f.window ? '盤中才會計算當沖分數。' : d.displayMin && d.total ? `目前沒有 ${d.displayMin} 分以上的股票，達到後會自動出現。` : '尚無報價，開盤後開始計算。'}</div>`) + (ex.length ? `<p class="foot">已排除：${ex.join(' · ')}</p>` : '') + `<p class="foot">做多須通過日 K、60 分 K、5 分 K 與五檔確認。風險提醒持續至 13:25；參考停損不代表實際持倉。</p>` + review;
 }
 /* ---------- 即時看板：自選或研究總覽任一族群 ---------- */
 const BOARD_SORTS = [['default', '預設'], ['chg', '漲幅'], ['amt', '成交值']];

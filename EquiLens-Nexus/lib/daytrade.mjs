@@ -15,6 +15,7 @@ export const DT_PLANS = ['auto', 'basic', 'developer', 'advanced'];
 export const DT_SCOPES = ['all', 'watchlist'];
 export const DT_DEFAULTS = Object.freeze({
   enabled: true, plan: 'auto', top: 20, minScore: 60,
+  displayMin: 80,                                // 掃描清單只顯示分數 ≥ 此值的股票（只影響畫面，不影響訊號）
   scope: 'all',                                  // 掃描範圍：all＝全部研究族群＋自選（即時推播訂閱的股票）；watchlist＝只掃自選
   signals: { breakout: true, vwap: true, bid: true, weak: true, risk: true },
   bookWindowSeconds: 30, bookMaxAgeSeconds: 10, quoteMaxAgeSeconds: 15, bookImbalance: 0.3,
@@ -32,7 +33,7 @@ export function normalizeDaytrade(input = {}) {
   const d = DT_DEFAULTS, s = input || {}, c = s.costs || {}, num = (v, lo, hi, def) => { const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : def; };
   return {
     enabled: s.enabled !== false, plan: DT_PLANS.includes(s.plan) ? s.plan : d.plan, scope: DT_SCOPES.includes(s.scope) ? s.scope : d.scope,
-    top: Math.round(num(s.top, 5, 50, d.top)), minScore: Math.round(num(s.minScore, 0, 100, d.minScore)),
+    top: Math.round(num(s.top, 5, 50, d.top)), minScore: Math.round(num(s.minScore, 0, 100, d.minScore)), displayMin: Math.round(num(s.displayMin, 0, 100, d.displayMin)),
     signals: Object.fromEntries(Object.keys(d.signals).map(k => [k, s.signals?.[k] !== false])),
     watchFrom: HM.test(s.watchFrom) ? s.watchFrom : d.watchFrom, stopNew: HM.test(s.stopNew) ? s.stopNew : d.stopNew,
     maxSpreadTicks: Math.round(num(s.maxSpreadTicks, 1, 20, d.maxSpreadTicks)), minDailyAmount: num(s.minDailyAmount, 0, 1e11, d.minDailyAmount),

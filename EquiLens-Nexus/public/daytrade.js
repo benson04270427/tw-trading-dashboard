@@ -67,9 +67,9 @@ function row(x, i) {
 function scanView(d) {
   const list = [...d.top, ...(d.watched || []).filter(x => !d.top.some(y => y.id === x.id))];
   const hs = d.history || [], ready = hs.filter(x => x.status === 'ready').length;
-  return `<div class="dt-status"><b>30 日日 K → 60 分 K → 5 分 K → 即時五檔</b><span>歷史就緒 ${ready}/${hs.length}</span><span>${d.scope === 'watchlist' ? '只掃描自選股' : `掃描全部研究族群＋自選 ${fmt(d.total || 0)} 檔（自選優先）`}；新增股票自動準備資料</span></div>
+  return `<div class="dt-status"><b>30 日日 K → 60 分 K → 5 分 K → 即時五檔</b><span>歷史就緒 ${ready}/${hs.length}</span><span>${d.scope === 'watchlist' ? '只掃描自選股' : `掃描全部研究族群＋自選 ${fmt(d.total || 0)} 檔（自選優先）`}；新增股票自動準備資料</span>${d.displayMin ? `<span>只顯示 ${d.displayMin} 分以上${d.hidden ? `（未達 ${fmt(d.hidden)} 檔）` : ''}</span>` : ''}</div>
     ${hs.filter(x => x.error).map(x => `<p class="notice warn">${esc(x.id)} · ${esc(x.error)}</p>`).join('')}
-    ${list.length ? `<div class="dt-table"><table><tr><th>股票</th><th>現價</th><th>監控狀態／排序分數</th><th>30 日日 K</th><th>60 分 K</th><th>5 分 K 量比／結構</th><th>五檔／變化／秒數</th><th>參考停損</th><th>最近警示</th></tr>${list.map(row).join('')}</table></div>` : '<div class="empty">請先將股票加入觀察名單。</div>'}
+    ${list.length ? `<div class="dt-table"><table><tr><th>股票</th><th>現價</th><th>監控狀態／排序分數</th><th>30 日日 K</th><th>60 分 K</th><th>5 分 K 量比／結構</th><th>五檔／變化／秒數</th><th>參考停損</th><th>最近警示</th></tr>${list.map(row).join('')}</table></div>` : `<div class="empty">${d.displayMin && d.total ? `目前沒有 ${d.displayMin} 分以上的股票，達到後會自動出現（每秒更新）。` : '請先將股票加入觀察名單。'}</div>`}
     <p class="dt-foot">做多須通過四層確認；風險提醒不受分數門檻限制。參考停損來自先前訊號的 5 分 K 低點下一檔，不代表實際持倉或已送出委託。</p>
     <p class="dt-foot">只使用已完成 K 棒；五檔連續 30 秒、每筆間隔不超過 10 秒。分數僅供排序，門檻尚未經歷史五檔回放驗證。</p>`;
 }
@@ -93,7 +93,8 @@ function settingsView(d) {
     <p class="dt-foot">${advice}。自動判斷時先嘗試完整模式，訂閱不足就當天改用精簡模式。</p>
     <label class="dt-field"><span>掃描範圍</span>${sel('scope', ['all', 'watchlist'], v => ({ all: '全部研究族群＋自選', watchlist: '只掃自選' })[v])}</label>
     <p class="dt-foot">全部研究族群時，30 日歷史資料每天開盤前首次載入約需 20 分鐘（富果歷史 API 每分鐘 60 次），自選股優先；載入完成前的股票顯示等待，不發做多警示。</p>
-    <label class="dt-field"><span>顯示前幾名</span>${sel('top', [10, 20, 30])}</label>
+    <label class="dt-field"><span>顯示前幾名</span>${sel('top', [10, 20, 30])}<span>顯示門檻</span>${sel('displayMin', [0, 50, 60, 70, 80, 90], v => v ? `${v} 分以上` : '全部顯示')}</label>
+    <p class="dt-foot">顯示門檻只決定掃描清單顯示哪些股票，不影響訊號與推播（訊號看「訊號分數門檻」）。</p>
     <label class="dt-field"><span>訊號分數門檻</span>${sel('minScore', [40, 50, 60, 70, 80])}</label>
     ${chk('signals.breakout', '💥 多週期突破：日 K、60 分 K 偏多，5 分 K 放量突破，五檔確認')}
     <label class="dt-field sub"><span>前幾分鐘高點</span>${sel('breakoutLookback', [10, 15, 20, 30], v => `${v} 分鐘`)}<span>量倍數</span>${sel('breakoutVolume', [1.5, 2, 3], v => `${v} 倍`)}</label>
