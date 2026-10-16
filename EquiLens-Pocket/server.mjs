@@ -181,6 +181,10 @@ async function api(req, res, url) {
       const r = await nexus.watchSet({ id: b.id, on: b.on, ...(b.group !== undefined ? { group: b.group } : {}) });
       return send(req, res, 200, { ok: true, watch: b.on, watchlist: r.watchlist, watchGroups: r.watchGroups });
     }
+    if (route === 'group-stock') { // 把股票加入既有的研究族群（族群的新增、改名、刪除仍在電腦版）
+      if (typeof b.groupId !== 'string' || !/^[\w-]{1,64}$/.test(b.groupId) || !validId(b.stockId)) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
+      const r = await nexus.groupStockAdd(b.groupId, b.stockId); return send(req, res, 200, { ok: true, added: !!r.added, needsUpdate: !!r.needsUpdate });
+    }
     if (route === 'watch/groups') {
       const list = b.groups; if (!Array.isArray(list) || list.length > 30 || !list.every(g => g && typeof g.name === 'string' && g.name.length <= 40 && (g.id === undefined || /^w\d{1,4}$/.test(g.id)))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
       return send(req, res, 200, await nexus.watchGroups(list.map(g => ({ id: g.id, name: g.name }))));

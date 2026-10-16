@@ -121,12 +121,22 @@ let watchGroupFilter = '', groupEditOpen = false;
 const wg = () => state.watchGroups || { groups: [], assign: {} };
 const inWatchGroup = id => !watchGroupFilter || (watchGroupFilter === 'none' ? !wg().assign[id] : wg().assign[id] === watchGroupFilter);
 const watchCount = gid => state.watchlist.filter(id => gid === 'none' ? !wg().assign[id] : wg().assign[id] === gid).length;
-// 加到自選／變更分組／移除的下拉選單（型態選股、自選追蹤、型態明細共用）
+// 加到自選／變更分組／移除的下拉選單（研究總覽、自選追蹤、個股診斷、型態選股共用）。
+// 另列出還沒包含這檔股票的研究族群：選了會同時加入該研究族群（開始評分與每日更新）並加到自選
 function watchSelect(id, name = '') {
   const g = wg(), on = state.watchlist.includes(id), cur = g.assign[id] || '';
   const opts = on ? [...g.groups.map(x => [`g:${x.id}`, `★ ${x.name}`, cur === x.id]), ['g:', '★ 未分組', !cur], ['remove', '✕ 移除自選', false]]
     : [['', '☆ 加到自選', true], ...g.groups.map(x => [`g:${x.id}`, `加到「${x.name}」`, false]), ['g:', g.groups.length ? '加到「未分組」' : '加入自選', false]];
-  return `<select class="watchsel ${on ? 'on' : ''}" data-watch-set="${id}" data-watch-name="${esc(name)}" aria-label="${on ? '變更自選分組' : '加到自選'} ${esc(name)}">${opts.map(([v, l, sel]) => `<option value="${v}" ${sel ? 'selected' : ''} ${v === '' ? 'disabled' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  const research = (state.groups || []).filter(x => !x.stockIds?.includes(id));
+  const opt = ([v, l, sel]) => `<option value="${v}" ${sel ? 'selected' : ''} ${v === '' ? 'disabled' : ''}>${esc(l)}</option>`;
+  const rg = research.length ? `<optgroup label="${on ? '也加入研究族群' : '加到自選並加入研究族群'}">${research.map(x => opt([`r:${x.id}`, `${on ? '＋' : '☆'} 研究族群「${x.name}」`, false])).join('')}</optgroup>` : '';
+  return `<select class="watchsel ${on ? 'on' : ''}" data-watch-set="${id}" data-watch-name="${esc(name)}" aria-label="${on ? '變更自選分組' : '加到自選'} ${esc(name)}"><optgroup label="自選分組">${opts.map(opt).join('')}</optgroup>${rg}</select>`;
+}
+// 加入研究族群：加入後沒有行情資料時，沒有其他更新在跑就立即下載這檔
+async function joinResearchGroup(id, groupId) {
+  const r = await api('group-stocks', { groupId, stockId: id });
+  if (r.needsUpdate && !state.job?.running) { try { await api('update', { scope: 'selected', ids: [id] }); r.updating = true; } catch { } }
+  return r;
 }
 function watchGroupBar() {
   if (watchGroupFilter && watchGroupFilter !== 'none' && !wg().groups.some(g => g.id === watchGroupFilter)) watchGroupFilter = '';
@@ -151,11 +161,13 @@ document.addEventListener('change', async e => {
   if (!t.matches?.('[data-watch-set]')) return;
   const id = t.dataset.watchSet, name = t.dataset.watchName || id, v = t.value; t.disabled = true;
   try {
-    const r = await api('watch/set', v === 'remove' ? { id, on: false } : { id, on: true, group: v.slice(2) });
+    // 研究族群：先加入族群，再加到自選（已在自選時保留原本的自選分組）
+    const research = v.startsWith('r:') ? state.groups.find(x => x.id === v.slice(2)) : null, joined = research ? await joinResearchGroup(id, research.id) : null;
+    const r = await api('watch/set', v === 'remove' ? { id, on: false } : research ? { id, on: true } : { id, on: true, group: v.slice(2) });
     const g = r.watchGroups.groups.find(x => x.id === r.watchGroups.assign[id]);
     await load(); // 重新取得清單（含研究名單以外自選股的報價與型態）並重繪
     document.querySelectorAll(`[data-watch-set="${id}"]`).forEach(el => { el.outerHTML = watchSelect(id, name); }); // 對話框內的選單也同步
-    toast(v === 'remove' ? `已將 ${name} 移出自選` : `${name} 已加到自選${g ? `「${g.name}」` : '（未分組）'}`);
+    toast(v === 'remove' ? `已將 ${name} 移出自選` : research ? `${name} 已加入研究族群「${research.name}」並加到自選${joined.updating ? '，正在下載行情' : joined.needsUpdate ? '，請更新此股以取得行情' : ''}` : `${name} 已加到自選${g ? `「${g.name}」` : '（未分組）'}`);
   } catch (err) { toast(err.message); t.outerHTML = watchSelect(id, name); }
 });
 document.addEventListener('click', async e => {
@@ -202,7 +214,7 @@ function heatCard() {
 }
 function stockTable() {
   const rows = filtered(); index = Math.min(index, Math.max(0, Math.ceil(rows.length / perPage) - 1)); const subset = rows.slice(index * perPage, (index + 1) * perPage);
-  return `<div class="tablewrap"><table><thead><tr><th>#</th><th style="text-align:left">公司 / 族群</th><th>收盤 / 漲跌</th><th>綜合</th><th>技術</th><th>籌碼</th><th>話題</th><th>行業</th><th>30D</th><th>評級 / 完整度</th><th>追蹤</th></tr></thead><tbody>${subset.map((s, i) => `<tr><td class="rank">${String(index * perPage + i + 1).padStart(2, '0')}</td><td class="stockcell"><button class="stocklink" data-stock="${s.id}"><strong>${esc(s.name)}<span class="stockcode">${s.id}</span></strong><small>${esc(s.groupNames?.join('、') || s.sector)} · ${s.market}</small></button></td><td class="num">${fmt(s.price, 2)}<small class="${cls(s.change)}" style="display:block;margin-top:4px">${pct(s.change)}</small></td><td>${scoreCell(s.score)}</td>${Object.keys(factorNames).map(k => `<td><span class="factor-pill ${s[k].score >= 75 ? 'hi' : ''}">${fmt(s[k].score)}</span></td>`).join('')}<td>${mini(s.spark)}</td><td>${tag(s)}<small class="muted num" style="display:block;margin-top:5px">${s.coverage}% · ${s.asOf?.slice(5) || '未更新'}</small></td><td>${page === 'watchlist' ? watchSelect(s.id, s.name) : `<button class="watch ${state.watchlist.includes(s.id) ? 'saved' : ''}" data-watch="${s.id}" aria-label="${state.watchlist.includes(s.id) ? '取消追蹤' : '加入追蹤'} ${esc(s.name)}" aria-pressed="${state.watchlist.includes(s.id)}">${state.watchlist.includes(s.id) ? '★' : '☆'}</button>`}</td></tr>`).join('') || `<tr><td colspan="11"><div class="empty"><h3>${page === 'watchlist' ? (watchGroupFilter ? '這個分組在研究名單內沒有自選股' : '研究名單內尚無自選股') : '沒有符合條件的股票'}</h3><p>${page === 'watchlist' ? '研究名單以外的自選股列在下方；也可以在「型態選股」或研究總覽加入自選。' : '試著清除篩選條件，或更新股票清單與行情資料。'}</p><button data-action="clear">清除篩選</button></div></td></tr>`}</tbody></table></div><div class="tablefoot"><span>TOTAL ${fmt(rows.length)} · ${rows.length ? index * perPage + 1 : 0}–${Math.min((index + 1) * perPage, rows.length)}</span><div class="pagination"><button data-action="prev" aria-label="上一頁" ${index === 0 ? 'disabled' : ''}>‹</button><span style="padding:5px">${index + 1} / ${Math.max(1, Math.ceil(rows.length / perPage))}</span><button data-action="next" aria-label="下一頁" ${(index + 1) * perPage >= rows.length ? 'disabled' : ''}>›</button></div></div>${page === 'watchlist' ? watchExtraTable() : ''}`;
+  return `<div class="tablewrap"><table><thead><tr><th>#</th><th style="text-align:left">公司 / 族群</th><th>收盤 / 漲跌</th><th>綜合</th><th>技術</th><th>籌碼</th><th>話題</th><th>行業</th><th>30D</th><th>評級 / 完整度</th><th>追蹤</th></tr></thead><tbody>${subset.map((s, i) => `<tr><td class="rank">${String(index * perPage + i + 1).padStart(2, '0')}</td><td class="stockcell"><button class="stocklink" data-stock="${s.id}"><strong>${esc(s.name)}<span class="stockcode">${s.id}</span></strong><small>${esc(s.groupNames?.join('、') || s.sector)} · ${s.market}</small></button></td><td class="num">${fmt(s.price, 2)}<small class="${cls(s.change)}" style="display:block;margin-top:4px">${pct(s.change)}</small></td><td>${scoreCell(s.score)}</td>${Object.keys(factorNames).map(k => `<td><span class="factor-pill ${s[k].score >= 75 ? 'hi' : ''}">${fmt(s[k].score)}</span></td>`).join('')}<td>${mini(s.spark)}</td><td>${tag(s)}<small class="muted num" style="display:block;margin-top:5px">${s.coverage}% · ${s.asOf?.slice(5) || '未更新'}</small></td><td>${watchSelect(s.id, s.name)}</td></tr>`).join('') || `<tr><td colspan="11"><div class="empty"><h3>${page === 'watchlist' ? (watchGroupFilter ? '這個分組在研究名單內沒有自選股' : '研究名單內尚無自選股') : '沒有符合條件的股票'}</h3><p>${page === 'watchlist' ? '研究名單以外的自選股列在下方；也可以在「型態選股」或研究總覽加入自選。' : '試著清除篩選條件，或更新股票清單與行情資料。'}</p><button data-action="clear">清除篩選</button></div></td></tr>`}</tbody></table></div><div class="tablefoot"><span>TOTAL ${fmt(rows.length)} · ${rows.length ? index * perPage + 1 : 0}–${Math.min((index + 1) * perPage, rows.length)}</span><div class="pagination"><button data-action="prev" aria-label="上一頁" ${index === 0 ? 'disabled' : ''}>‹</button><span style="padding:5px">${index + 1} / ${Math.max(1, Math.ceil(rows.length / perPage))}</span><button data-action="next" aria-label="下一頁" ${(index + 1) * perPage >= rows.length ? 'disabled' : ''}>›</button></div></div>${page === 'watchlist' ? watchExtraTable() : ''}`;
 }
 
 /* ---------- topics ---------- */
@@ -249,7 +261,7 @@ function candleChart(rows) {
 }
 async function openStock(id) { selectedId = id; const dialog = $('#detail-dialog'); if (!dialog.open) dialog.showModal(); $('#detail').innerHTML = '<div class="contentpad"><button data-action="close-detail" style="float:right">關閉</button><p><i class="spinner"></i>讀取個股診斷…</p></div>'; try { const s = await api(`detail?id=${id}`); if (selectedId !== id) return; renderDetail(s); fillDetailExtras(id, () => selectedId); } catch (e) { $('#detail').innerHTML = `<div class="empty"><p>${esc(e.message)}</p><button data-action="close-detail">關閉</button></div>`; } }
 function renderDetail(s) {
-  $('#detail').innerHTML = `<div class="detailtop"><div><p class="eyebrow">Company Research / ${s.id}</p><h2>${esc(s.name)} <span class="stockcode">${s.market} · ${esc(s.groupNames?.join('、') || s.sector)}</span></h2><div class="price">${fmt(s.price, 2)} <span class="${cls(s.change)}" style="font-size:1rem">${pct(s.change)}</span></div><p>收盤日期 ${s.asOf || '尚未取得'} · 成交量 ${fmt(s.volume)} ${MK.unit()} · 產業 ${esc(s.sector)}</p></div><div class="actions"><button data-watch="${s.id}">${state.watchlist.includes(s.id) ? '★ 已追蹤' : '☆ 加入追蹤'}</button><button class="close" data-action="close-detail" aria-label="關閉個股診斷">×</button></div></div>
+  $('#detail').innerHTML = `<div class="detailtop"><div><p class="eyebrow">Company Research / ${s.id}</p><h2>${esc(s.name)} <span class="stockcode">${s.market} · ${esc(s.groupNames?.join('、') || s.sector)}</span></h2><div class="price">${fmt(s.price, 2)} <span class="${cls(s.change)}" style="font-size:1rem">${pct(s.change)}</span></div><p>收盤日期 ${s.asOf || '尚未取得'} · 成交量 ${fmt(s.volume)} ${MK.unit()} · 產業 ${esc(s.sector)}</p></div><div class="actions">${watchSelect(s.id, s.name)}<button class="close" data-action="close-detail" aria-label="關閉個股診斷">×</button></div></div>
   <div class="detailbody"><div class="summaryband"><div class="bigscore">${fmt(s.score)}<small> /100</small></div><div class="summarytext"><strong>${esc(s.rating)} <span class="tag cyan">有效權重 ${s.coverage}%</span></strong><p>${s.complete ? '四維資料完整，可進一步檢視風險與估值。' : '部分因子仍待補齊；分數僅反映目前可用資料。'}<br>觀察期間 1–3 個月 · 不代表預測報酬或合理價值</p></div><button style="margin-left:auto" data-update-stock="${s.id}" ${state.job.running ? 'disabled' : ''}>⟳ 更新</button></div>
   <div class="factorcards">${Object.entries(factorNames).map(([k, l]) => `<div class="factorcard"><h3>${l} <small>${state.weights[k]}%</small></h3><b>${fmt(s[k].score)}</b><small>${s[k].date || '資料不足'}</small></div>`).join('')}</div>
   <section class="chartpanel"><div class="charttitle"><h3>中期價格結構</h3><div class="chartlegend"><span style="color:${C.ma20}">— MA20 ${fmt(s.technical.ma20, 1)}</span><span style="color:${C.ma60}">— MA60 ${fmt(s.technical.ma60, 1)}</span><span style="color:${C.ma120}">— MA120 ${fmt(s.technical.ma120, 1)}</span></div></div>${candleChart(s.adjustedBars)}<p class="chartcaption">${s.adjustedIsRaw ? '資料源沒有還原股價，K 線及均線使用原始價格；除權息前後可能失真。' : 'K 線及均線使用還原價格；上方收盤為原始成交價，除權息期間兩者可能不同。'}</p></section>

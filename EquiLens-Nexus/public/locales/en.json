@@ -2775,5 +2775,11 @@
  "🔔 達提醒條件": "🔔 Meets alert conditions",
  "（{0} 股權分散表）": " ({0} shareholding table)",
  "（研究）": " (research)",
- "（自選）": " (watchlist)"
+ "（自選）": " (watchlist)",
+ "{0} 已加入研究族群「{1}」並加到自選{2}": "{0} added to research group \"{1}\" and to the watchlist{2}",
+ "{0} 研究族群「{1}」": "{0} Research group \"{1}\"",
+ "也加入研究族群": "Also add to research group",
+ "加到自選並加入研究族群": "Add to watchlist and research group",
+ "，正在下載行情": ", downloading prices",
+ "，請更新此股以取得行情": ", update this stock to fetch prices"
 }

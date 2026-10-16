@@ -81,6 +81,7 @@ export const reportCard =date => call('report/card?' + qs({ date }), { timeout: 
 export const reportGenerate =date => call('report/generate', { body: date ? { date } : {} });
 export const setWatchlist = ids => call('watchlist', { body: { ids } }).finally(invalidate);
 export const watchSet = b => call('watch/set', { body: b }).finally(invalidate);
+export const groupStockAdd = (groupId, stockId) => call('group-stocks', { body: { groupId, stockId } }).finally(invalidate);
 export const watchGroups = groups => call('watch/groups', { body: { groups } }).finally(invalidate);
 // 研究名單以外的自選股（沒有評分）：名稱、最新價與型態訊號
 export const slimWatchExtra = s => ({ id: s.id, name: s.name, market: s.market, sector: s.sector, price: s.price, change: s.change, asOf: s.asOf, patterns: (s.patterns || []).slice(0, 3).map(p => ({ id: p.id, name: p.name, status: p.status })) });

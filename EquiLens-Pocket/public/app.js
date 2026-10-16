@@ -100,7 +100,9 @@ async function load(force = false) {
   } catch (e) { if (!e.silent) { S.error = e.message; } }
   finally { btn?.classList.remove('spin'); draw(); }
 }
-async function loadStocks(render = false) { S.stocks = await api('api/stocks'); if (render) draw(); }
+async function loadStocks(render = false) { S.stocks = await api('api/stocks'); S.stocksAt = Date.now(); if (render) draw(); }
+// 開啟個股／型態頁時：清單超過 20 秒就重新取得，讓電腦版剛新增的自選分組與研究族群出現在選單中
+function refreshWatchSel(id, name) { if (S.stocks && Date.now() - (S.stocksAt || 0) < 20e3) return; loadStocks().then(() => syncWatchSel(id, name)).catch(() => { }); }
 
 /* ---------- 手機端觸發資料更新＋進度 ---------- */
 let jobTimer = null;
@@ -215,13 +217,16 @@ function homePage() {
 
 /* ---------- stocks ---------- */
 /* ---------- 自選分組（與電腦版共用同一份分組） ---------- */
-const watchData = () => S.stocks || { watchlist: [], watchGroups: { groups: [], assign: {} }, watchExtra: [] };
-// 加到自選／變更分組／新分組／移除的下拉選單（個股、型態明細共用）
+const watchData = () => S.stocks || { watchlist: [], watchGroups: { groups: [], assign: {} }, watchExtra: [], groups: [] };
+// 加到自選／變更分組／新分組／移除的下拉選單（個股、型態明細共用）。
+// 另列出還沒包含這檔股票的研究族群：選了會同時加入該研究族群（開始評分與每日更新）並加到自選
 function watchSel(id, name = '') {
   const d = watchData(), g = d.watchGroups || { groups: [], assign: {} }, on = (d.watchlist || []).includes(id), cur = g.assign[id] || '';
+  const research = (d.groups || []).filter(x => !x.stockIds?.includes(id)), opt = ([v, l, sel]) => `<option value="${v}" ${sel ? 'selected' : ''} ${v === '' ? 'disabled' : ''}>${esc(l)}</option>`;
+  const rg = research.length ? `<optgroup label="${on ? '也加入研究族群' : '加到自選並加入研究族群'}">${research.map(x => opt([`r:${x.id}`, `${on ? '＋' : '☆'} 研究族群「${x.name}」`, false])).join('')}</optgroup>` : '';
   const opts = on ? [...g.groups.map(x => [`g:${x.id}`, `★ 自選：${x.name}`, cur === x.id]), ['g:', '★ 自選：未分組', !cur], ['new', '＋ 移到新分組…', false], ['remove', '✕ 移除自選', false]]
     : [['', '☆ 加到自選', true], ...g.groups.map(x => [`g:${x.id}`, `加到「${x.name}」`, false]), ['g:', g.groups.length ? '加到「未分組」' : '加入自選（未分組）', false], ['new', '＋ 建立新分組並加入…', false]];
-  return `<select class="sel watchsel ${on ? 'on' : ''}" data-watch-set="${id}" data-watch-name="${esc(name)}" aria-label="自選分組">${opts.map(([v, l, sel]) => `<option value="${v}" ${sel ? 'selected' : ''} ${v === '' ? 'disabled' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  return `<select class="sel watchsel ${on ? 'on' : ''}" data-watch-set="${id}" data-watch-name="${esc(name)}" aria-label="自選分組"><optgroup label="自選分組">${opts.map(opt).join('')}</optgroup>${rg}</select>`;
 }
 const watchGroupSelect = (g, wl) => { const n = gid => wl.filter(id => gid === 'none' ? !g.assign[id] : g.assign[id] === gid).length; return `<div class="field"><select class="sel" id="wgroup" style="flex:1" aria-label="自選分組"><option value="">全部自選（${wl.length}）</option>${g.groups.map(x => `<option value="${x.id}" ${S.list.wgroup === x.id ? 'selected' : ''}>${esc(x.name)}（${n(x.id)}）</option>`).join('')}<option value="none" ${S.list.wgroup === 'none' ? 'selected' : ''}>未分組（${n('none')}）</option></select></div>`; };
 const extraRow = s => `<button class="row" data-kbar="${s.id}"><span class="nm">${esc(s.name)}<small>${s.id}</small></span><span class="sub">${esc(s.sector || '')}${s.patterns?.length ? ` · 🎯 ${esc(s.patterns[0].name)}` : ''}</span><span class="rt"><span class="pc"><span class="px num">${fmt(s.price, 2)}</span><span class="chg num ${cls(s.change)}">${pct(s.change)}</span></span></span></button>`;
@@ -238,11 +243,16 @@ document.addEventListener('change', async e => {
       if (S.stocks) S.stocks.watchGroups = r.watchGroups; v = 'g:' + r.watchGroups.groups.find(g => g.name === nm).id;
     }
     t.disabled = true;
-    const r = await api('api/watch', v === 'remove' ? { id, on: false } : { id, on: true, group: v.slice(2) });
+    // 研究族群：先加入族群（沒有行情資料時立即下載這檔），再加到自選（已在自選時保留原本的自選分組）
+    const research = v.startsWith('r:') ? (watchData().groups || []).find(x => x.id === v.slice(2)) : null;
+    let joined = null;
+    if (research) { joined = await api('api/group-stock', { groupId: research.id, stockId: id }); if (joined.needsUpdate) { try { await api('api/update', { scope: 'selected', ids: [id] }); joined.updating = true; } catch { } } }
+    const r = await api('api/watch', v === 'remove' ? { id, on: false } : research ? { id, on: true } : { id, on: true, group: v.slice(2) });
+    if (research && S.stocks) { const rg = (S.stocks.groups || []).find(x => x.id === research.id); if (rg && !rg.stockIds?.includes(id)) rg.stockIds = [...(rg.stockIds || []), id]; }
     if (S.stocks) { S.stocks.watchlist = r.watchlist; S.stocks.watchGroups = r.watchGroups; }
     syncWatchSel(id, name); S.summary = null;
     const g = r.watchGroups.groups.find(x => x.id === r.watchGroups.assign[id]);
-    toast(v === 'remove' ? `已將 ${name} 移出自選` : `${name} 已加到自選${g ? `「${g.name}」` : '（未分組）'}`);
+    toast(v === 'remove' ? `已將 ${name} 移出自選` : research ? `${name} 已加入研究族群「${research.name}」並加到自選${joined.updating ? '，正在下載行情' : joined.needsUpdate ? '，請更新此股以取得行情' : ''}` : `${name} 已加到自選${g ? `「${g.name}」` : '（未分組）'}`);
     loadStocks(S.tab === 'stocks' && !$('#sheet')?.classList.contains('open')).catch(() => { }); // 重新取得（含研究名單以外自選股的報價）
   } catch (err) { if (!err.silent) toast(err.message); syncWatchSel(id, name); }
 });
@@ -280,7 +290,7 @@ async function openStock(id) {
   openSheet('讀取中…', loadingBox());
   try {
     const s = await api('api/stock?id=' + encodeURIComponent(id)); S.sheetStock = s;
-    if (!S.stocks) await loadStocks().catch(() => { }); // 自選分組選單需要清單資料
+    if (!S.stocks) await loadStocks().catch(() => { }); else refreshWatchSel(s.id, s.name); // 自選分組選單需要清單資料（太舊時在背景更新）
     const ringC = 2 * Math.PI * 31, val = s.score ?? 0;
     $('#sheet-title').innerHTML = `${esc(s.name)}<small>${s.id} · ${esc(s.market)}</small>`;
     $('#sheet-body').innerHTML = `<div class="hero"><div><div class="big num ${cls(s.change)}">${fmt(s.price, 2)}</div><div class="num ${cls(s.change)}" style="font-weight:700">${pct(s.change)}</div><div class="meta">${s.asOf || '未更新'} · 成交 ${fmt(s.volume)} 張<br>${esc(s.groups.join('、') || s.sector)}</div></div>
@@ -401,7 +411,7 @@ async function openPattern(id, pid) {
   openSheet('讀取中…', loadingBox());
   try {
     const s = await api(`api/pattern?id=${encodeURIComponent(id)}&pid=${encodeURIComponent(pid)}`), m = s.match, pl = m.plan;
-    if (!S.stocks) await loadStocks().catch(() => { }); // 自選分組選單需要清單資料
+    if (!S.stocks) await loadStocks().catch(() => { }); else refreshWatchSel(s.id, s.name); // 自選分組選單需要清單資料（太舊時在背景更新）
     $('#sheet-title').innerHTML = `${esc(s.name)}<small>${s.id} · ${esc(m.name)}</small>`;
     $('#sheet-body').innerHTML = `<div class="statusline"><span class="badge ${m.status === '量價確認' ? 'ok' : 'wait'}">${esc(m.status)}</span><span class="pill">${esc(m.category)}</span><span class="pill">強度 ${m.score}</span><span class="pill">${s.asOf} 收 ${fmt(s.price, 2)}</span></div>
       <div class="field" style="margin-bottom:12px">${watchSel(s.id, s.name)}</div>
