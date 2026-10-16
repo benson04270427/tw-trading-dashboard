@@ -2844,5 +2844,11 @@
  "收盤整理完成後，把當天全部錄製股票匯出成「日期_五檔成交.zip」（每檔一個 CSV，格式同上方下載）。放在 Dropbox 等同步資料夾內即可自動上傳；留空＝不匯出。全部錄製約 1,300 檔時每天約 250–300 MB。": "After the close is organized, all recorded stocks are exported to \"date_orderbook-trades.zip\" (one CSV per stock, same format as the download above). Put it in a synced folder such as Dropbox to upload automatically; leave empty to disable. With about 1,300 recorded stocks this is roughly 250–300 MB per day.",
  "每日匯出資料夾": "Daily export folder",
  "股票清單.csv": "stock-list.csv",
- "例如 C:\\Users\\你的名字\\Dropbox\\TW_trade": "e.g. C:\\Users\\you\\Dropbox\\TW_trade"
+ "例如 C:\\Users\\你的名字\\Dropbox\\TW_trade": "e.g. C:\\Users\\you\\Dropbox\\TW_trade",
+ "{0} 連線 {1}：{2}": "{0} connection {1}: {2}",
+ "今日斷線重連 {0} 次（最近 {1}）": "Reconnected {0} times today (last {1})",
+ "伺服器關閉連線": "closed by server",
+ "即時推播斷線：連線 {conns}（{reason}）": "Live stream disconnected: connection {conns} ({reason})",
+ "超過 75 秒沒有訊息": "no message for over 75 s",
+ "重新訂閱中…": "Resubscribing…"
 }

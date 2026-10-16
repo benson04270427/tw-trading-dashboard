@@ -233,7 +233,10 @@ async function streamTick(){
   if(plan.full&&dtSettings().plan==='auto'&&streamState.connected&&streamState.since&&Date.now()-streamState.since>15e3&&streamState.subscribed<streamState.expected){dtFallback=today();console.log(t('即時推播訂閱數不足，今天改用精簡模式（聚合行情）'));}
 }
 setInterval(()=>{streamTick().catch(e=>{streamState={...streamState,error:e.message};});},5000).unref();
+// 即時推播斷線紀錄（今天）：時間、哪條連線、原因；畫面顯示次數與最近一次，供排查
+let streamDrops={date:'',list:[]};
 function onStreamStatus(s){
+  if(streamState.connected&&s.connected===false){const d=today();if(streamDrops.date!==d)streamDrops={date:d,list:[]};const down=(s.connections||[]).map((c,i)=>c.connected?null:i+1).filter(Boolean);streamDrops.list.push({at:Date.now(),conns:down,reason:s.error||'close'});if(streamDrops.list.length>50)streamDrops.list.shift();console.log(t('即時推播斷線：連線 {conns}（{reason}）',{conns:down.join('、')||'—',reason:s.error||'close'}));}
   const prev=streamState.since;streamState={...streamState,...s};
   if(!s.connected&&dt){dt.engine.setFeed(false);dt.engine.markGap([...subscribedIds]);}
   // 盤中才連上或斷線重連：補資料完成前暫停訊號（盤前連線不需要）
@@ -248,7 +251,7 @@ function onStreamEvents(all){
   if(e){const changed=e.ingest(events.filter(x=>x.kind!=='book'));onStreamRows([...changed].map(id=>e.row(id)).filter(Boolean));}
   else onStreamRows(events.filter(x=>x.kind==='agg').map(x=>x.row));
 }
-const streamInfo=()=>({capable:data.has('stream'),provider:streamState.provider,active:streamFresh(),connected:streamState.connected,mode:streamState.mode||null,plan:streamState.plan||null,symbols:streamState.symbols,subscribed:streamState.subscribed,expected:streamState.expected||0,connections:streamState.connections||[],limit:streamState.limit,lastAt:streamState.lastAt||null,error:streamState.error,authFailed:!!streamState.authFailed,total:new Set([...watchlist,...scopeIds(researchScope)]).size});
+const streamInfo=()=>({capable:data.has('stream'),provider:streamState.provider,active:streamFresh(),connected:streamState.connected,mode:streamState.mode||null,plan:streamState.plan||null,symbols:streamState.symbols,subscribed:streamState.subscribed,expected:streamState.expected||0,connections:streamState.connections||[],limit:streamState.limit,lastAt:streamState.lastAt||null,error:streamState.error,authFailed:!!streamState.authFailed,since:streamState.since||null,drops:streamDrops.date===today()?streamDrops.list.slice(-10):[],dropCount:streamDrops.date===today()?streamDrops.list.length:0,total:new Set([...watchlist,...scopeIds(researchScope)]).size});
 
 /* ---------- 五檔錄製器 ---------- */
 // 推播清單（研究名單＋自選）的五檔與逐筆成交本來就有訂閱，直接錄製；另用剩下的訂閱數「加錄」其他活躍股票的五檔。

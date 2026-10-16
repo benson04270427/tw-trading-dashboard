@@ -38,8 +38,11 @@ function feedLine(d) {
   if (!f.window) return '<span>非盤中 · 平日開盤前 10 分鐘自動連線並確認訂閱</span>';
   if (!f.connected) return `<span class="warn">${f.authFailed ? '金鑰無效或方案不支援（10 分鐘後重試）' : f.error ? `即時推播未連線：${esc(f.error === 'no-heartbeat' ? '連線逾時，重新連線中' : f.error)}` : '即時推播連線中…'}</span>`;
   const mode = f.mode === 'full' ? '完整模式：逐筆成交＋1 分 K＋五檔' : '精簡模式：聚合行情';
-  const short = f.subscribed < f.expected ? ` <b class="warn">訂閱不足</b>` : '';
-  return `<span>⚡ ${mode}</span><span>富果${plan}方案${lim ? `（上限 ${fmt(lim)}）` : ''}</span><span>訂閱 <b class="mono">${fmt(f.subscribed)}／${fmt(f.expected)}</b>${f.connections?.length > 1 ? `（${f.connections.length} 條連線）` : ''}${short}</span>${f.backfill?.busy ? `<span class="warn">斷線補資料中 ${f.backfill.done}／${f.backfill.total}</span>` : ''}${d.fallback ? '<span class="warn">訂閱數不足，今天改用精簡模式</span>' : ''}`;
+  // 連線（或斷線重連）後 30 秒內仍在逐批訂閱，顯示「重新訂閱中」；超過 30 秒還不足才是真的訂閱不足
+  const short = f.subscribed < f.expected ? (f.since && Date.now() - f.since < 30e3 ? ' <b>重新訂閱中…</b>' : ' <b class="warn">訂閱不足</b>') : '';
+  const hm = ms => new Date(ms).toLocaleTimeString('en-GB', { hour12: false }).slice(0, 5), lastDrop = f.drops?.at(-1);
+  const drops = f.dropCount ? `<span class="${f.dropCount >= 5 ? 'warn' : ''}" title="${esc((f.drops || []).map(x => `${hm(x.at)} 連線 ${x.conns.join('、') || '—'}：${x.reason === 'no-heartbeat' ? '超過 75 秒沒有訊息' : x.reason === 'close' ? '伺服器關閉連線' : x.reason}`).join(' · '))}">今日斷線重連 ${f.dropCount} 次（最近 ${hm(lastDrop.at)}）</span>` : '';
+  return `<span>⚡ ${mode}</span><span>富果${plan}方案${lim ? `（上限 ${fmt(lim)}）` : ''}</span><span>訂閱 <b class="mono">${fmt(f.subscribed)}／${fmt(f.expected)}</b>${f.connections?.length > 1 ? `（${f.connections.length} 條連線）` : ''}${short}</span>${drops}${f.backfill?.busy ? `<span class="warn">斷線補資料中 ${f.backfill.done}／${f.backfill.total}</span>` : ''}${d.fallback ? '<span class="warn">訂閱數不足，今天改用精簡模式</span>' : ''}`;
 }
 function prepLine(d) {
   const p = d.prep, base = '';
