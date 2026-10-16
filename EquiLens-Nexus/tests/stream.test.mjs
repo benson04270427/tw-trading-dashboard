@@ -146,3 +146,15 @@ test('stream: extra (book-only) subscriptions counted apart, changed in place wi
   clock.advance(0); assert.equal(socks.length, 2); login(socks[1]);
   assert.deepEqual(socks[1].sent.slice(1).map(m => [m.data.channel, m.data.symbols]), [['trades', ['2330']], ['books', ['2330']], ['books', ['1569']]]);
 });
+
+test('stream: an unsubscribe reply only removes the ids we cancelled, even if it lists other subscriptions', () => {
+  const { socks, stream, login, last } = setup(['2330', '2317'], { channels: ['trades', 'books'], extra: { symbols: ['3406', '1569'], channels: ['books'] } });
+  const ws = socks[0]; login(ws);
+  ws.emit('message', { event: 'subscribed', data: ['2330', '2317'].flatMap(s => ['trades', 'books'].map(c => ({ id: c + s, channel: c, symbol: s }))) });
+  ws.emit('message', { event: 'subscribed', data: [{ id: 'x1', channel: 'books', symbol: '3406' }, { id: 'x2', channel: 'books', symbol: '1569' }] });
+  assert.deepEqual([last().subscribed, last().extraSubscribed], [4, 2]);
+  stream.update(['2330', '2317'], ['trades', 'books'], { symbols: ['1569'], channels: ['books'] });
+  // 富果的回覆除了被取消的 x1，也列出仍在推播的其他訂閱
+  ws.emit('message', { event: 'unsubscribed', data: [{ id: 'x1', channel: 'books', symbol: '3406' }, { id: 'x2', channel: 'books', symbol: '1569' }, { id: 'trades2330', channel: 'trades', symbol: '2330' }, { id: 'books2317', channel: 'books', symbol: '2317' }] });
+  assert.deepEqual([last().subscribed, last().expected, last().extraSubscribed, last().extraExpected], [4, 4, 1, 1], 'main stays complete; only 3406 removed');
+});

@@ -12,7 +12,7 @@ const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 // onEvent：每個解析後的事件（批次合併前，五檔不會被同一批較新的一筆蓋掉），供錄製使用
 export function createStream({ spec, key, market, symbols = [], channels = ['aggregates'], extra = null, onEvents, onEvent = null, onStatus = () => { }, connect = url => new WebSocket(url), now = Date.now, timers = { setTimeout, clearTimeout, setInterval, clearInterval }, flushMs = 1000 }) {
   let ws = null, closed = false, want = [...new Set(symbols)], chans = [...channels], backoff = 5000, retryTimer = null, lastMsg = 0, subscribed = 0, authed = false, everAuthed = false;
-  let ex = normExtra(extra), subIds = new Map(), extraSubscribed = 0; // subIds：額外訂閱「頻道:代號」→ 訂閱 id
+  let ex = normExtra(extra), subIds = new Map(), extraSubscribed = 0, pendingUnsub = new Map(); // pendingUnsub：已送出取消、等待回覆的訂閱 id → 「頻道:代號」 // subIds：額外訂閱「頻道:代號」→ 訂閱 id
   let list = [], keyed = new Map();
   const exKey = (ch, s) => ch + ':' + s, exSet = () => new Set(ex.channels.flatMap(ch => ex.symbols.map(s => exKey(ch, s))));
   let exKeys = exSet();
@@ -26,7 +26,7 @@ export function createStream({ spec, key, market, symbols = [], channels = ['agg
 
   function open() {
     if (closed || !want.length) return;
-    authed = false; subscribed = 0; extraSubscribed = 0; subIds = new Map(); lastMsg = now();
+    authed = false; subscribed = 0; extraSubscribed = 0; subIds = new Map(); pendingUnsub = new Map(); lastMsg = now();
     let sock;
     try { sock = connect(spec.url); } catch (e) { status({ connected: false, error: e.message }); return reopen(); }
     ws = sock;
@@ -43,13 +43,19 @@ export function createStream({ spec, key, market, symbols = [], channels = ['agg
         const resumed = everAuthed ? now() : 0; everAuthed = true;
         return status({ connected: true, error: '', authFailed: false, since: now(), ...(resumed ? { resumed } : {}) });
       }
-      if (msg.event === 'subscribed' || msg.event === 'unsubscribed') {
-        const items = Array.isArray(msg.data) ? msg.data : [msg.data || {}], sign = msg.event === 'subscribed' ? 1 : -1;
-        for (const d of items) {
+      if (msg.event === 'subscribed') {
+        for (const d of Array.isArray(msg.data) ? msg.data : [msg.data || {}]) {
           const k = d?.channel && d?.symbol ? exKey(d.channel, d.symbol) : '';
-          const isExtra = !!k && (sign > 0 ? exKeys.has(k) && !(chans.includes(d.channel) && want.includes(d.symbol)) : subIds.has(k));
-          if (isExtra) { if (sign > 0) subIds.set(k, d.id ?? null); else subIds.delete(k); extraSubscribed = Math.max(0, extraSubscribed + sign); }
-          else subscribed = Math.max(0, subscribed + sign);
+          if (k && exKeys.has(k) && !(chans.includes(d.channel) && want.includes(d.symbol))) { if (!subIds.has(k)) extraSubscribed++; subIds.set(k, d.id ?? null); }
+          else subscribed++;
+        }
+        return status({ connected: true });
+      }
+      // 取消訂閱的回覆：只扣掉自己送出取消的那些 id（富果的回覆可能列出不只被取消的訂閱，若逐項扣減會把仍在推播的訂閱算成不足）
+      if (msg.event === 'unsubscribed') {
+        for (const d of Array.isArray(msg.data) ? msg.data : [msg.data || {}]) {
+          const k = d?.id != null ? pendingUnsub.get(d.id) : null; if (!k) continue;
+          pendingUnsub.delete(d.id); if (subIds.delete(k)) extraSubscribed = Math.max(0, extraSubscribed - 1);
         }
         return status({ connected: true });
       }
@@ -87,7 +93,8 @@ export function createStream({ spec, key, market, symbols = [], channels = ['agg
       const before = exKeys; ex = x; exKeys = exSet();
       if (!ws || !authed) return; // 尚未連上：連上後依新清單訂閱
       // 只增減額外訂閱：取消已不需要的（用訂閱 id；還沒收到回覆的沒有 id，下次重連自然不再訂閱），訂閱新增的
-      const ids = [...before].filter(k => !exKeys.has(k) && subIds.get(k) != null).map(k => subIds.get(k));
+      const gone = [...before].filter(k => !exKeys.has(k) && subIds.get(k) != null), ids = gone.map(k => subIds.get(k));
+      for (const k of gone) pendingUnsub.set(subIds.get(k), k);
       if (ids.length && spec.unsubscribe) for (let i = 0; i < ids.length; i += 100) ws.send(JSON.stringify(spec.unsubscribe(ids.slice(i, i + 100))));
       const add = new Map();
       for (const k of exKeys) if (!before.has(k)) { const [ch, s] = k.split(':'); if (chans.includes(ch) && want.includes(s)) continue; if (!add.has(ch)) add.set(ch, []); add.get(ch).push(s); }
