@@ -93,7 +93,7 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
   const hmsOf = ms => { const s = Math.floor((ms + offset) / 1000) % 86400; return `${hhmm(Math.floor(s / 60))}:${String(s % 60).padStart(2, '0')}`; };
   const eOf = m => elapsedTrading(p, m + 1); // 分鐘 m 結束時已交易的分鐘數
   for (const id of ids) S.set(id, blank(id));
-  function blank(id) { return { id, ref: null, last: null, lastAt: 0, quoteAt: 0, open: null, high: null, low: null, cumVol: 0, cumAmt: 0, vNum: 0, vDen: 0, atAsk: 0, atBid: 0, serial: -1, bars: new Map(), book: null, bookAt: 0, obi: [], books: [], gates: new Map(), reference: null, fired: new Map(), limitUp: false, halted: false }; }
+  function blank(id) { return { id, ref: null, last: null, lastAt: 0, quoteAt: 0, open: null, high: null, low: null, cumVol: 0, cumAmt: 0, vNum: 0, vDen: 0, atAsk: 0, atBid: 0, serial: -1, bars: new Map(), book: null, bookAt: 0, obi: [], books: [], gates: new Map(), reference: null, fired: new Map(), limitUp: false, halted: false, tape: [] }; }
   const st = id => { let s = S.get(id); if (!s) S.set(id, s = blank(id)); return s; };
   const refOf = s => s.ref ?? info.ref.get(s.id) ?? null;
   const barOf = (s, m) => { let b = s.bars.get(m); if (!b) s.bars.set(m, b = { m, o: null, h: -Infinity, l: Infinity, c: null, tv: 0, cv: 0, ask: 0, bid: 0, lastAt: 0 }); return b; };
@@ -110,10 +110,12 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
         if (ev.serial != null && ev.serial <= s.serial) continue; // 重複（例如斷線補資料後又收到）
         if (ev.serial != null) s.serial = ev.serial;
         const px = ev.price, size = ev.size || 0; if (!(px > 0)) continue;
-        const b = barOf(s, modOf(ev.time)); price(s, b, px, ev.time); s.quoteAt = Math.max(s.quoteAt, ev.time); b.tv += size;
+        const b = barOf(s, modOf(ev.time)); price(s, b, px, ev.time); s.quoteAt = Math.max(s.quoteAt, ev.time); b.tv += size; b.amt = (b.amt || 0) + px * size;
         s.cumVol = ev.volume > 0 ? Math.max(s.cumVol, ev.volume) : s.cumVol + size;
         s.cumAmt += px * size * lot; s.vNum += px * size; s.vDen += size;
-        if (ev.ask > 0 && px >= ev.ask) { s.atAsk += size; b.ask += size; } else if (ev.bid > 0 && px <= ev.bid) { s.atBid += size; b.bid += size; }
+        const side = ev.ask > 0 && px >= ev.ask ? 1 : ev.bid > 0 && px <= ev.bid ? -1 : 0;
+        if (side > 0) { s.atAsk += size; b.ask += size; } else if (side < 0) { s.atBid += size; b.bid += size; }
+        s.tape.push([ev.time, px, size, side]); if (s.tape.length > 80) s.tape.splice(0, s.tape.length - 60); // 最近成交明細（看板個股走勢用）
         s.limitUp = !!ev.limitUp; s.halted = !!ev.halted;
       } else if (ev.kind === 'book') {
         if (ev.time <= s.bookAt) continue;
@@ -286,6 +288,8 @@ export function createDayTrade({ market: p, date, ids, meta = new Map(), watch =
     ranking: () => lastEval,
     get signals() { return log; },
     bars: id => S.get(id)?.bars || new Map(),
+    // 個股即時走勢：參考價、最新價、五檔、最近成交（看板個股走勢；每分鐘量價與均價由 bars 計算）
+    quote(id) { const s = S.get(id); if (!s) return null; return { ref: refOf(s), last: s.last, lastAt: s.lastAt, open: s.open, high: s.high, low: s.low, cumVol: s.cumVol, cumAmt: s.cumAmt, vwap: vwapOf(s), atAsk: s.atAsk, atBid: s.atBid, book: s.book, bookAt: s.bookAt, tape: s.tape.slice(-40), limitUp: s.limitUp }; },
     setPrep(next) { const av = new Map([...info.avgVolume, ...(next.avgVolume || [])]), aa = new Map([...info.avgAmount, ...(next.avgAmount || [])]); info = { ...info, ...next, avgVolume: av, avgAmount: aa }; },
     setSettings(next) { cfg = normalizeDaytrade(next); },
     setWatch(next) { watch = next; },

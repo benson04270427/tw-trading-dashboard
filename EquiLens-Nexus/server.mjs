@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import { ROOT, LOCAL, read, write, readStocks, safeSymbol } from './lib/storage.mjs';
 import { getSecret, saveSecret, secretConfigured, deleteSecret, secretBackend } from './lib/secrets.mjs';
 import { config, saveConfig, activeMarket, language, upColor, LANGUAGES, LLM_PROVIDERS, TUNNEL_MODES, HOST_RE, EMAIL_RE } from './lib/config.mjs';
-import { MARKETS, MARKET_IDS, localParts, closeHM, clientMarket, minuteOf, elapsedTrading } from './lib/markets.mjs';
+import { MARKETS, MARKET_IDS, localParts, closeHM, clientMarket, minuteOf, elapsedTrading, limitPrices } from './lib/markets.mjs';
+import { seriesFromBars, seriesFromReplay, replayRef, vwapLine, groupLine } from './lib/intraday.mjs';
 import { t, UserError, isUserError } from './lib/i18n.mjs';
 import { data, PROVIDERS, CAPABILITIES, capabilityMap, providerInfo, setProviderInfo, setInterval_, hasKey, supports } from './lib/providers/index.mjs';
 import { LLM_INFO, listModels } from './lib/llm.mjs';
@@ -411,6 +412,25 @@ function dtInfo(){
     prep:pd?{date:pd.date,eligible:pd.eligible?pd.eligible.length:null,tpex:pd.tpex??null,disposition:pd.disposition.length,suspended:pd.suspended.length,sellFirstOff:pd.sellFirstOff.length,ref:Object.keys(pd.ref||{}).length,errors:pd.errors,at:pd.at}:null,
     baselineDays:dt?.baselineDays??null,baselineStocks:dt?.baselineStocks??null,phase:e&&feedWindow()?e.phase(Date.now()):null,phaseName:e&&feedWindow()?PHASES[e.phase(Date.now())]:null,
     asOf:r?.at||null,marketChange:r?.marketChange??null,top:(r?.list||[]).filter(x=>x.scan&&!x.filters.length&&x.score>=s.displayMin).slice(0,s.top),hidden:(r?.list||[]).filter(x=>x.scan&&x.score<s.displayMin).length,displayMin:s.displayMin,excluded:(r?.list||[]).filter(x=>x.scan).reduce((out,x)=>{for(const key of x.filters)out[key]=(out[key]||0)+1;return out;},{}),watched:watchlist.map(id=>(r?.list||[]).find(x=>x.id===id)||{id,name:dtMeta.get(id)?.name||id,watch:true,score:0,part:{},filters:[],pending:true,context:{ready:false,reasons:[subscribedIds.has(id)?'waitingQuote':'subscription']}}).filter(x=>x.score>=s.displayMin),total:dtScanIds().length,signals:(e?.signals||[]).slice(-30).reverse()};
+}
+// 看板個股即時走勢（手機版看板點卡片）：每分鐘價量、當日均價線、所屬族群均價線、五檔、最近成交。
+// 盤中用當沖引擎的即時推播資料（逐筆、1 分 K、五檔）；沒有時（未訂閱、服務重啟後）改用時光機的每分鐘畫格。
+function intradayReport(id,groupId){
+  const date=today(),p=M(),e=dt?.date===date?dt.engine:null,q=e?.quote(id);
+  let day=null;const replay=()=>day??=loadDay(date);
+  const seriesOf=x=>{const b=e?.bars(x);if(b?.size)return{s:seriesFromBars(b,p),ref:e.quote(x)?.ref};const d=replay();return{s:seriesFromReplay(d,x,p),ref:replayRef(d,x,p)};};
+  const me=seriesOf(id),s=me.s,ref=q?.ref??me.ref??null;
+  const groups=researchScope.groups.filter(g=>g.stockIds.includes(id)),g=groups.find(x=>x.id===groupId)||groups[0]||null;
+  const members=g?g.stockIds.map(x=>x===id?me:seriesOf(x)).filter(x=>x.s.m.length):[];
+  const line=g&&members.length>=2?groupLine(s.m,members,ref):[];
+  const vw=vwapLine(s),last=q?.last??s.c.at(-1)??null,lim=ref>0?limitPrices(p,ref):null,book=q?.book||null,sum=a=>(a||[]).slice(0,5).reduce((n,l)=>n+(l.size||0),0);
+  const tape=(q?.tape||[]).slice().reverse().map(([t,px,size,side])=>[e.hmsOf(t),px,size,side]);
+  return{id,name:uniIndex().meta.get(id)?.name||id,date,source:q&&e.bars(id).size?'stream':s.m.length?'replay':null,live:liveWindow()&&streamFresh()&&!!q,open:p.open,close:p.close,ref,limitUp:lim?.up??null,limitDown:lim?.down??null,
+    quote:{last,change:ref>0&&last>0?Math.round((last/ref-1)*1e4)/100:null,changePrice:ref>0&&last>0?Math.round((last-ref)*1e4)/1e4:null,open:q?.open??s.c[0]??null,high:q?.high??(s.c.length?Math.max(...s.c):null),low:q?.low??(s.c.length?Math.min(...s.c):null),
+      volume:q?.cumVol||s.cv.at(-1)||0,vwap:q?.vwap??vw.at(-1)??null,lastSize:q?.tape?.at(-1)?.[2]??null,time:q?.lastAt?e.hmsOf(q.lastAt):s.m.length?`${String(Math.floor(s.m.at(-1)/60)).padStart(2,'0')}:${String(s.m.at(-1)%60).padStart(2,'0')}`:null,atAsk:q?.atAsk??null,atBid:q?.atBid??null},
+    minutes:{m:s.m,c:s.c,v:s.v,vwap:vw.map(x=>x==null?null:Math.round(x*1e4)/1e4),group:line},
+    group:g?{id:g.id,name:g.name,members:members.length,choices:groups.map(x=>({id:x.id,name:x.name}))}:null,
+    book:book?{bids:(book.bids||[]).slice(0,5),asks:(book.asks||[]).slice(0,5),bidTotal:sum(book.bids),askTotal:sum(book.asks),time:q.bookAt?e.hmsOf(q.bookAt):null}:null,tape};
 }
 function dtReview(){
   const dir=path.join(LOCAL,'daytrade');let files=[];try{files=fs.readdirSync(dir).filter(f=>/^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().slice(-60);}catch{}
@@ -1222,6 +1242,11 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/replay/frame'&&req.method==='GET'){
       const date=url.searchParams.get('date'),i=Number(url.searchParams.get('i'));const day=validHeatDate(date||'')?loadDay(date):null;
       const f=day?.frames[i];if(!f)throw new UserError('時光機畫格不存在');return json(res,200,{t:f.t,p:f.p,a:f.a});
+    }
+    if(route==='/api/intraday'&&req.method==='GET'){
+      const id=url.searchParams.get('id'),group=url.searchParams.get('group')||'';
+      if(!validId(id))throw new UserError('股票代碼格式錯誤');if(group&&!/^[\w-]{1,40}$/.test(group))throw new UserError('資料格式錯誤');
+      return json(res,200,intradayReport(id,group));
     }
     if(route==='/api/chart'&&req.method==='GET'){
       const id=url.searchParams.get('id'),period=url.searchParams.get('period')==='day'?'day':'5m';

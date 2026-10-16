@@ -1,6 +1,7 @@
 // 衡析 Pocket：盤中分頁（族群／自選即時看板、異動雷達、族群排名、雷達設定）、個股 K 線、熱浪時光機、個股籌碼深度、AI 盤後日報、推播訂閱。
 import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, rotationData, rotationSVG, replayStocks, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { tx } from './i18n.js';
+import { intradaySVG, readAt, legendHTML, bookHTML, tapeHTML } from './intraday.js';
 import * as MK from './market.js';
 
 let C = null; // { api, toast, draw, S, openSheet, openStock, inScope, aggregate, renderTreemap, heatColor, $ }
@@ -116,11 +117,11 @@ function boardView() {
     const ratio = q?.volume && q?.yesterdayVolume && elapsed(q.time) >= 5 ? q.volume / (elapsed(q.time) / MK.sessionLength()) / q.yesterdayVolume : null;
     // 外盤比（即時推播才有）：外盤成交量 ÷（內盤＋外盤），高代表買方積極
     const outer = q?.volumeAtAsk != null && q?.volumeAtBid != null && q.volumeAtAsk + q.volumeAtBid > 0 ? q.volumeAtAsk / (q.volumeAtAsk + q.volumeAtBid) * 100 : null;
-    return `<button class="lv-card ${cls(chg)}" data-kbar="${s.id}"><div class="lv-top"><b>${esc(s.name)}<small class="num">${s.id}</small></b>${s.score != null ? `<span class="score ${s.score >= 75 ? 'hi' : s.score >= 55 ? 'mid' : ''}">${fmt(s.score)}</span>` : ''}</div>
+    return `<button class="lv-card ${cls(chg)}" data-intra="${s.id}"><div class="lv-top"><b>${esc(s.name)}<small class="num">${s.id}</small></b>${s.score != null ? `<span class="score ${s.score >= 75 ? 'hi' : s.score >= 55 ? 'mid' : ''}">${fmt(s.score)}</span>` : ''}</div>
       <div class="lv-px"><span class="num big ${cls(chg)}">${fmt(price, 2)}</span><span class="chg num ${cls(chg)}">${pct(chg)}</span></div>
       ${sparkSVG(s.spark, s.prev, { xs: s.sparkX })}
       <div class="lv-meta num"><span>${q?.volume ? `${fmt(q.volume)} 張` : q?.time ? `收盤 ${q.time}` : s.daily?.asOf ? `日資料 ${s.daily.asOf.slice(5)}` : '—'}</span><span>${q?.amount ? `${yi(q.amount)} 億` : ''}</span><span class="${ratio >= 2 ? 'up' : ''}">${ratio ? `量比 ${fmt(ratio, 1)}` : ''}</span>${outer != null ? `<span class="${outer >= 60 ? 'up' : outer <= 40 ? 'down' : ''}">外盤 ${fmt(outer, 0)}%</span>` : ''}</div></button>`;
-  }).join('')}</div><p class="foot">${b.live ? (b.stream ? '即時推播（每 3 秒更新畫面）' : '盤中每 10 秒更新') : b.date ? `顯示 ${esc(b.date)} 最後狀態` : '開盤後自動顯示即時報價'} · 點卡片看日 K／5 分 K<br>族群旁的數字為量能加權漲幅（與「族群排名」同算法）</p>`;
+  }).join('')}</div><p class="foot">${b.live ? (b.stream ? '即時推播（每 3 秒更新畫面）' : '盤中每 10 秒更新') : b.date ? `顯示 ${esc(b.date)} 最後狀態` : '開盤後自動顯示即時報價'} · 點卡片看即時走勢（均價線、族群均價線）、五檔與日 K／5 分 K<br>族群旁的數字為量能加權漲幅（與「族群排名」同算法）</p>`;
 }
 function radarView() {
   const p = L.push, list = L.alerts.filter(a => alertMatch(a, L.group)).slice().reverse();
@@ -162,22 +163,29 @@ function settingsView() {
     <p class="foot">雷達在電腦上的衡析 Nexus 執行；手機關閉時仍會掃描並推播。</p>`;
 }
 /* ---------- 個股 K 線：日 K／5 分 K（5MA、20MA），盤中每 10 秒更新即時報價與 K 線 ---------- */
-const K = { id: null, period: pref('pocket.chartPeriod', '5m') === 'day' ? 'day' : '5m', data: null, error: '', seq: 0 };
+const K = { id: null, period: ['day', 'live'].includes(pref('pocket.chartPeriod', '5m')) ? pref('pocket.chartPeriod', '5m') : '5m', data: null, error: '', seq: 0, group: '', sub: pref('pocket.intraView', 'book'), live: null };
 const chartShown = id => sheetOpen() && !!C.$(`#sheet-body [data-chart="${id}"]`);
-async function openChart(id, period = K.period) {
-  if (K.id !== id) { K.data = null; K.error = ''; }
+async function openChart(id, period = K.period, group = K.group) {
+  if (K.id !== id) { K.data = null; K.live = null; K.error = ''; }
+  K.group = group || '';
   const shown = chartShown(id); K.id = id; K.period = period; savePref('pocket.chartPeriod', period);
   if (!shown) C.openSheet(L.board?.stocks.find(x => x.id === id)?.name || id, '');
   paintChart(); await refreshChart();
 }
 async function refreshChart() {
   const id = K.id, period = K.period, seq = ++K.seq;
-  try { const d = await C.api(`api/chart?id=${id}&period=${period}`); if (seq !== K.seq) return; K.data = d; K.error = ''; }
+  try {
+    if (period === 'live') { const d = await C.api(`api/intraday?id=${id}${K.group ? '&group=' + encodeURIComponent(K.group) : ''}`); if (seq !== K.seq) return; K.live = d; K.error = ''; }
+    else { const d = await C.api(`api/chart?id=${id}&period=${period}`); if (seq !== K.seq) return; K.data = d; K.error = ''; }
+  }
   catch (e) { if (seq !== K.seq || e.silent) return; K.error = e.message; }
   if (chartShown(id)) paintChart();
 }
-setInterval(() => { if (C && K.id && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+setInterval(() => { if (C && K.id && K.period !== 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+// 即時走勢每 3 秒更新（盤中、畫面開著時）
+setInterval(() => { if (C && K.id && K.period === 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 3000);
 function paintChart() {
+  if (K.period === 'live') return paintIntraday();
   const id = K.id, d = K.data?.id === id ? K.data : null, s = L.board?.stocks.find(x => x.id === id), body = C.$('#sheet-body');
   const ready = d && d.period === K.period, q = d?.quote ?? s?.quote, dayBar = d?.session || null;
   const price = q?.close ?? dayBar?.[4] ?? d?.daily?.price ?? s?.daily?.price, chg = q?.change ?? d?.daily?.change ?? s?.daily?.change;
@@ -191,10 +199,40 @@ function paintChart() {
   body.innerHTML = `<div data-chart="${id}"><div class="hero"><div><div class="big num ${cls(chg)}">${fmt(price, 2)}</div><div class="num ${cls(chg)}" style="font-weight:700">${pct(chg)}${q?.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</div>
     <div class="meta num">開 ${fmt(info[0], 2)} · 高 ${fmt(info[1], 2)} · 低 ${fmt(info[2], 2)}<br>${q?.volume ? `成交 ${fmt(q.volume)} 張` : dayBar ? `成交 ${fmt(dayBar[5])} 張` : ''}${q?.amount ? ` · ${yi(q.amount)} 億` : ''}${q?.bid ? ` · 委買 ${fmt(q.bid, 2)}／委賣 ${fmt(q.ask, 2)}` : ''}</div></div></div>
     <div class="statusline">${live ? `<span class="pill"><span class="dot live"></span>盤中 · 每 10 秒更新 ${esc(q?.time || '')}</span>` : q?.date ? `<span class="pill">${md(q.date)} ${esc(q.time || '')}</span>` : ''}</div>
-    <div class="seg" style="margin-bottom:10px">${[['day', '日K'], ['5m', '5分K']].map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
+    <div class="seg" style="margin-bottom:10px">${PERIODS.map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
     <section class="card"><div class="card-b">${chart}${caption ? `<p class="ix-foot">${caption}</p>` : ''}</div></section>
     <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div>${rulesCard({ id, name: d?.name || s?.name || id, close: price })}</div>`;
 }
+
+const PERIODS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K']];
+// 即時走勢：全日走勢圖（價格、當日均價線、族群均價線、每分鐘量）＋五檔／成交明細
+function paintIntraday() {
+  const id = K.id, d = K.live?.id === id ? K.live : null, s = L.board?.stocks.find(x => x.id === id), body = C.$('#sheet-body'); if (!body) return;
+  const q = d?.quote || {}, price = q.last ?? s?.quote?.close, chg = q.change ?? s?.quote?.change;
+  const w = Math.round(Math.max(300, Math.min(900, (body.clientWidth || 360) - 30))), h = Math.round(Math.min(420, Math.max(260, w * .8)));
+  const chart = K.error && !d ? `<div class="notice err">${esc(K.error)}</div>` : d ? intradaySVG(d, { w, h }) : '<div class="empty"><span class="spinner"></span> 讀取走勢…</div>';
+  const live = d?.live && marketOpen(), g = d?.group;
+  C.$('#sheet-title').innerHTML = `${esc(d?.name || s?.name || id)}<small>${id}${g ? ' · ' + esc(g.name) : ''}</small>`;
+  body.innerHTML = `<div data-chart="${id}"><div class="hero"><div><div class="big num ${cls(chg)}">${fmt(price, 2)}</div><div class="num ${cls(chg)}" style="font-weight:700">${pct(chg)}${q.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</div>
+    <div class="meta num">開 ${fmt(q.open, 2)} · 高 ${fmt(q.high, 2)} · 低 ${fmt(q.low, 2)}<br>總量 ${fmt(q.volume)} 張${q.lastSize != null ? ` · 單量 ${fmt(q.lastSize)}` : ''} · 均價 <span class="amber">${fmt(q.vwap, 2)}</span></div></div></div>
+    <div class="statusline">${live ? `<span class="pill"><span class="dot live"></span>即時推播 · 每 3 秒更新 ${esc(q.time || '')}</span>` : d?.source === 'replay' ? `<span class="pill">每分鐘快照 ${esc(q.time || '')}</span>` : d?.date ? `<span class="pill">${md(d.date)} ${esc(q.time || '')}</span>` : ''}</div>
+    <div class="seg" style="margin-bottom:10px">${PERIODS.map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
+    <section class="card"><div class="card-b">${d ? legendHTML(d) : ''}${chart}<p class="ix-foot" id="ia-read">${d?.minutes?.m?.length ? '按住或拖曳圖表查看每分鐘價格、均價與族群均價' : ''}</p>
+      ${g?.choices?.length > 1 ? `<div class="seg ia-groups">${g.choices.map(x => `<button class="${x.id === g.id ? 'on' : ''}" data-igroup="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div>` : ''}
+      <p class="ix-foot">均價＝當日累計成交金額 ÷ 累計成交量；族群均價＝所屬族群各股均價相對參考價的漲跌幅，以成交金額加權後換算到本股價位，股價在其上代表強於族群平均持有成本。</p></div></section>
+    <div class="seg" style="margin:10px 0">${[['book', '五檔'], ['tape', '成交明細']].map(([v, l]) => `<button class="${K.sub === v ? 'on' : ''}" data-iview="${v}">${l}</button>`).join('')}</div>
+    <section class="card"><div class="card-b">${!d ? '' : K.sub === 'tape' ? tapeHTML(d) : bookHTML(d)}</div></section>
+    <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div></div>`;
+}
+// 走勢圖十字線：按住或拖曳時顯示該分鐘數值
+function intraPointer(e) {
+  const hit = e.target.closest?.('[data-intra-hit]'); if (!hit || !K.live) return;
+  const svg = hit.ownerSVGElement, [x0, x1] = hit.dataset.intraHit.split(',').map(Number), box = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+  const x = (e.clientX - box.left) / box.width * vb.width, frac = Math.min(1, Math.max(0, (x - x0) / (x1 - x0)));
+  const cross = svg.querySelector('.ia-cross'); if (cross) { cross.setAttribute('x1', x0 + frac * (x1 - x0)); cross.setAttribute('x2', x0 + frac * (x1 - x0)); cross.setAttribute('visibility', 'visible'); }
+  const out = C.$('#ia-read'); if (out) out.innerHTML = readAt(K.live, frac);
+}
+document.addEventListener('pointerdown', intraPointer); document.addEventListener('pointermove', e => { if (e.buttons || e.pointerType === 'mouse') intraPointer(e); });
 
 /* ---------- 設定（☰）：新聞推播 ---------- */
 const hhmmss = ms => MK.parts(ms).hm;
@@ -319,7 +357,10 @@ document.addEventListener('click', async e => {
     if ('grQuery' in ds) { GR.view = 'live'; return queryGroupRank(); }
     if (ds.grGroup) { GR.open.has(ds.grGroup) ? GR.open.delete(ds.grGroup) : GR.open.add(ds.grGroup); return C.draw(); }
     if (ds.grStock) return C.inScope(ds.grStock) ? C.openStock(ds.grStock) : openChart(ds.grStock);
+    if (ds.intra) return openChart(ds.intra, 'live', L.board?.group && L.board.group !== 'watch' ? L.board.group : '');
     if (ds.kbar) return openChart(ds.kbar);
+    if (ds.iview) { K.sub = ds.iview; savePref('pocket.intraView', ds.iview); return paintIntraday(); }
+    if (ds.igroup) { K.group = ds.igroup; return refreshChart(); }
     if (ds.cperiod) return openChart(K.id, ds.cperiod);
     if ('chartRefresh' in ds) { b.disabled = true; try { await refreshChart(); } finally { b.disabled = false; } return; }
     if (ds.bgroup) {

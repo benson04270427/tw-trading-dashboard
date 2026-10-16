@@ -63,6 +63,7 @@ export const replayDays = () => call('replay/days');
 export const replay = date => call('replay?' + qs({ date }), { timeout: 30000 });
 export const replayFrame = (date, i) => call('replay/frame?' + qs({ date, i }));
 export const chart = (id, period) => call('chart?' + qs({ id, period }), { timeout: 60000 });
+export const intraday = (id, group) => call('intraday?' + qs({ id, group: group || undefined }), { timeout: 15000 });
 export const brokers = (id, days) => call('brokers?' + qs({ id, days }), { timeout: 120000 });
 export const holders = id => call('holders?' + qs({ id }), { timeout: 60000 });
 export const report = date => call('report?' + qs({ date }));
