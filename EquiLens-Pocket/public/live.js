@@ -166,6 +166,7 @@ function settingsView() {
 const K = { id: null, period: ['day', 'live'].includes(pref('pocket.chartPeriod', '5m')) ? pref('pocket.chartPeriod', '5m') : '5m', data: null, error: '', seq: 0, group: '', sub: pref('pocket.intraView', 'book'), live: null };
 const chartShown = id => sheetOpen() && !!C.$(`#sheet-body [data-chart="${id}"]`);
 async function openChart(id, period = K.period, group = K.group) {
+  IX.id = null; if (C.S) C.S.sheetStock = null; // 換成走勢視窗後，背景更新不再把它換回個股診斷
   if (K.id !== id) { K.data = null; K.live = null; K.error = ''; }
   K.group = group || '';
   const shown = chartShown(id); K.id = id; K.period = period; savePref('pocket.chartPeriod', period);
@@ -201,9 +202,45 @@ function paintChart() {
     <div class="statusline">${live ? `<span class="pill"><span class="dot live"></span>盤中 · 每 10 秒更新 ${esc(q?.time || '')}</span>` : q?.date ? `<span class="pill">${md(q.date)} ${esc(q.time || '')}</span>` : ''}</div>
     <div class="seg" style="margin-bottom:10px">${PERIODS.map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
     <section class="card"><div class="card-b">${chart}${caption ? `<p class="ix-foot">${caption}</p>` : ''}</div></section>
-    <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div>${rulesCard({ id, name: d?.name || s?.name || id, close: price })}</div>`;
+    <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock-detail="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div>${rulesCard({ id, name: d?.name || s?.name || id, close: price })}</div>`;
 }
 
+/* ---------- 任何介面點個股：開啟走勢＋K 線＋五檔／明細（同一個視窗） ---------- */
+export function openQuote(id, group = '') { return openChart(id, 'live', group || (L.board?.stocks.some(x => x.id === id) && L.board.group !== 'watch' ? L.board.group : '')); }
+/* ---------- 指數詳細資訊（加權指數、櫃買指數）：走勢、日 K、成交金額、委買賣、漲跌家數 ---------- */
+const IX = { id: null, period: 'live', data: null, error: '', seq: 0 };
+const indexShown = () => sheetOpen() && !!C.$('#sheet-body [data-index-view]');
+export async function openIndex(id, period = IX.period) {
+  if (IX.id !== id) { IX.data = null; IX.error = ''; }
+  IX.id = id; IX.period = period; K.id = null;
+  if (!indexShown()) C.openSheet(id === 'TPEX' ? '櫃買指數' : '加權指數', '');
+  paintIndex(); await refreshIndex();
+}
+async function refreshIndex() {
+  const id = IX.id, seq = ++IX.seq;
+  try { const d = await C.api(`api/index?id=${id}`); if (seq !== IX.seq) return; IX.data = d; IX.error = ''; } catch (e) { if (seq !== IX.seq || e.silent) return; IX.error = e.message; }
+  if (indexShown()) paintIndex();
+}
+setInterval(() => { if (C && IX.id && marketOpen() && !document.hidden && indexShown()) refreshIndex(); }, 10000);
+function paintIndex() {
+  const d = IX.data?.id === IX.id ? IX.data : null, body = C.$('#sheet-body'); if (!body) return;
+  const q = d?.quote || {}, chg = q.change, b = d?.breadth, w = Math.round(Math.max(300, Math.min(900, (body.clientWidth || 360) - 30))), h = Math.round(Math.min(420, Math.max(260, w * .8)));
+  const chart = IX.error && !d ? `<div class="notice err">${esc(IX.error)}</div>` : !d ? '<div class="empty"><span class="spinner"></span> 讀取中…</div>'
+    : IX.period === 'day' ? (d.daily?.length ? candleSVG(d.daily.map(r => [r[0], r[1], r[2], r[3], r[4], Math.round(r[5] / 1e8)]), { w, h, show: Math.round(w / 6), period: 'day', key: d.id + 'day' }) : '<div class="empty">尚無日 K 資料（需要富果金鑰）。</div>')
+    : intradaySVG(d, { w, h });
+  const kv = (k, v) => `<div class="kpi"><span>${k}</span><b class="num">${v}</b></div>`;
+  C.$('#sheet-title').innerHTML = `${esc(d?.name || (IX.id === 'TPEX' ? '櫃買指數' : '加權指數'))}<small>${esc(d?.symbol || '')}</small>`;
+  body.innerHTML = `<div data-index-view="${IX.id}"><div class="hero"><div><div class="big num ${cls(chg)}">${fmt(q.last, 2)}</div><div class="num ${cls(chg)}" style="font-weight:700">${pct(chg)}${q.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</div>
+    <div class="meta num">開 ${fmt(q.open, 2)} · 高 ${fmt(q.high, 2)} · 低 ${fmt(q.low, 2)} · 昨收 ${fmt(d?.ref, 2)}</div></div></div>
+    <div class="statusline">${d?.live && marketOpen() ? `<span class="pill"><span class="dot live"></span>盤中 · 每 10 秒更新 ${esc(q.time || '')}</span>` : d?.date ? `<span class="pill">${md(d.date)} ${esc(q.time || '')}</span>` : ''}</div>
+    <div class="seg" style="margin-bottom:10px">${[['live', '走勢'], ['day', '日K']].map(([v, l]) => `<button class="${IX.period === v ? 'on' : ''}" data-ixperiod="${v}">${l}</button>`).join('')}</div>
+    <section class="card"><div class="card-b">${chart}${IX.period === 'live' ? '<p class="ix-foot" id="ia-read">按住或拖曳圖表查看每分鐘指數與成交金額</p>' : ''}<p class="ix-foot">${IX.period === 'day' ? '日 K（量為成交金額，億元）' : '走勢下方為每分鐘成交金額（億元）'}</p></div></section>
+    <section class="card"><div class="card-b"><div class="kpis">${kv('成交金額', q.amount ? `${yi(q.amount)}<small>億</small>` : '—')}${kv('成交筆數', q.transactions ? fmt(q.transactions) : '—')}${kv('委買張數', q.bidVolume ? fmt(q.bidVolume) : '—')}${kv('委賣張數', q.askVolume ? fmt(q.askVolume) : '—')}</div>
+      ${b ? `<div class="kpis" style="margin-top:8px">${kv('上漲／下跌', `<span class="up">${fmt(b.up)}</span> <small>/</small> <span class="down">${fmt(b.down)}</span>`)}${kv('平盤', fmt(b.flat))}${kv('漲停／跌停', `<span class="up">${fmt(b.limitUp)}</span> <small>/</small> <span class="down">${fmt(b.limitDown)}</span>`)}${kv('普通股家數', fmt(b.count))}</div>
+      <div class="breadth" style="margin-top:8px"><i class="u" style="width:${b.up / ((b.up + b.down) || 1) * 100}%"></i><i class="d" style="flex:1"></i></div>` : ''}
+      <p class="ix-foot">${IX.id === 'TPEX' ? '上櫃' : '上市'}普通股漲跌家數來自資金熱浪（${esc(b?.date || '—')}）；指數與成交資料來自富果。</p></div></section>
+    <div class="upd-row"><span></span><button class="btn" data-ixrefresh>⟳ 重新整理</button></div></div>`;
+}
 const PERIODS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K']];
 // 即時走勢：全日走勢圖（價格、當日均價線、族群均價線、每分鐘量）＋五檔／成交明細
 function paintIntraday() {
@@ -222,15 +259,15 @@ function paintIntraday() {
       <p class="ix-foot">均價＝當日累計成交金額 ÷ 累計成交量；族群均價＝所屬族群各股均價相對參考價的漲跌幅，以成交金額加權後換算到本股價位，股價在其上代表強於族群平均持有成本。</p></div></section>
     <div class="seg" style="margin:10px 0">${[['book', '五檔'], ['tape', '成交明細']].map(([v, l]) => `<button class="${K.sub === v ? 'on' : ''}" data-iview="${v}">${l}</button>`).join('')}</div>
     <section class="card"><div class="card-b">${!d ? '' : K.sub === 'tape' ? tapeHTML(d) : bookHTML(d)}</div></section>
-    <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div></div>`;
+    <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock-detail="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div></div>`;
 }
 // 走勢圖十字線：按住或拖曳時顯示該分鐘數值
 function intraPointer(e) {
-  const hit = e.target.closest?.('[data-intra-hit]'); if (!hit || !K.live) return;
+  const hit = e.target.closest?.('[data-intra-hit]'), data = C?.$('#sheet-body [data-index-view]') ? IX.data : K.live; if (!hit || !data) return;
   const svg = hit.ownerSVGElement, [x0, x1] = hit.dataset.intraHit.split(',').map(Number), box = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
   const x = (e.clientX - box.left) / box.width * vb.width, frac = Math.min(1, Math.max(0, (x - x0) / (x1 - x0)));
   const cross = svg.querySelector('.ia-cross'); if (cross) { cross.setAttribute('x1', x0 + frac * (x1 - x0)); cross.setAttribute('x2', x0 + frac * (x1 - x0)); cross.setAttribute('visibility', 'visible'); }
-  const out = C.$('#ia-read'); if (out) out.innerHTML = readAt(K.live, frac);
+  const out = C.$('#ia-read'); if (out) out.innerHTML = readAt(data, frac);
 }
 document.addEventListener('pointerdown', intraPointer); document.addEventListener('pointermove', e => { if (e.buttons || e.pointerType === 'mouse') intraPointer(e); });
 
@@ -356,9 +393,11 @@ document.addEventListener('click', async e => {
     if ('dtreview' in ds) { await loadDtReview(); return C.draw(); }
     if ('grQuery' in ds) { GR.view = 'live'; return queryGroupRank(); }
     if (ds.grGroup) { GR.open.has(ds.grGroup) ? GR.open.delete(ds.grGroup) : GR.open.add(ds.grGroup); return C.draw(); }
-    if (ds.grStock) return C.inScope(ds.grStock) ? C.openStock(ds.grStock) : openChart(ds.grStock);
+    if (ds.grStock) return openQuote(ds.grStock, ds.grGroupId || '');
     if (ds.intra) return openChart(ds.intra, 'live', L.board?.group && L.board.group !== 'watch' ? L.board.group : '');
-    if (ds.kbar) return openChart(ds.kbar);
+    if (ds.kbar) return openQuote(ds.kbar);
+    if (ds.ixperiod) { IX.period = ds.ixperiod; return paintIndex(); }
+    if ('ixrefresh' in ds) { b.disabled = true; try { await refreshIndex(); } finally { b.disabled = false; } return; }
     if (ds.iview) { K.sub = ds.iview; savePref('pocket.intraView', ds.iview); return paintIntraday(); }
     if (ds.igroup) { K.group = ds.igroup; return refreshChart(); }
     if (ds.cperiod) return openChart(K.id, ds.cperiod);
@@ -371,7 +410,7 @@ document.addEventListener('click', async e => {
     if (ds.bsort) { L.bsort = ds.bsort; savePref('pocket.boardSort', ds.bsort); return redrawLive(); }
     if (ds.npushScope) { if (ds.npushScope !== L.monitor?.news?.scope) await saveNews({ scope: ds.npushScope }); return; }
     if (ds.agroup) { L.group = ds.agroup; return C.draw(); }
-    if (ds.alertStock) { const id = ds.alertStock; return C.inScope(id) ? C.openStock(id) : openChart(id); }
+    if (ds.alertStock) return openQuote(ds.alertStock);
     if ('openReport' in ds) { C.setTab('brief'); return; }
     if (ds.openChips) { C.openChips(ds.openChips === 'holders' ? 'holders' : 'brokers'); return; }
     if (ds.paDel) { if (!confirm(tx('刪除這則提醒？'))) return; L.rules = await C.api('api/price-alerts/delete', { id: ds.paDel }); paintRules(); return C.toast('已刪除提醒'); }

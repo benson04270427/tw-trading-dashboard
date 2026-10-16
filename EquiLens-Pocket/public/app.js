@@ -1,7 +1,7 @@
 import { aggregate, renderTreemap, heatColor } from './heatmap.js';
 import { renderFlowCards, downloadFlowCard } from './flow-cards.js';
 import { initChips, loadChips, brokersView, holdersView } from './chips.js';
-import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard } from './live.js';
+import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard, openQuote, openIndex } from './live.js';
 import { setLanguage, getLanguage, tx } from './i18n.js';
 import * as MK from './market.js';
 
@@ -168,7 +168,7 @@ function briefNews() {
     ${items.length ? `<div class="bf-chips" role="group" aria-label="新聞分類">${BSEC.filter(([k]) => cnt(k)).map(([k, l]) => `<button class="${B.section === k ? 'on' : ''}" data-bsec="${k}">${l}<b>${cnt(k)}</b></button>`).join('')}</div>` : ''}</div>`;
   if (!n) return `<section class="card">${head}${ctrl}${loadingBox()}</section>`;
   const body = list.slice(0, B.limit).map(i => {
-    const tw = i.tw.map(id => { const s = S.stocks?.stocks.find(x => x.id === id); return s ? `<button class="bf-chip in" data-stock="${esc(id)}">${esc(s.name)} ${esc(id)}</button>` : `<span class="bf-chip">${esc(id)}</span>`; });
+    const tw = i.tw.map(id => { const s = S.stocks?.stocks.find(x => x.id === id); return s ? `<button class="bf-chip in" data-stock="${esc(id)}">${esc(s.name)} ${esc(id)}</button>` : `<button class="bf-chip" data-stock="${esc(id)}">${esc(id)}</button>`; });
     const us = i.us.map(u => `<span class="bf-chip us">${esc(u.name)}</span>`);
     return `<article class="bf-item ${i.must ? 'must' : ''}"><div class="bf-meta"><span class="num">${tmdhm(i.time)}</span><span class="bf-cat">${esc(i.category)}</span>${i.must ? '<span class="bf-must">必讀</span>' : ''}</div>
     <a class="bf-title" href="${esc(i.url)}" target="_blank" rel="noopener noreferrer">${esc(i.title)}</a>${i.summary ? `<p class="bf-sum">${esc(i.summary)}</p>` : ''}${tw.length || us.length ? `<div class="bf-tags">${[...tw, ...us].join('')}</div>` : ''}</article>`;
@@ -199,8 +199,10 @@ function homePage() {
   const h = d.heat, f = d.flows;
   const status = `<div class="statusline"><span class="pill"><span class="dot ${mk}"></span>${ml}</span><span class="pill">行情 ${d.dataDate || '未更新'}</span></div>${S.job?.running ? '' : updBtns(d.watch.length, S.stocks?.stocks.length)}`;
   const stale = d.dataDate && (Date.parse(twToday()) - Date.parse(d.dataDate)) / 864e5 > 4 ? `<div class="notice warn">研究名單行情停在 ${d.dataDate}，可按上方「更新研究名單」。</div>` : '';
+  const ix = d.index, ixCard = (id, name, r) => `<button class="kpi ix-card" data-index="${id}"><span>${name} ›</span><b class="num ${cls(r?.change)}">${r?.close == null ? '—' : fmt(r.close, 2)}</b><em class="num ${cls(r?.change)}">${r?.change == null ? '' : `${r.change > 0 ? '+' : ''}${fmt(r.change, 2)}（${pct(r.pct)}）`}</em></button>`;
+  const index = `<section class="card"><div class="card-h"><h2>大盤指數<small>${ix?.date ? `${ix.date.slice(5)} ${esc(ix.twse?.time || '')}` : ''}</small></h2></div><div class="kpis">${ixCard('TAIEX', '加權指數', ix?.twse)}${ixCard('TPEX', '櫃買指數', ix?.tpex)}</div><p class="ix-foot" style="padding:0 14px 10px">點指數卡看走勢、日 K、成交金額與漲跌家數</p></section>`;
   const heat = h ? `<section class="card"><div class="card-h"><h2>資金熱浪<small>${h.date}</small></h2><button class="more" data-go="heat">熱浪圖 ›</button></div>
-    <div class="kpis"><div class="kpi"><span>總成交金額</span><b class="num">${yi(h.total.money)}<small>億</small></b></div><div class="kpi"><span>加權漲跌</span><b class="num ${cls(h.total.change)}">${pct(h.total.change)}</b></div><div class="kpi"><span>上漲／下跌</span><b class="num"><span class="up">${fmt(h.total.up)}</span> <small>/</small> <span class="down">${fmt(h.total.down)}</span></b><div class="breadth"><i class="u" style="width:${h.total.up / ((h.total.up + h.total.down) || 1) * 100}%"></i><i class="d" style="flex:1"></i></div></div><div class="kpi"><span>漲停家數</span><b class="num up">${fmt(h.total.limitUp)}</b></div></div>
+    <div class="kpis"><div class="kpi"><span>總成交金額</span><b class="num">${yi(h.total.money)}<small>億</small></b></div><div class="kpi"><span>成交加權漲跌</span><b class="num ${cls(h.total.change)}">${pct(h.total.change)}</b><em>各股漲跌依成交金額加權，非加權指數</em></div><div class="kpi"><span>上漲／下跌</span><b class="num"><span class="up">${fmt(h.total.up)}</span> <small>/</small> <span class="down">${fmt(h.total.down)}</span></b><div class="breadth"><i class="u" style="width:${h.total.up / ((h.total.up + h.total.down) || 1) * 100}%"></i><i class="d" style="flex:1"></i></div></div><div class="kpi"><span>漲停家數</span><b class="num up">${fmt(h.total.limitUp)}</b></div></div>
     <div class="bars">${h.top.map(s => barRow(s.name, `<span class="${cls(s.change)}">${pct(s.change)}</span>`, s.share / (h.top[0].share || 1) * 100, `<span>成交占比 ${fmt(s.share, 1)}%</span><span class="${cls(s.moneyChange)}">${s.moneyChange == null ? '' : '量能 ' + pct(s.moneyChange, 0)}</span>`, `data-go="heat" data-focus="${esc(s.name)}"`)).join('')}</div></section>`
     : `<section class="card"><div class="card-h"><h2>資金熱浪</h2><button class="more" data-go="heat">查詢 ›</button></div><div class="empty">尚無熱浪圖紀錄，進入熱浪頁即可查詢。</div></section>`;
   const call = f?.options?.positions?.find(r => r.investor === '外資' && r.side === '買權'), put = f?.options?.positions?.find(r => r.investor === '外資' && r.side === '賣權');
@@ -212,7 +214,7 @@ function homePage() {
   const movers = d.movers.length ? `<section class="card"><div class="card-h"><h2>研究名單漲跌</h2></div><div class="card-b"><div class="seg" role="group"><button class="${S.moverSide === 'up' ? 'on' : ''}" data-mover="up">漲幅前 5</button><button class="${S.moverSide === 'down' ? 'on' : ''}" data-mover="down">跌幅前 5</button></div></div><div class="list">${(S.moverSide === 'up' ? d.movers.slice(0, 5) : d.movers.slice(-5).reverse()).map(s => stockRow(s)).join('')}</div></section>` : '';
   const pats = `<section class="card"><div class="card-h"><h2>型態新訊號<small>${d.patternMeta?.asOf || ''}</small></h2><button class="more" data-go="patterns">全部 ›</button></div>${d.patterns.map(patCard).join('') || '<div class="empty">目前沒有量價確認或待確認的突破。</div>'}</section>`;
   const groups = d.groups.length ? `<section class="card"><div class="card-h"><h2>族群強弱</h2></div><div class="bars">${d.groups.map(g => barRow(g.name, fmt(g.score), g.score, `<span>站上季線 ${fmt(g.breadth)}%</span><span>營收年增 <span class="${cls(g.growth)}">${pct(g.growth, 1)}</span></span>`, `data-group="${esc(g.id)}"`)).join('')}</div></section>` : '';
-  return `${status}${errBox()}${stale}${heat}${flows}${watch}${movers}${pats}${groups}<div class="foot">資料經由電腦上的衡析 Nexus<br>研究資訊，非交易建議 · <button class="more" style="min-height:32px;font-size:.78rem" id="logout">登出這台裝置</button></div>`;
+  return `${status}${errBox()}${stale}${index}${heat}${flows}${watch}${movers}${pats}${groups}<div class="foot">資料經由電腦上的衡析 Nexus<br>研究資訊，非交易建議 · <button class="more" style="min-height:32px;font-size:.78rem" id="logout">登出這台裝置</button></div>`;
 }
 
 /* ---------- stocks ---------- */
@@ -295,7 +297,7 @@ async function openStock(id) {
     $('#sheet-title').innerHTML = `${esc(s.name)}<small>${s.id} · ${esc(s.market)}</small>`;
     $('#sheet-body').innerHTML = `<div class="hero"><div><div class="big num ${cls(s.change)}">${fmt(s.price, 2)}</div><div class="num ${cls(s.change)}" style="font-weight:700">${pct(s.change)}</div><div class="meta">${s.asOf || '未更新'} · 成交 ${fmt(s.volume)} 張<br>${esc(s.groups.join('、') || s.sector)}</div></div>
       <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="ring"><svg viewBox="0 0 74 74"><circle cx="37" cy="37" r="31" stroke="var(--line)" stroke-width="7" fill="none"/><circle cx="37" cy="37" r="31" stroke="${val >= 75 ? 'var(--amber)' : 'var(--accent)'}" stroke-width="7" fill="none" ${val > 0 ? 'stroke-linecap="round"' : ''} stroke-dasharray="${ringC * val / 100} ${ringC}"/></svg><b class="num">${s.score == null ? '—' : fmt(s.score)}</b></div><span class="pill">${esc(s.rating)}</span></div></div>
-      <div class="field" style="margin-bottom:12px">${watchSel(s.id, s.name)}</div>
+      <div class="field" style="margin-bottom:12px">${watchSel(s.id, s.name)}<button class="btn" data-stock="${s.id}" style="margin-left:8px">走勢／五檔 ›</button></div>
       <div class="upd-row" style="margin-bottom:12px"><button class="btn" data-upd-stock="${s.id}">⟳ 更新此股資料</button><button class="btn" data-news="${s.id}">📰 取得近三日新聞</button></div>
       <section class="card"><div class="card-h"><h2>四維評分<small>有效權重 ${s.coverage}%</small></h2></div><div class="card-b">${s.factors.map((f, i) => `<div class="factor"><span>${FACTORS[i][1]} <small class="soft">${s.weights?.[f.key] ?? ''}%</small></span><span class="track"><i style="width:${f.score ?? 0}%"></i></span><b class="num">${f.score == null ? '—' : fmt(f.score)}</b></div>`).join('')}</div></section>
       <section class="card"><div class="card-h"><h2>近 90 日 K 線</h2></div><div class="card-b">${kline(s.bars)}<div class="chart-tip num" id="ktip">按住圖表查看每日價格</div><div class="legend"><span style="color:var(--amber)">━ MA20 ${fmt(s.tech.ma20, 1)}</span><span style="color:var(--violet)">━ MA60 ${fmt(s.tech.ma60, 1)}</span><span>還原價格</span></div></div></section>
@@ -366,7 +368,7 @@ function heatPage() {
     <div class="hm-bar">${focus ? `<button class="btn" data-hback style="min-height:36px;padding:0 12px">‹ 全市場</button>` : ''}<span class="crumb">${focus ? `${esc(focus.name)} <span class="${cls(focus.change)} num">${pct(focus.change)}</span> <small class="soft">${yi(focus.money)} 億 · ${focus.count} 檔</small>` : `${a.sectors.length} 個板塊 <small class="soft">· 點板塊標題放大</small>`}</span></div>
     <div class="hm-wrap"><div id="hm" role="img" aria-label="資金板塊熱浪圖"></div></div>
     <div class="hm-legend">${[-7, -5, -3, -1, 0, 1, 3, 5, 7].map(v => `<span style="background:${heatColor(v)}">${v > 0 ? '+' : ''}${v}</span>`).join('')}</div>
-    ${sel ? `<div class="hm-pick"><span class="nm">${esc(sel.name)}<small>${sel.id} · ${esc(sel.market)}</small></span><span class="num ${cls(sel.change)}" style="font-weight:800;font-size:1.1rem;text-align:right">${fmt(sel.close, 2)}<br><small>${pct(sel.change)}</small></span><span class="sub">${esc(sel.sector)} · 成交 ${yi(sel.money)} 億${sel.prevMoney ? ` · 量能 ${pct((sel.money / sel.prevMoney - 1) * 100, 0)}` : ''}</span><span></span><div class="acts"><button class="btn" data-hclose aria-label="關閉" style="flex:0 0 44px;padding:0">✕</button>${inScope(sel.id) ? `<button class="btn primary" data-stock="${sel.id}">個股診斷</button>` : ''}<button class="btn" data-hsec="${esc(sel.sector)}">放大 ${esc(sel.sector)}</button></div></div>` : ''}
+    ${sel ? `<div class="hm-pick"><span class="nm">${esc(sel.name)}<small>${sel.id} · ${esc(sel.market)}</small></span><span class="num ${cls(sel.change)}" style="font-weight:800;font-size:1.1rem;text-align:right">${fmt(sel.close, 2)}<br><small>${pct(sel.change)}</small></span><span class="sub">${esc(sel.sector)} · 成交 ${yi(sel.money)} 億${sel.prevMoney ? ` · 量能 ${pct((sel.money / sel.prevMoney - 1) * 100, 0)}` : ''}</span><span></span><div class="acts"><button class="btn" data-hclose aria-label="關閉" style="flex:0 0 44px;padding:0">✕</button><button class="btn primary" data-stock="${sel.id}">走勢／五檔</button>${inScope(sel.id) ? `<button class="btn" data-stock-detail="${sel.id}">個股診斷</button>` : ''}<button class="btn" data-hsec="${esc(sel.sector)}">放大 ${esc(sel.sector)}</button></div></div>` : ''}
     <section class="card" style="margin-top:10px"><div class="card-h"><h2>板塊資金排行</h2></div><div class="bars">${a.sectors.slice(0, 30).map(s => barRow(s.name, `<span class="${cls(s.change)}">${pct(s.change)}</span>`, s.money / a.sectors[0].money * 100, `<span>${yi(s.money)} 億 · ${fmt(s.share, 1)}% · <span class="up">${s.up}</span>/<span class="down">${s.down}</span></span><span class="${cls(s.moneyChange)}">${s.moneyChange == null ? '' : '量能 ' + pct(s.moneyChange, 0)}</span>`, `data-hsec="${esc(s.name)}"`)).join('')}</div></section>
     ${H.dates.length > 1 ? `<div class="field" style="margin-bottom:12px"><select class="sel" id="heat-cached" style="flex:1" aria-label="歷史紀錄"><option value="">切換歷史紀錄（${H.dates.length} 日）</option>${H.dates.slice().reverse().map(x => `<option value="${x}">${x}</option>`).join('')}</select></div>` : ''}
     <div class="foot">面積＝成交金額 · 顏色＝漲跌幅 · 證交所產業別<br>成交金額代表交投熱度，不等於資金淨流入</div>`;
@@ -414,7 +416,7 @@ async function openPattern(id, pid) {
     if (!S.stocks) await loadStocks().catch(() => { }); else refreshWatchSel(s.id, s.name); // 自選分組選單需要清單資料（太舊時在背景更新）
     $('#sheet-title').innerHTML = `${esc(s.name)}<small>${s.id} · ${esc(m.name)}</small>`;
     $('#sheet-body').innerHTML = `<div class="statusline"><span class="badge ${m.status === '量價確認' ? 'ok' : 'wait'}">${esc(m.status)}</span><span class="pill">${esc(m.category)}</span><span class="pill">強度 ${m.score}</span><span class="pill">${s.asOf} 收 ${fmt(s.price, 2)}</span></div>
-      <div class="field" style="margin-bottom:12px">${watchSel(s.id, s.name)}</div>
+      <div class="field" style="margin-bottom:12px">${watchSel(s.id, s.name)}<button class="btn" data-stock="${s.id}" style="margin-left:8px">走勢／五檔 ›</button></div>
       <section class="card"><div class="card-b" style="padding-top:12px">${patChart(s, m)}<div class="legend"><span style="color:var(--amber)">┅ 頸線／壓力</span><span style="color:var(--down)">┅ 支撐／防守</span><span style="color:var(--accent)">● 轉折</span></div></div></section>
       <section class="card"><div class="card-h"><h2>條件式計畫<small>${esc(pl.action)}</small></h2></div><div class="card-b grid4">${[['進場帶', `${fmt(pl.entry, 2)}–${fmt(pl.entryMax, 2)}`, ''], ['結構防守', fmt(pl.stop, 2), 'down'], ['量度觀察位', fmt(pl.target, 2), 'up'], ['估算淨 R/R', fmt(pl.rr, 2), '']].map(([a, b, c]) => `<div class="stat"><span>${a}</span><b class="num ${c}">${b}</b></div>`).join('')}</div>
       <ul class="reasons">${[pl.confirmation, pl.defense, pl.targetBasis, pl.timing, pl.missing].filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>
@@ -458,7 +460,7 @@ function instPage() {
       <div class="seg">${['上市', '上櫃'].map(m => `<button class="${F.market === m ? 'on' : ''}" data-fmarket="${m}">${m}</button>`).join('')}</div>
       <div class="seg">${[['total', '三大法人'], ['foreign', '外資'], ['trust', '投信'], ['dealer', '自營商']].map(([k, l]) => `<button class="${F.inv === k ? 'on' : ''}" data-finv="${k}">${l}</button>`).join('')}</div>
       <div class="seg"><button class="${F.side === 'buy' ? 'on' : ''}" data-fside="buy">買超</button><button class="${F.side === 'sell' ? 'on' : ''}" data-fside="sell">賣超</button></div></div>
-      ${list.map((r, i) => `<div class="rank"><span class="i num">${i + 1}</span><span class="n">${esc(r.name)}<small>${r.id}</small></span><span class="v num ${F.side === 'buy' ? 'up' : 'down'}">${fmt(Math.abs(r.netLots), 0)}</span></div>`).join('') || '<div class="empty">無資料</div>'}</section>
+      ${list.map((r, i) => `<button class="rank" data-stock="${esc(r.id)}"><span class="i num">${i + 1}</span><span class="n">${esc(r.name)}<small>${r.id}</small></span><span class="v num ${F.side === 'buy' ? 'up' : 'down'}">${fmt(Math.abs(r.netLots), 0)}</span></button>`).join('') || '<div class="empty">無資料</div>'}</section>
     <section class="card"><div class="card-h"><h2>分享圖卡<small>左右滑動 · 白底 9:16</small></h2></div><div class="card-b" id="flowcards">${renderFlowCards(d, { contract: F.contract, page: F.page })}</div></section>
     <div class="foot">普通股排行 · 排除 ETF／權證 · 1 張＝1,000 股 · 非交易建議</div>`;
 }
@@ -495,7 +497,9 @@ document.addEventListener('click', async e => {
     if (b.id === 'logout') { await api('auth/logout', {}); return showLogin(); }
     if ('closeSheet' in ds) return closeSheet();
     if (ds.go) { if (ds.focus) { S.heat.focus = ds.focus; S.heat.sel = null; } return setTab(ds.go); }
-    if (ds.stock) return openStock(ds.stock);
+    if (ds.stock) return openQuote(ds.stock);
+    if (ds.stockDetail) return openStock(ds.stockDetail);
+    if (ds.index) return openIndex(ds.index);
     if (ds.watch) { const on = ds.on === 'true'; await api('api/watch', { id: ds.watch, on }); toast(on ? '已加入自選' : '已移除自選'); S.stocks = null; S.summary = null; loadStocks(S.tab === 'stocks').catch(() => { }); if (S.tab === 'home') load(); return openStock(ds.watch); }
     if (ds.mover) { S.moverSide = ds.mover; return draw(); }
     if (ds.boff) { const B = S.brief; B.offset = Number(ds.boff); B.section = 'all'; B.limit = 15; draw(); if (!B.news[B.offset]) return load(); return; }

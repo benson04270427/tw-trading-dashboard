@@ -42,3 +42,10 @@ test('engine backfill resets VWAP to the quote average even when the stream volu
   assert.equal(e.backfill('6278', { quote: { referencePrice: 290, avgPrice: 296.17, closePrice: 303.5, closeTime: at('12:24:40') * 1000, lastUpdated: at('12:24:40') * 1000, total: { tradeVolume: 47584, tradeValue: 296.17 * 47584 * 1000 } }, candles: [{ date: '2026-10-15T09:00:00.000+08:00', open: 288, high: 289, low: 287, close: 288.5, volume: 900 }] }) !== false, true);
   assert.equal(Math.round(e.quote('6278').vwap * 100) / 100, 296.17);
 });
+
+test('REST minute candles: cumulative value from the running average when present, typical price otherwise', async () => {
+  const { seriesFromCandles } = await import('../lib/intraday.mjs');
+  const s = seriesFromCandles([{ date: '2026-10-16T09:00:00.000+08:00', open: 50, high: 51, low: 49, close: 50.5, volume: 10, average: 50.2 }, { date: '2026-10-16T09:01:00.000+08:00', open: 50.5, high: 52, low: 50, close: 51, volume: 30 }, { date: '2026-10-16T08:59:00.000+08:00', close: 1, volume: 1 }], tw);
+  assert.deepEqual([s.m, s.v, s.cv], [[540, 541], [10, 30], [10, 40]]);
+  assert.equal(s.ca[0], 50.2 * 10); assert.equal(s.ca[1], 50.2 * 10 + (52 + 50 + 51) / 3 * 30);
+});

@@ -6,7 +6,7 @@ import { ROOT, LOCAL, read, write, readStocks, safeSymbol } from './lib/storage.
 import { getSecret, saveSecret, secretConfigured, deleteSecret, secretBackend } from './lib/secrets.mjs';
 import { config, saveConfig, activeMarket, language, upColor, LANGUAGES, LLM_PROVIDERS, TUNNEL_MODES, HOST_RE, EMAIL_RE } from './lib/config.mjs';
 import { MARKETS, MARKET_IDS, localParts, closeHM, clientMarket, minuteOf, elapsedTrading, limitPrices } from './lib/markets.mjs';
-import { seriesFromBars, seriesFromReplay, replayRef, vwapLine, groupLine } from './lib/intraday.mjs';
+import { seriesFromBars, seriesFromReplay, seriesFromCandles, replayRef, vwapLine, groupLine } from './lib/intraday.mjs';
 import { t, UserError, isUserError } from './lib/i18n.mjs';
 import { data, PROVIDERS, CAPABILITIES, capabilityMap, providerInfo, setProviderInfo, setInterval_, hasKey, supports } from './lib/providers/index.mjs';
 import { LLM_INFO, listModels } from './lib/llm.mjs';
@@ -432,24 +432,65 @@ function dtInfo(){
     baselineDays:dt?.baselineDays??null,baselineStocks:dt?.baselineStocks??null,phase:e&&feedWindow()?e.phase(Date.now()):null,phaseName:e&&feedWindow()?PHASES[e.phase(Date.now())]:null,
     asOf:r?.at||null,marketChange:r?.marketChange??null,top:(r?.list||[]).filter(x=>x.scan&&!x.filters.length&&x.score>=s.displayMin).slice(0,s.top),hidden:(r?.list||[]).filter(x=>x.scan&&x.score<s.displayMin).length,displayMin:s.displayMin,excluded:(r?.list||[]).filter(x=>x.scan).reduce((out,x)=>{for(const key of x.filters)out[key]=(out[key]||0)+1;return out;},{}),watched:watchlist.map(id=>(r?.list||[]).find(x=>x.id===id)||{id,name:dtMeta.get(id)?.name||id,watch:true,score:0,part:{},filters:[],pending:true,context:{ready:false,reasons:[subscribedIds.has(id)?'waitingQuote':'subscription']}}).filter(x=>x.score>=s.displayMin),total:dtScanIds().length,signals:(e?.signals||[]).slice(-30).reverse()};
 }
-// 看板個股即時走勢（手機版看板點卡片）：每分鐘價量、當日均價線、所屬族群均價線、五檔、最近成交。
-// 盤中用當沖引擎的即時推播資料（逐筆、1 分 K、五檔）；沒有時（未訂閱、服務重啟後）改用時光機的每分鐘畫格。
-function intradayReport(id,groupId){
-  const date=today(),p=M(),e=dt?.date===date?dt.engine:null,q=e?.quote(id);
+// 個股即時走勢（手機版與電腦版點個股）：每分鐘價量、當日均價線、所屬族群均價線、五檔、最近成交。
+// 來源依序：當沖引擎的即時推播（逐筆、1 分 K、五檔）→ 富果盤中 REST（未訂閱即時推播的股票；3 次請求，3 秒內共用）→ 時光機每分鐘畫格。
+const restQuoteCache=new Map();
+async function restQuote(id){
+  const c=restQuoteCache.get(id);if(c&&Date.now()-c.at<3000)return c.data;
+  if(!data.pick('stream')?.quoteDetail||!liveWindow()&&c)return c?.data||null;
+  try{const d=await data.streamQuote(id,{interval:40});restQuoteCache.set(id,{at:Date.now(),data:d});if(restQuoteCache.size>200)restQuoteCache.delete(restQuoteCache.keys().next().value);return d;}catch{return c?.data||null;}
+}
+const usHms=v=>{const n=Number(v);if(!(n>0))return null;return new Date((n>1e14?n/1000:n>1e11?n:n*1000)+tzOffset(M().tz)).toISOString().slice(11,19);};
+async function intradayReport(id,groupId){
+  const date=today(),p=M(),e=dt?.date===date?dt.engine:null,q=e?.bars(id)?.size?e.quote(id):null;
   let day=null;const replay=()=>day??=loadDay(date);
   const seriesOf=x=>{const b=e?.bars(x);if(b?.size)return{s:seriesFromBars(b,p),ref:e.quote(x)?.ref};const d=replay();return{s:seriesFromReplay(d,x,p),ref:replayRef(d,x,p)};};
-  const me=seriesOf(id),s=me.s,ref=q?.ref??me.ref??null;
+  // 沒有即時推播資料的股票：富果盤中 REST
+  const rest=q?null:await restQuote(id),rq=rest?.quote&&String(rest.quote.date||'')===date?rest.quote:null;
+  let me=seriesOf(id),source=q?'stream':null;
+  if(!q&&rq){const s=seriesFromCandles(rest.candles,p);if(s.m.length){me={s,ref:rq.referencePrice??rq.previousClose??me.ref};source='rest';}}
+  if(!source)source=me.s.m.length?'replay':null;
+  const s=me.s,ref=q?.ref??(rq?.referencePrice??rq?.previousClose)??me.ref??null;
   const groups=researchScope.groups.filter(g=>g.stockIds.includes(id)),g=groups.find(x=>x.id===groupId)||groups[0]||null;
   const members=g?g.stockIds.map(x=>x===id?me:seriesOf(x)).filter(x=>x.s.m.length):[];
   const line=g&&members.length>=2?groupLine(s.m,members,ref):[];
-  const vw=vwapLine(s),last=q?.last??s.c.at(-1)??null,lim=ref>0?limitPrices(p,ref):null,book=q?.book||null,sum=a=>(a||[]).slice(0,5).reduce((n,l)=>n+(l.size||0),0);
-  const tape=(q?.tape||[]).slice().reverse().map(([t,px,size,side])=>[e.hmsOf(t),px,size,side]);
-  return{id,name:uniIndex().meta.get(id)?.name||id,date,source:q&&e.bars(id).size?'stream':s.m.length?'replay':null,live:liveWindow()&&streamFresh()&&!!q,open:p.open,close:p.close,ref,limitUp:lim?.up??null,limitDown:lim?.down??null,
-    quote:{last,change:ref>0&&last>0?Math.round((last/ref-1)*1e4)/100:null,changePrice:ref>0&&last>0?Math.round((last-ref)*1e4)/1e4:null,open:q?.open??s.c[0]??null,high:q?.high??(s.c.length?Math.max(...s.c):null),low:q?.low??(s.c.length?Math.min(...s.c):null),
-      volume:q?.cumVol||s.cv.at(-1)||0,vwap:vw.at(-1)??q?.vwap??null,lastSize:q?.tape?.at(-1)?.[2]??null,time:q?.lastAt?e.hmsOf(q.lastAt):s.m.length?`${String(Math.floor(s.m.at(-1)/60)).padStart(2,'0')}:${String(s.m.at(-1)%60).padStart(2,'0')}`:null,atAsk:q?.atAsk??null,atBid:q?.atBid??null},
+  const vw=vwapLine(s),lim=ref>0?limitPrices(p,ref):null,sum=a=>(a||[]).slice(0,5).reduce((n,l)=>n+(l.size||0),0);
+  const last=q?.last??(rq?(rq.lastPrice??rq.closePrice):null)??s.c.at(-1)??null,t=rq?.total||{};
+  const book=q?.book||(rq&&(rq.bids||rq.asks)?{bids:rq.bids||[],asks:rq.asks||[]}:null);
+  const tape=q?(q.tape||[]).slice().reverse().map(([at,px,size,side])=>[e.hmsOf(at),px,size,side]):(rest?.trades||[]).map(x=>[usHms(x.time),x.price,x.size,x.ask>0&&x.price>=x.ask?1:x.bid>0&&x.price<=x.bid?-1:0]);
+  const hmOf=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+  return{id,name:uniIndex().meta.get(id)?.name||rq?.name||id,date,source,live:liveWindow()&&(source==='stream'?streamFresh():source==='rest'),open:p.open,close:p.close,ref,limitUp:lim?.up??null,limitDown:lim?.down??null,
+    quote:{last,change:ref>0&&last>0?Math.round((last/ref-1)*1e4)/100:null,changePrice:ref>0&&last>0?Math.round((last-ref)*1e4)/1e4:null,open:q?.open??rq?.openPrice??s.c[0]??null,high:q?.high??rq?.highPrice??(s.c.length?Math.max(...s.c):null),low:q?.low??rq?.lowPrice??(s.c.length?Math.min(...s.c):null),
+      volume:q?.cumVol||t.tradeVolume||s.cv.at(-1)||0,vwap:vw.at(-1)??q?.vwap??rq?.avgPrice??null,lastSize:q?.tape?.at(-1)?.[2]??rq?.lastTrade?.size??null,
+      time:q?.lastAt?e.hmsOf(q.lastAt):rq?usHms(rq.lastUpdated??t.time):s.m.length?hmOf(s.m.at(-1)):null,atAsk:q?.atAsk??t.tradeVolumeAtAsk??null,atBid:q?.atBid??t.tradeVolumeAtBid??null},
     minutes:{m:s.m,c:s.c,v:s.v,vwap:vw.map(x=>x==null?null:Math.round(x*1e4)/1e4),group:line},
     group:g?{id:g.id,name:g.name,members:members.length,choices:groups.map(x=>({id:x.id,name:x.name}))}:null,
-    book:book?{bids:(book.bids||[]).slice(0,5),asks:(book.asks||[]).slice(0,5),bidTotal:sum(book.bids),askTotal:sum(book.asks),time:q.bookAt?e.hmsOf(q.bookAt):null}:null,tape};
+    book:book?{bids:(book.bids||[]).slice(0,5),asks:(book.asks||[]).slice(0,5),bidTotal:sum(book.bids),askTotal:sum(book.asks),time:q?.bookAt?e.hmsOf(q.bookAt):rq?usHms(rq.lastUpdated):null}:null,tape};
+}
+// 指數詳細資訊（加權指數 TAIEX＝IX0001、櫃買指數 TPEX＝IX0043）：即時報價、當日 1 分 K（量＝成交金額）、日 K、上市／上櫃漲跌家數
+const INDEXES={TAIEX:{symbol:'IX0001',name:'加權指數',market:'twse'},TPEX:{symbol:'IX0043',name:'櫃買指數',market:'tpex'}};
+const indexCache=new Map(),indexDailyCache=new Map();
+async function indexReport(id){
+  const ix=INDEXES[id],date=today(),p=M(),c=indexCache.get(id);
+  if(c&&Date.now()-c.at<(liveWindow()?5000:60000))return c.data;
+  let detail=null,daily=indexDailyCache.get(id)?.date===date?indexDailyCache.get(id).rows:null;
+  try{detail=await data.indexDetail(ix.symbol,{interval:40});}catch{}
+  if(!daily){try{const rows=await data.indexDaily(ix.symbol,minusDays(date,200),minusDays(date,1),{interval:1100});if(rows?.length){daily=rows;indexDailyCache.set(id,{date,rows});}}catch{}}
+  const q=detail?.quote||null,s=seriesFromCandles(detail?.candles,p),t=q?.total||{};
+  const fileIx=read(`index-${date}.json`,null)?.[ix.market]||null,heat=liveHeat?.data?.date===date?liveHeat.data:read('heatmap-'+(heatFiles().at(-1)||'')+'.json',null);
+  const ref=q?.referencePrice??q?.previousClose??(fileIx?fileIx.close-fileIx.change:null),last=q?(q.lastPrice??q.closePrice):fileIx?.close??null,b=heat?.total?.[ix.market]||null;
+  const out={id,name:ix.name,symbol:ix.symbol,date:q?.date||heat?.date||date,source:q?'fugle':fileIx?'snapshot':null,live:liveWindow()&&!!q,open:p.open,close:p.close,ref,
+    quote:{last,change:ref>0&&last>0?Math.round((last/ref-1)*1e4)/100:null,changePrice:ref>0&&last>0?Math.round((last-ref)*100)/100:null,open:q?.openPrice??null,high:q?.highPrice??null,low:q?.lowPrice??null,
+      amount:t.tradeValue??fileIx?.amount??null,volume:t.tradeVolume??null,transactions:t.transaction??null,bidVolume:t.bidVolume??null,askVolume:t.askVolume??null,bidOrders:t.bidOrders??null,askOrders:t.askOrders??null,time:q?usHms(q.lastUpdated??t.time):fileIx?.time??null},
+    minutes:{m:s.m,c:s.c,v:s.v.map(v=>Math.round(v/1e6)/100),vwap:s.m.map(()=>null),group:s.m.map(()=>null)},
+    breadth:b?{up:b.up,down:b.down,flat:b.flat,limitUp:b.limitUp,limitDown:b.limitDown,count:b.count,money:b.money,date:heat.date}:null,
+    daily:(daily||[]).slice(-120)};
+  indexCache.set(id,{at:Date.now(),data:out});return out;
+}
+// 今日盤勢的大盤卡：加權／櫃買指數（盤中每分鐘由快照寫入 index-日期.json）
+function indexSummary(){
+  let files=[];try{files=fs.readdirSync(LOCAL).filter(f=>/^index-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();}catch{}
+  const f=files.at(-1);if(!f)return null;const d=read(f,null);return d?{date:f.slice(6,16),twse:d.twse||null,tpex:d.tpex||null}:null;
 }
 function dtReview(){
   const dir=path.join(LOCAL,'daytrade');let files=[];try{files=fs.readdirSync(dir).filter(f=>/^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().slice(-60);}catch{}
@@ -1074,7 +1115,7 @@ function importBundle(b,parts){
 }
 
 /* ---------- HTTP ---------- */
-const STATIC = { '/':'index.html', '/app.js':'app.js', '/heatmap.js':'heatmap.js', '/briefing.js':'briefing.js','/flow-cards.js':'flow-cards.js', '/live.js':'live.js', '/insight-ui.js':'insight-ui.js', '/report-card.js':'report-card.js', '/save-image.js':'save-image.js', '/prefs.js':'prefs.js', '/grouprank.js':'grouprank.js', '/i18n.js':'i18n.js', '/setup.js':'setup.js', '/market.js':'market.js', '/daytrade.js':'daytrade.js', '/chipwatch.js':'chipwatch.js', '/hud.css':'hud.css', '/favicon.svg':'favicon.svg' };
+const STATIC = { '/':'index.html', '/app.js':'app.js', '/heatmap.js':'heatmap.js', '/briefing.js':'briefing.js','/flow-cards.js':'flow-cards.js', '/live.js':'live.js', '/insight-ui.js':'insight-ui.js', '/report-card.js':'report-card.js', '/save-image.js':'save-image.js', '/prefs.js':'prefs.js', '/grouprank.js':'grouprank.js', '/i18n.js':'i18n.js', '/setup.js':'setup.js', '/market.js':'market.js', '/daytrade.js':'daytrade.js', '/intraday.js':'intraday.js', '/chipwatch.js':'chipwatch.js', '/hud.css':'hud.css', '/favicon.svg':'favicon.svg' };
 // 舊版模組丟出的一般錯誤（尚未改成 UserError）中，可以直接顯示的訊息
 const LEGACY_MESSAGE=/FinMind|金鑰|股票|族群|設定|格式|請|更新|無效|內容|行情|休市|公布|日期|查無|日報|雷達|時光機|畫格|分組|自選/;
 const server = http.createServer(async (req,res) => {
@@ -1265,7 +1306,11 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/intraday'&&req.method==='GET'){
       const id=url.searchParams.get('id'),group=url.searchParams.get('group')||'';
       if(!validId(id))throw new UserError('股票代碼格式錯誤');if(group&&!/^[\w-]{1,40}$/.test(group))throw new UserError('資料格式錯誤');
-      return json(res,200,intradayReport(id,group));
+      return json(res,200,await intradayReport(id,group));
+    }
+    if(route==='/api/index'&&req.method==='GET'){
+      const id=url.searchParams.get('id');if(!INDEXES[id])throw new UserError('資料格式錯誤');
+      return json(res,200,await indexReport(id));
     }
     if(route==='/api/chart'&&req.method==='GET'){
       const id=url.searchParams.get('id'),period=url.searchParams.get('period')==='day'?'day':'5m';
@@ -1330,7 +1375,7 @@ const server = http.createServer(async (req,res) => {
     if (route === '/api/state') {
       const m = market(), c = config();
       const headlines=m.stocks.flatMap(s=>(raw[s.id]?.news||[]).filter(n=>n.date.slice(0,10)>=minusDays(m.cutoff,30)).map(n=>({stockId:s.id,name:s.name,title:n.title,date:n.date,url:n.link,source:n.source}))).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,60);
-      return json(res,200,{ ...m, appVersion:APP_VERSION, heatDates:heatFiles().slice(-60), heatSummary:heatSummary(), groups:researchScope.groups, scopeSource:researchScope.source, scopeEntries:researchScope.groups.reduce((n,g)=>n+g.stockIds.length,0), scopeError, stocks:m.stocks.map(({bars,adjustedBars,...s}) => ({...s,chips:{...s.chips,flow:undefined}})), headlines, watchlist, watchGroups, watchExtra:watchExtra(), settings,
+      return json(res,200,{ ...m, appVersion:APP_VERSION, heatDates:heatFiles().slice(-60), heatSummary:heatSummary(),indexSummary:indexSummary(), groups:researchScope.groups, scopeSource:researchScope.source, scopeEntries:researchScope.groups.reduce((n,g)=>n+g.stockIds.length,0), scopeError, stocks:m.stocks.map(({bars,adjustedBars,...s}) => ({...s,chips:{...s.chips,flow:undefined}})), headlines, watchlist, watchGroups, watchExtra:watchExtra(), settings,
         config:{market:c.market,language:c.language,setupDone:c.setupDone,publicUrl:c.publicUrl}, marketProfile:clientMarket(M()), upColor:upColor(), capabilities:capabilityMap(), dataConfigured:Object.values(capabilityMap()).some(Boolean),
         tokenConfigured:secretConfigured('finmind','FINMIND_API_TOKEN'), llmConfigured:llmConfigured(), claudeConfigured:llmConfigured(), llm:{provider:c.llm.provider,model:c.llm.model||LLM_INFO[c.llm.provider]?.defaultModel||''},
         viewer:req.accessUser?.email||null, monitor:{enabled:settings.monitor!==false,capable:data.has('snapshot'),window:liveWindow(),error:monitorError,lastAt:liveHeat?.at||null}, csrf, job, evidenceCount:evidence.filter(e=>inScope(e.stockId)).length });

@@ -128,7 +128,7 @@ server {
 |---|---|
 | `server.mjs` | 手機版伺服器、登入、安全標頭、API 代理、推播轉送 |
 | `lib/auth.mjs`／`lib/nexus.mjs`／`lib/push.mjs`／`lib/remote.mjs` | 密碼與 Session、Nexus API 用戶端、Web Push、連線方式與網域白名單 |
-| `public/` | 手機介面；`i18n.js`、`market.js`、`insight-ui.js`、`report-card.js`、`flow-cards.js`、`save-image.js` 與電腦版共用（保持相同內容） |
+| `public/` | 手機介面；`i18n.js`、`market.js`、`insight-ui.js`、`report-card.js`、`flow-cards.js`、`save-image.js`、`intraday.js` 與電腦版共用（保持相同內容） |
 | `scripts/set-password.mjs` | 設定密碼 |
 | `.local/` | 密碼雜湊、Session、推播訂閱、通道設定、遠端存取設定快取（勿公開） |
 

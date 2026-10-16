@@ -17,7 +17,7 @@ export function intradaySVG(d, { w = 360, h = 300 } = {}) {
   if (d.limitUp && d.limitDown) dev = Math.min(dev, Math.max(d.limitUp - ref, ref - d.limitDown));
   const yMax = ref + dev, yMin = ref - dev, yOf = v => T + (yMax - Math.min(yMax, Math.max(yMin, v))) / (yMax - yMin) * hp;
   const pts = M.m.map((m, i) => [xOf(m), yOf(M.c[i])]), line = arr => M.m.map((m, i) => arr[i] == null ? null : `${xOf(m).toFixed(1)},${yOf(arr[i]).toFixed(1)}`).filter(Boolean).join(' ');
-  const last = M.c.at(-1), col = last >= ref ? 'var(--up)' : 'var(--down)', soft = last >= ref ? 'var(--up-soft)' : 'var(--down-soft)';
+  const last = M.c.at(-1), col = last >= ref ? 'var(--up)' : 'var(--down)', soft = last >= ref ? 'var(--up-soft, rgba(255,77,103,.14))' : 'var(--down-soft, rgba(32,217,139,.14))';
   const area = `${pts[0][0].toFixed(1)},${yOf(ref).toFixed(1)} ${pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')} ${pts.at(-1)[0].toFixed(1)},${yOf(ref).toFixed(1)}`;
   const hours = []; for (let m = Math.ceil(open / 60) * 60; m <= close; m += 60) hours.push(m);
   const grid = hours.map(m => `<line x1="${xOf(m).toFixed(1)}" x2="${xOf(m).toFixed(1)}" y1="${T}" y2="${T + hp + gap + hv}" stroke="var(--line)" stroke-width="1"/><text x="${xOf(m).toFixed(1)}" y="${h - 3}" text-anchor="middle" class="ia-ax">${String(m / 60).padStart(2, '0')}</text>`).join('');

@@ -37,7 +37,7 @@ mobile UI and Web Push relay. There is no database and no build step: plain ES m
 
 Front end (`public/`): `app.js` (shell and pages), `setup.js` (setup wizard and system settings), `market.js`
 (client-side market clock, colors and units), `i18n.js` (translation), plus page modules. `i18n.js`, `market.js`,
-`insight-ui.js`, `report-card.js`, `flow-cards.js` and `save-image.js` are shared with Pocket as identical copies;
+`insight-ui.js`, `report-card.js`, `flow-cards.js`, `save-image.js` and `intraday.js` are shared with Pocket as identical copies;
 a test fails if they drift apart.
 
 ### Data source router

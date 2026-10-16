@@ -43,3 +43,14 @@ export function groupLine(minutes, members, ref) {
     return n >= 2 && w > 0 && ref > 0 ? Math.round(ref * (1 + sum / w) * 1e4) / 1e4 : null;
   });
 }
+// 富果盤中 1 分 K（REST）：{ date, open, high, low, close, volume, average? }；average 為累計均價時直接用來算累計成交值
+export function seriesFromCandles(candles, p) {
+  const out = { m: [], c: [], v: [], cv: [], ca: [] }; let cv = 0, ca = 0;
+  for (const k of candles || []) {
+    const hm = /T(\d{2}):(\d{2})/.exec(String(k.date)); if (!hm || !(k.close > 0)) continue;
+    const m = +hm[1] * 60 + +hm[2]; if (m < p.open || m > p.close + 5 || (out.m.length && m <= out.m.at(-1))) continue;
+    const v = Math.max(0, Number(k.volume) || 0); cv += v; ca = k.average > 0 ? k.average * cv : ca + (k.high + k.low + k.close) / 3 * v;
+    out.m.push(m); out.c.push(k.close); out.v.push(v); out.cv.push(cv); out.ca.push(ca);
+  }
+  return out;
+}

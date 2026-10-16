@@ -87,7 +87,7 @@ async function summary() {
   return {
     appVersion: APP_VERSION, nexusVersion: s.appVersion, dataDate, cutoff: s.cutoff, tokenConfigured: s.tokenConfigured, dataConfigured: s.dataConfigured ?? s.tokenConfigured, capabilities: s.capabilities || null,
     job: { running: s.job.running, message: s.job.message, done: s.job.done, total: s.job.total, finishedAt: s.job.finishedAt },
-    heat: s.heatSummary || null, heatDates: s.heatDates || [],
+    heat: s.heatSummary || null, heatDates: s.heatDates || [], index: s.indexSummary || null,
     watch: stocks.filter(x => x.watch),
     movers: [...stocks].filter(x => x.change != null && x.asOf === dataDate).sort((a, b) => b.change - a.change),
     strong: stocks.filter(x => x.score != null).sort((a, b) => b.score - a.score).slice(0, 8),
@@ -113,6 +113,7 @@ async function api(req, res, url) {
     if (route === 'replay/days') return send(req, res, 200, await nexus.replayDays());
     if (route === 'replay') { const date = q.get('date'); if (date && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.replay(date)); }
     if (route === 'replay/frame') { const date = q.get('date'), i = Number(q.get('i')); if (!validDate(date || '') || !Number.isInteger(i) || i < 0) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.replayFrame(date, i)); }
+    if (route === 'index') { if (!['TAIEX', 'TPEX'].includes(q.get('id'))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.index(q.get('id'))); }
     if (route === 'intraday') { const group = q.get('group') || ''; if (!validId(q.get('id')) || (group && !/^[A-Za-z0-9_-]{1,40}$/.test(group))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.intraday(q.get('id'), group)); }
     if (route === 'chart') { const period = q.get('period') || '5m'; if (!validId(q.get('id')) || !['day', '5m'].includes(period)) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.chart(q.get('id'), period)); }
     if (route === 'brokers') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.brokers(q.get('id'), Number(q.get('days') || 5))); }

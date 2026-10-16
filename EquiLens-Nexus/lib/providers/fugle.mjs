@@ -124,6 +124,20 @@ export default {
     }
     return { daily: rows.map(b => ({ date: b.date, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume / 1000, amount: original.get(b.date)?.turnover ?? null })), minutes, rawClose: original.get(rows.at(-1).date)?.close, source: 'fugle' };
   },
+  // 個股即時明細（沒有即時推播訂閱的股票，例如 ETF、研究名單以外）：報價（五檔、累計量、均價）、最近 40 筆成交、當日 1 分 K（3 次盤中 REST）
+  async quoteDetail(id, ctx) {
+    const quote = await get(`/intraday/quote/${id}`, ctx), trades = await get(`/intraday/trades/${id}?limit=40`, ctx), candles = await get(`/intraday/candles/${id}?timeframe=1`, ctx);
+    return { quote, trades: trades?.data || [], candles: candles?.data || [] };
+  },
+  // 指數（加權 IX0001、櫃買 IX0043）：報價與當日 1 分 K（量為成交金額）；日 K 走歷史 API（每分鐘 60 次，呼叫端快取）
+  async indexDetail(symbol, ctx) {
+    const quote = await get(`/intraday/quote/${symbol}`, ctx), candles = await get(`/intraday/candles/${symbol}?timeframe=1`, ctx);
+    return { quote, candles: candles?.data || [] };
+  },
+  async indexDaily(symbol, from, to, ctx) {
+    const body = await get(`/historical/candles/${symbol}?timeframe=D&from=${from}&to=${to}&sort=asc&fields=open,high,low,close,volume,turnover`, ctx);
+    return (body?.data || []).filter(c => c.close > 0).map(c => [c.date, c.open, c.high, c.low, c.close, c.turnover ?? c.volume ?? 0]);
+  },
   // 斷線重連後補資料：最新報價與當日 1 分 K。
   async streamBackfill(id, ctx) {
     const quote = await get(`/intraday/quote/${id}`, ctx), candles = await get(`/intraday/candles/${id}?timeframe=1`, ctx);

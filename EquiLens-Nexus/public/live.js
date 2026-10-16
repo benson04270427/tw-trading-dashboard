@@ -3,6 +3,7 @@ import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, alertR
 import { t, tx, translateTree } from './i18n.js';
 import * as MK from './market.js';
 import { initDaytrade, loadDaytrade, daytradePanel } from './daytrade.js';
+import { intradaySVG, readAt, legendHTML, bookHTML, tapeHTML } from './intraday.js';
 // 桌面通知的標題與內文依介面語言翻譯
 const Note = (title, o = {}) => new Notification(tx(title), { ...o, body: o.body ? tx(o.body) : o.body });
 
@@ -11,7 +12,7 @@ const pref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { re
 const L = { board: null, bgroup: pref('nexus.boardGroup', ''), bsort: pref('nexus.boardSort', 'default'), alerts: [], latest: 0, date: '', group: 'all', monitor: null, draft: null, report: null, reportLoaded: false, notify: false, error: '', rules: null };
 export function initLive(ctx) {
   C = ctx; try { L.notify = localStorage.getItem('nexus.notify') === '1' && Notification.permission === 'granted'; } catch { }
-  initDaytrade({ api: ctx.api, toast: ctx.toast, repaint: () => repaint(), isLive: () => C.page() === 'live', openChart: id => C.inScope(id) ? C.openStock(id) : openChart(id) });
+  initDaytrade({ api: ctx.api, toast: ctx.toast, repaint: () => repaint(), isLive: () => C.page() === 'live', openChart: id => openChart(id, 'live') });
   refreshMonitor().then(() => { if (newsOn()) loadAlerts(!L.date); }); // 新聞推播開啟時，不論在哪一頁都要接收新聞
 }
 const marketOpen = () => MK.isOpen();
@@ -103,7 +104,7 @@ export async function mountPip(win) {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.pipGroup) { P.group = b.dataset.pipGroup; pipSeen = 0; return renderPip(true); }
     if (b.dataset.pipSound != null) { P.sound = !P.sound; try { localStorage.setItem('nexus.pipSound', P.sound ? '1' : '0'); } catch { } if (P.sound) beep(); return renderPip(true); }
-    if (b.dataset.alertStock) { window.focus(); const id = b.dataset.alertStock; try { C.inScope(id) ? await C.openStock(id) : await openChart(id); } catch (err) { C.toast(err.message); } }
+    if (b.dataset.alertStock) { window.focus(); const id = b.dataset.alertStock; try { await openChart(id, 'live'); } catch (err) { C.toast(err.message); } }
   });
   pipWin.addEventListener('pagehide', () => { pipWin.clearInterval?.(pipTimer); pipWin = null; pipTimer = null; });
   pipSeen = 0; renderPip(true);
@@ -210,24 +211,29 @@ function settingsPanel() {
     <div class="form-actions"><button class="primary" data-rsave>儲存雷達設定</button></div></div></section>`;
 }
 /* ---------- 個股 K 線視窗：日 K／5 分 K（5MA、20MA），盤中每 10 秒更新即時報價與 K 線 ---------- */
-const K = { id: null, period: pref('nexus.chartPeriod', '5m') === 'day' ? 'day' : '5m', data: null, error: '', seq: 0 };
+const K = { id: null, period: ['day', 'live'].includes(pref('nexus.chartPeriod', 'live')) ? pref('nexus.chartPeriod', 'live') : '5m', data: null, live: null, error: '', seq: 0, group: '' };
 const md = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 const chartShown = id => document.getElementById('detail-dialog')?.open && !!document.querySelector(`#detail [data-chart="${id}"]`);
-async function openChart(id, period = K.period) {
+export async function openChart(id, period = K.period) {
   const dialog = document.getElementById('detail-dialog');
-  if (K.id !== id) { K.data = null; K.error = ''; }
+  if (K.id !== id) { K.data = null; K.live = null; K.error = ''; K.group = ''; }
   K.id = id; K.period = period; savePref('nexus.chartPeriod', period);
   if (!dialog.open) dialog.showModal();
   paintChart(); await refreshChart();
 }
 async function refreshChart() {
   const id = K.id, period = K.period, seq = ++K.seq;
-  try { const d = await C.api(`chart?id=${id}&period=${period}`); if (seq !== K.seq) return; K.data = d; K.error = ''; }
+  try {
+    if (period === 'live') { const d = await C.api(`intraday?id=${id}${K.group ? '&group=' + encodeURIComponent(K.group) : ''}`); if (seq !== K.seq) return; K.live = d; K.error = ''; }
+    else { const d = await C.api(`chart?id=${id}&period=${period}`); if (seq !== K.seq) return; K.data = d; K.error = ''; }
+  }
   catch (e) { if (seq !== K.seq) return; K.error = e.message; }
   if (chartShown(id)) paintChart();
 }
-setInterval(() => { if (K.id && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+setInterval(() => { if (K.id && K.period !== 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+setInterval(() => { if (K.id && K.period === 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 3000);
 function paintChart() {
+  if (K.period === 'live') return paintLive();
   const box = document.getElementById('detail'), id = K.id, d = K.data?.id === id ? K.data : null, s = L.board?.stocks.find(x => x.id === id);
   const ready = d && d.period === K.period, q = d?.quote ?? s?.quote, dayBar = d?.session || null;
   const price = q?.close ?? dayBar?.[4] ?? d?.daily?.price ?? s?.daily?.price, chg = q?.change ?? d?.daily?.change ?? s?.daily?.change;
@@ -238,9 +244,31 @@ function paintChart() {
   box.innerHTML = `<div class="detailtop" data-chart="${id}"><div><p class="eyebrow">${K.period === 'day' ? 'Daily' : '5-Minute'} K · MA5 / MA20 ${stamp}</p><h2>${esc(d?.name || s?.name || id)} <span class="stockcode">${id}</span></h2>
     <div class="price">${fmt(price, 2)} <span class="${cls(chg)}" style="font-size:1rem">${pct(chg)}${q?.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</span></div>
     <p class="mono">開 ${fmt(info[0], 2)} · 高 ${fmt(info[1], 2)} · 低 ${fmt(info[2], 2)}${q?.volume ? ` · 成交 ${fmt(q.volume)} 張` : dayBar ? ` · 成交 ${fmt(dayBar[5])} 張` : ''}${q?.amount ? ` · ${yi(q.amount)} 億` : ''}${q?.bid ? ` · 委買 ${fmt(q.bid, 2)} / 委賣 ${fmt(q.ask, 2)}` : ''}</p></div>
-    <div class="actions"><div class="segmented">${[['day', '日K'], ['5m', '5分K']].map(([v, l]) => `<button class="${K.period === v ? 'selected' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>${C.inScope(id) ? `<button data-stock="${id}">個股診斷 ↗</button>` : ''}<button class="close" data-action="close-detail" aria-label="關閉">×</button></div></div>
+    <div class="actions"><div class="segmented">${CHART_TABS.map(([v, l]) => `<button class="${K.period === v ? 'selected' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>${C.inScope(id) ? `<button data-stock="${id}">個股診斷 ↗</button>` : ''}<button class="close" data-action="close-detail" aria-label="關閉">×</button></div></div>
     <div class="detailbody"><section class="chartpanel">${K.error && !ready ? `<div class="empty"><p>${esc(K.error)}</p></div>` : ready ? candleSVG(d.bars, { w: 960, h: 400, show: d.period === 'day' ? 120 : 162, period: d.period, key: id + d.period, prev: d.prev, prevs: d.days ? Object.fromEntries(d.days.map(x => [x.date, x.prev])) : null }) : `<div class="empty"><p><i class="spinner"></i>讀取${K.period === 'day' ? '日' : ' 5 分'} K…</p></div>`}<p class="chartcaption">${caption}</p></section>${rulesSection({ id, name: d?.name || s?.name || id, close: price })}</div>`;
 }
+
+/* ---------- 個股即時走勢（K 線視窗的「走勢」分頁）：全日走勢、當日均價線、族群均價線、五檔、成交明細，盤中每 3 秒更新 ---------- */
+const CHART_TABS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K']];
+function paintLive() {
+  const box = document.getElementById('detail'), id = K.id, d = K.live?.id === id ? K.live : null, s = L.board?.stocks.find(x => x.id === id);
+  const q = d?.quote || {}, price = q.last ?? s?.quote?.close, chg = q.change ?? s?.quote?.change, live = d?.live && marketOpen();
+  const stamp = live ? `<span class="tag cyan"><span class="pulse"></span> ${d.source === 'stream' ? '即時推播' : '盤中'} · 每 3 秒更新 · <b class="mono">${esc(q.time || '')}</b></span>` : d?.date ? `<span class="tag">${esc(md(d.date))} ${esc(q.time || '')}</span>` : '';
+  const chart = K.error && !d ? `<div class="empty"><p>${esc(K.error)}</p></div>` : d ? `${legendHTML(d)}${intradaySVG(d, { w: 960, h: 420 })}<p class="fine" id="ia-read">${d.minutes?.m?.length ? '滑鼠移到圖上查看每分鐘價格、均價與族群均價' : ''}</p>${d.group?.choices?.length > 1 ? `<div class="segmented">${d.group.choices.map(x => `<button class="${x.id === d.group.id ? 'selected' : ''}" data-igroup="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div>` : ''}` : '<div class="empty"><p><i class="spinner"></i>讀取走勢…</p></div>';
+  box.innerHTML = `<div class="detailtop" data-chart="${id}"><div><p class="eyebrow">Intraday · VWAP / Group VWAP ${stamp}</p><h2>${esc(d?.name || s?.name || id)} <span class="stockcode">${id}${d?.group ? ' · ' + esc(d.group.name) : ''}</span></h2>
+    <div class="price">${fmt(price, 2)} <span class="${cls(chg)}" style="font-size:1rem">${pct(chg)}${q.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</span></div>
+    <p class="mono">開 ${fmt(q.open, 2)} · 高 ${fmt(q.high, 2)} · 低 ${fmt(q.low, 2)} · 總量 ${fmt(q.volume)} 張${q.lastSize != null ? ` · 單量 ${fmt(q.lastSize)}` : ''} · 均價 <span class="amber">${fmt(q.vwap, 2)}</span></p></div>
+    <div class="actions"><div class="segmented">${CHART_TABS.map(([v, l]) => `<button class="${K.period === v ? 'selected' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>${C.inScope(id) ? `<button data-stock="${id}">個股診斷</button>` : ''}<button class="close" data-action="close-detail" aria-label="關閉">×</button></div></div>
+    <div class="detailbody"><section class="chartpanel">${chart}<p class="fine">均價＝當日累計成交金額 ÷ 累計成交量；族群均價＝所屬族群各股均價相對參考價的漲跌幅，以成交金額加權後換算到本股價位。</p></section>
+    <div class="ia-pc"><section class="panel"><div class="panelhead"><h3>五檔</h3></div><div class="contentpad">${d ? bookHTML(d) : ''}</div></section><section class="panel"><div class="panelhead"><h3>成交明細</h3></div><div class="contentpad">${d ? tapeHTML(d) : ''}</div></section></div></div>`;
+}
+document.addEventListener('mousemove', e => {
+  const hit = e.target.closest?.('#detail [data-intra-hit]'); if (!hit || !K.live) return;
+  const svg = hit.ownerSVGElement, [x0, x1] = hit.dataset.intraHit.split(',').map(Number), box = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+  const x = (e.clientX - box.left) / box.width * vb.width, frac = Math.min(1, Math.max(0, (x - x0) / (x1 - x0)));
+  const cross = svg.querySelector('.ia-cross'); if (cross) { cross.setAttribute('x1', x0 + frac * (x1 - x0)); cross.setAttribute('x2', x0 + frac * (x1 - x0)); cross.setAttribute('visibility', 'visible'); }
+  const out = document.getElementById('ia-read'); if (out) out.innerHTML = readAt(K.live, frac);
+});
 
 /* ---------- 個股診斷：分點、大戶 ---------- */
 export function detailExtrasShell(stock) {
@@ -302,12 +330,14 @@ async function saveNews(patch) {
 document.addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b || !C) return; const ds = b.dataset;
   try {
-    if (ds.kbar) return openChart(ds.kbar);
+    if (ds.kbar) return openChart(ds.kbar, 'live');
+    if (ds.chartLive) return openChart(ds.chartLive, 'live');
+    if (ds.igroup) { K.group = ds.igroup; return refreshChart(); }
     if (ds.cperiod) return openChart(K.id, ds.cperiod);
     if (ds.bgroup) { L.bgroup = ds.bgroup; savePref('nexus.boardGroup', ds.bgroup); if (L.board) L.board = { ...L.board, group: ds.bgroup, stocks: [], loading: true }; repaint(); await loadBoard(); return repaint(); }
     if (ds.bsort) { L.bsort = ds.bsort; savePref('nexus.boardSort', ds.bsort); return repaint(); }
     if (ds.agroup) { L.group = ds.agroup; return repaint(); }
-    if (ds.alertStock) { const id = ds.alertStock; return C.inScope(id) ? C.openStock(id) : openChart(id); }
+    if (ds.alertStock) return openChart(ds.alertStock, 'live');
     if ('openReport' in ds) return C.setPage('home');
     if (ds.openChips) return C.setPage('chips');
     if (ds.paDel) { if (!confirm(t('刪除這則提醒？'))) return; L.rules = await C.api('price-alerts/delete', { id: ds.paDel }); paintRules(); return C.toast('已刪除提醒'); }
