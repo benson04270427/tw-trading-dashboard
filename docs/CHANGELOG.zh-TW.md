@@ -24,6 +24,12 @@
 - 手機版看板點卡片顯示即時走勢（當日均價線、族群均價線）、五檔與成交明細，見[盤中雷達](features/live-radar.md)。
 - 五檔錄製每日匯出 ZIP（每檔 CSV）到指定資料夾（例如 Dropbox），見[五檔錄製器](features/book-recorder.md)；CSV 產生速度加快約 20 倍。
 
+## 2026-10-18 · 倉庫改名 tw-trading-dashboard、說明文件加入畫面截圖
+
+- GitHub 倉庫改名為 `tw-trading-dashboard`；README 的下載指令改用新網址（舊網址 GitHub 會自動轉址）。
+- [README](../README.zh-TW.md) 依功能加入電腦版各頁與手機版的截圖（`docs/images/`）；截圖使用示意資料，不是真實行情。
+- 新增截圖工具 `EquiLens-Nexus/tools/screenshots/`：產生示意資料、固定時間與斷開對外連線後自動截圖，之後改版可重新產生。
+
 ## 2026-10-16 · 當沖大盤環境紀錄（只記錄）
 
 - 每個當沖訊號記下所屬指數（上市對照加權、上櫃對照櫃買）當下的漲跌、近 15 分鐘變化、在日內均價之上或之下、上市／上櫃漲跌家數，以及個股相對大盤的強弱。說明見[當沖大盤環境紀錄](features/daytrade-market.md)。

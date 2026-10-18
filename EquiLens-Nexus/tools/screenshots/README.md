@@ -1,0 +1,22 @@
+# README 截圖工具
+
+重新產生 `docs/images/` 的截圖。畫面使用**示意資料**（合成的股價、籌碼與日報內容），不連外、不需要真的金鑰。
+
+需要：Node 22 以上、全域安裝的 [Playwright](https://playwright.dev/)（`npm i -g playwright` 並安裝 Chromium）。
+
+```bash
+cd EquiLens-Nexus
+D=/tmp/equilens-demo && rm -rf $D && mkdir -p $D
+EQUITY_DATA_DIR=$D node tools/screenshots/demo-data.mjs
+EQUITY_DATA_DIR=$D node tools/screenshots/demo-data2.mjs
+echo '{"version":1,"setupDone":true,"market":"TW","language":"zh-TW","providers":{"enabled":["finmind","fugle","twse"],"prefer":{}}}' > $D/config.json
+# 電腦版：時間固定從 2026-10-16（五）14:40 開始，對外請求一律失敗（只用示意資料）
+EQUITY_DATA_DIR=$D PORT=4391 FINMIND_API_TOKEN=demo FUGLE_API_KEY=demo ANTHROPIC_API_KEY=demo node --import ./tools/screenshots/clock.mjs server.mjs &
+# 手機版：先設定示意密碼 demo-password-123
+cd ../EquiLens-Pocket && MOBILE_DATA_DIR=$D-m node -e "import('./lib/auth.mjs').then(a=>a.setPassword('demo-password-123'))"
+MOBILE_DATA_DIR=$D-m NEXUS_URL=http://127.0.0.1:4391 PORT=4392 node --import ../EquiLens-Nexus/tools/screenshots/clock.mjs server.mjs &
+cd ../EquiLens-Nexus && PLAYWRIGHT=$(npm root -g)/playwright/index.mjs node tools/screenshots/capture.mjs /tmp/equilens-shots   # 輸出 PNG
+```
+
+PNG 轉成 WebP（品質 82）後放進 `docs/images/`；手機版六張合成一張 `mobile-overview.webp`。
+當沖觀察名單在盤中才有內容，`capture.mjs` 以示意的掃描結果取代 `/api/daytrade` 的回應。

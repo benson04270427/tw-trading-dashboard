@@ -143,6 +143,8 @@ optionally add `data/templates/<MARKET>.json` sample groups.
 `public/setup.js`, then run `node tools/i18n-keys.mjs --missing <lang>` until it reports 0. The UI translates text
 nodes and `placeholder` / `title` / `aria-label` automatically; mark user data with `translate="no"`.
 
+README screenshots live in `docs/images/` and are regenerated with `EquiLens-Nexus/tools/screenshots/` (synthetic sample data, a fixed clock and no outbound requests; see its README).
+
 ## Tests
 
 `npm test` in each component. Nexus tests cover scoring, patterns, heatmap, radar, replay, providers' row handling,

@@ -1,6 +1,6 @@
-# EquiLens (衡析)
+# EquiLens (衡析) · Taiwan stock trading dashboard
 
-**A self-hosted stock research desk.** EquiLens runs on your own computer: it ranks the companies you choose to
+**A self-hosted Taiwan stock trading dashboard and research desk (tw-trading-dashboard).** EquiLens runs on your own computer: it ranks the companies you choose to
 research, shows where money is flowing, watches the market during the session, recognizes chart patterns and
 writes an after-market report with the AI model of your choice. You bring your own data sources and API keys;
 nothing is sent to anyone else.
@@ -9,6 +9,10 @@ nothing is sent to anyone else.
 
 > EquiLens is a research tool. Scores rank research, they are not trading signals, price targets or return
 > predictions. Nothing here is investment advice.
+
+![Research overview: four-factor scores, 30-day sparklines and group pulse](docs/images/desktop-overview.webp)
+
+<sub>All screenshots use synthetic sample data, not real market data. The interface is shown in Traditional Chinese; English is also available.</sub>
 
 ---
 
@@ -51,6 +55,21 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
   and futures/options flows.
 - **Interface languages** – Traditional Chinese and English.
 
+### Screenshots
+
+| | |
+|---|---|
+| **Sector heatmap**<br>![Sector heatmap](docs/images/desktop-heatmap.webp) | **Live board and intraday radar**<br>![Live board and intraday radar](docs/images/desktop-radar.webp) |
+| **Intraday chart window**<br>![Intraday chart window](docs/images/desktop-chart.webp) | **Day-trade scanner**<br>![Day-trade scanner](docs/images/desktop-daytrade.webp) |
+| **Day-trade review by market regime**<br>![Day-trade review by market regime](docs/images/desktop-daytrade-review.webp) | **Group ranking**<br>![Group ranking](docs/images/desktop-grouprank.webp) |
+| **AI after-market report**<br>![AI after-market report](docs/images/desktop-report.webp) | **Broker-branch tracking**<br>![Broker-branch tracking](docs/images/desktop-chips.webp) |
+| **Institutional and futures/options flows**<br>![Institutional and futures/options flows](docs/images/desktop-flows.webp) | **Stock diagnosis**<br>![Stock diagnosis](docs/images/desktop-detail.webp) |
+| **Pattern scanner**<br>![Pattern scanner](docs/images/desktop-patterns.webp) | **Topic evidence**<br>![Topic evidence](docs/images/desktop-topics.webp) |
+
+**Mobile (EquiLens Pocket)**
+
+![Mobile: brief and AI report, live board, day trade, heatmap, stocks, broker branches](docs/images/mobile-overview.webp)
+
 ## Markets and data sources
 
 One EquiLens instance researches one market at a time. Trading hours (including lunch breaks), time zone, tick
@@ -89,8 +108,8 @@ plan than the one detected when you saved the key.
 ## Quick start
 
 ```bash
-git clone https://github.com/wakin61043/equilens_nexus.git
-cd equilens_nexus/EquiLens-Nexus
+git clone https://github.com/wakin61043/tw-trading-dashboard.git
+cd tw-trading-dashboard/EquiLens-Nexus
 npm install --omit=dev
 ```
 
