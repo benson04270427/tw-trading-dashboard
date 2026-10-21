@@ -228,16 +228,24 @@ export function branchHTML(b, { top = 10 } = {}) {
   return `<section class="ix-cw"><h4>🏦 ${esc(b.name)} <small class="num">${esc(b.id)}</small></h4><div class="ix-bmeta"><span>${fmt(b.count)} 檔</span><span>買進 <b>${yi8(b.buyAmt)}</b> 億</span><span>賣出 <b>${yi8(b.sellAmt)}</b> 億</span><span>淨額 <b class="${cls(b.buyAmt - b.sellAmt)}">${yi8(b.buyAmt - b.sellAmt)}</b> 億</span></div>
   ${b.signals?.length ? table(b.signals, '🔔 達提醒條件', 'up') : ''}${b.mine.length ? table(b.mine, '自選／研究名單進出', '') : ''}<div class="ix-bgrid">${table(b.buy.slice(0, top), `買超前 ${top}`, 'up')}${table(b.sell.slice(0, top), `賣超前 ${top}`, 'down')}</div>${branchWarrantHTML(b.warrants)}</section>`;
 }
+// 分點追蹤的日期選單（電腦版與手機版共用）：已有紀錄的日期、目前檢視的日期，以及「其他日期…」（展開日期欄位，可查詢任一交易日）
+export function cwDateHTML(info, { picking = false, pickDate = '', cls = '' } = {}) {
+  const cur = info?.date || '', dates = [...new Set([...(info?.dates || []), ...(cur ? [cur] : [])])].sort().reverse(), have = new Set(info?.dates || []);
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  const sel = `<select ${cls ? `class="${cls}"` : ''} data-cw-date aria-label="追蹤紀錄日期">${dates.length ? '' : '<option value="">尚無紀錄</option>'}${dates.map(d => `<option value="${d}" ${d === cur && !picking ? 'selected' : ''}>${d}${have.has(d) ? '' : '（尚無紀錄）'}</option>`).join('')}<option value="__pick" ${picking ? 'selected' : ''}>其他日期…</option></select>`;
+  return picking ? `${sel}<span class="ix-cw-pick"><input type="date" data-cw-pick max="${today}" min="2015-01-05" value="${esc(pickDate || cur)}" aria-label="查詢日期"><button data-cw="pick">查詢此日</button></span>` : sel;
+}
 export function chipwatchHTML(info) {
-  const r = info?.report;
-  if (!r) return `<p class="ix-empty">${info?.settings?.branches?.length ? '尚無追蹤紀錄。平日 18:30 後自動查詢，也可以立即查詢。' : '先在上方加入要追蹤的券商分點。'}</p>`;
+  const r = info?.report, q = info?.busy && info.query;
+  const prog = q ? `<p class="ix-note">⏳ 正在查詢 ${esc(q.date)}：${fmt(q.done)}／${fmt(q.total)} 個分點${info.settings?.warrants !== false ? '（含認購權證，每個分點 2 次請求）' : ''}，完成後自動顯示</p>` : '';
+  if (!r) return `${prog}<p class="ix-empty">${!info?.settings?.branches?.length ? '先在上方加入要追蹤的券商分點。' : q ? '' : info?.date ? `${esc(info.date)} 尚無追蹤紀錄。 <button class="ix-wbtn" data-cw="requery" data-date="${esc(info.date)}">查詢此日</button>` : '尚無追蹤紀錄。平日 18:30 後自動查詢，也可以立即查詢。'}</p>`;
   const R = r.rules, src = { heatmap: '熱浪圖', replay: '時光機' }[r.volumeSource];
   const rules = R ? `<span>單日主導：占成交量 ≥ ${fmt(R.dayPct)}% 且 ≥ ${fmt(R.minAmount / 1e4)} 萬元</span><span>多日吃貨：${R.accumDays} 日累計占股本 ≥ ${fmt(R.accumPct, 2)}%</span>` : '';
   const WR = r.warrantRules, WI = r.warrantInfo;
   const wrules = WR ? `<span>認購權證大買：淨買 ≥ ${wan(WR.amount)} 萬且占該標的權證成交 ≥ ${fmt(WR.pct)}%</span><span>連續買進：連 ${WR.days} 日淨買、累計 ≥ ${wan(WR.amount)} 萬</span>` : '';
   const gaps = R ? [!src ? '當日成交量未取得，無法判斷單日主導' : '', !r.sharesDate ? '尚無股權分散表，無法判斷多日吃貨' : '',
     WI?.error ? `認購權證：${WI.error}` : '', WI && !WI.error && !WI.turnover ? '認購權證行情未取得，權證大買只看金額' : '', WI?.stale ? '權證標的對照表為舊資料' : ''].filter(Boolean) : [];
-  return `<div class="ix-bmeta"><span><b>${esc(r.date)}</b> 盤後</span><span>${r.branches.length} 個分點</span>${rules}${wrules}<span class="muted">${esc(MK.dateTime(r.builtAt))} 取得</span></div>${gaps.length ? `<p class="ix-note">⚠️ ${gaps.join('；')}</p>` : ''}${r.branches.map(b => branchHTML(b)).join('')}
+  return `${prog}<div class="ix-bmeta"><span><b>${esc(r.date)}</b> 盤後</span><span>${r.branches.length} 個分點</span>${rules}${wrules}<span class="muted">${esc(MK.dateTime(r.builtAt))} 取得</span>${q || !info?.settings?.branches?.length ? '' : `<button class="ix-wbtn" data-cw="requery" data-date="${esc(r.date)}">重新查詢此日</button>`}</div>${gaps.length ? `<p class="ix-note">⚠️ ${gaps.join('；')}</p>` : ''}${r.branches.map(b => branchHTML(b)).join('')}
   <p class="ix-foot">FinMind 券商分點（依券商代碼查詢）· 約 18:00 更新 · 占量＝淨買賣超 ÷ 當日成交量${src ? `（${src}）` : ''} · 累計占股本＝最近 N 日累計淨買賣超 ÷ 集保總股數${r.sharesDate ? `（${esc(r.sharesDate)} 股權分散表）` : ''} · 「連 N 買／賣」與累計以本機已保存的追蹤紀錄計算${WR ? ' · 認購權證：FinMind 權證分點、證交所／櫃買權證行情，占權證成交＝淨買 ÷ 該標的當日認購權證成交金額，發行券商總公司的自家權證進出不列入' : ''}</p>`;
 }
 // 提醒條件設定（電腦版與手機版共用）

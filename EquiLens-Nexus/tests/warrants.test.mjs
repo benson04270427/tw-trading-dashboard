@@ -103,9 +103,15 @@ test('server: broker tracking adds call warrants per branch; stock warrant panel
     await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', c => reject(new Error(`Server exited ${c}`))); setTimeout(() => reject(new Error('Server startup timeout')), 10000).unref(); });
     const base = 'http://127.0.0.1:4397/api/', get = async p => { const r = await fetch(base + p); return { status: r.status, body: await r.json() }; };
     const s = (await get('state')).body, post = async (p, b) => { const r = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': s.csrf }, body: JSON.stringify(b) }); return { status: r.status, body: await r.json() }; };
+    // 非交易日直接拒絕；查詢在背景執行（202），以 GET /api/chipwatch?date= 取得進度與結果
+    const bad = await post('chipwatch/query', { date: '2026-10-17' });
+    assert.equal(bad.status, 400); assert.match(bad.body.error, /不是交易日/);
     const q = await post('chipwatch/query', { date: '2026-10-16' });
-    assert.equal(q.status, 200, JSON.stringify(q.body));
-    const r = q.body.report, [b1, b2] = r.branches;
+    assert.equal(q.status, 202, JSON.stringify(q.body)); assert.equal(q.body.date, '2026-10-16'); assert.equal(q.body.query.date, '2026-10-16'); assert.equal(q.body.query.total, 2);
+    let info = q.body;
+    for (let n = 0; info.busy && n < 100; n++) { await new Promise(res => setTimeout(res, 100)); info = (await get('chipwatch?date=2026-10-16')).body; }
+    assert.equal(info.busy, false); assert.equal(info.error, ''); assert.deepEqual(info.query, { date: '2026-10-16', done: 2, total: 2 }); assert.ok(info.dates.includes('2026-10-16'));
+    const r = info.report, [b1, b2] = r.branches;
     assert.deepEqual(r.warrantRules, { amount: 5e6, pct: 10, days: 3 }); assert.equal(r.warrantInfo.turnover, true); assert.equal(r.warrantInfo.error, '');
     assert.equal(b1.warrants.buy[0].id, '3017'); assert.equal(b1.warrants.buy[0].netAmt, 6e6); assert.equal(b1.warrants.buy[0].share, 80); assert.equal(b1.warrants.buy[0].big, true); assert.equal(b1.warrants.buy[0].watch, true);
     assert.deepEqual(b1.warrants.skipped, { puts: 1, unknown: 1, issuer: 0 });

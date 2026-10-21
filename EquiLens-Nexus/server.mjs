@@ -697,7 +697,7 @@ const chipSettings=()=>normalizeChipwatch(settings.chipwatch);
 const chipCapable=()=>{try{finmind('brokers');return true;}catch{return false;}};
 const listDir=(dir,re)=>{try{return fs.readdirSync(path.join(LOCAL,dir)).map(f=>re.exec(f)?.[1]).filter(Boolean).sort();}catch{return[];}};
 const bwDates=()=>listDir('broker-watch',/^(\d{4}-\d{2}-\d{2})\.json$/);
-let bw={busy:false,error:'',attempt:{date:'',n:0,at:0}},branchInfo=null;
+let bw={busy:false,error:'',date:'',done:0,total:0,attempt:{date:'',n:0,at:0}},branchInfo=null;
 // 券商分點清單（TaiwanSecuritiesTraderInfo，7 天更新一次）：追蹤設定的搜尋用
 async function branchList(){
   if(branchInfo&&Date.now()-branchInfo.at<7*864e5)return branchInfo.list;
@@ -708,10 +708,11 @@ async function branchList(){
   branchInfo={at:Date.now(),list};write('broker-branches.json',branchInfo);return list;
 }
 // 指定日期所有追蹤分點的進出（每個分點 1 次請求）。全部分點都查無資料時視為尚未公布，不存檔
-async function runBrokerWatch(date,{alert=false}={}){
+// manual：手動查詢（尚未公布時把原因留給畫面顯示）；bw.date／done／total 供畫面顯示進度
+async function runBrokerWatch(date,{alert=false,manual=false}={}){
   const cs=chipSettings();if(!cs.branches.length)throw new UserError('請先加入要追蹤的券商分點');
   if(bw.busy)throw new UserError('分點追蹤查詢中，請稍候');
-  const fm=finmind('brokers');bw.busy=true;bw.error='';
+  const fm=finmind('brokers');bw.busy=true;bw.error='';bw.date=date;bw.done=0;bw.total=cs.branches.length;
   try{
     const prev=bwDates().filter(d=>d<date).slice(-10).map(d=>read(`broker-watch/${d}.json`,null)).filter(Boolean);
     const {meta}=uniIndex(),watch=new Set(watchlist),research=new Set(scopeIds(researchScope)),branches=[];let any=false;
@@ -730,14 +731,15 @@ async function runBrokerWatch(date,{alert=false}={}){
           catch(e){branches.at(-1).warrants={error:e.message};if(blocked(e))wc.blocked=e.message;}
         }
       }catch(e){branches.push({id:b.id,name:b.name,error:e.message,count:0,buy:[],sell:[],mine:[],nets:{}});if(blocked(e))break;}
+      bw.done++;
     }
     const doc={date,builtAt:new Date().toISOString(),rules:{dayPct:cs.dayPct,minAmount:cs.minAmount,accumPct:cs.accumPct,accumDays:cs.accumDays},volumeSource:vol.source,sharesDate:sh.date,branches,
       ...(wc?{warrantRules:{amount:cs.warrantAmount,pct:cs.warrantPct,days:cs.warrantDays},warrantInfo:{masterDate:wc.master?.date||null,stale:!!wc.master?.stale,quotes:wc.quotes?.sources||null,turnover:!!wc.turnover,error:wc.error||wc.blocked||''}}:{})};
-    if(!any){const err=branches.find(b=>b.error)?.error;if(err)throw new UserError(err);return{...doc,empty:true};}
+    if(!any){const err=branches.find(b=>b.error)?.error;if(err)throw new UserError(err);if(manual)bw.error=t('{date} 的分點資料尚未公布（約 18:00 後更新）',{date});return{...doc,empty:true};}
     fs.mkdirSync(path.join(LOCAL,'broker-watch'),{recursive:true});write(`broker-watch/${date}.json`,doc);
     if(alert)addAlerts(today(),brokerWatchAlerts(doc,{lot:M().lot,lang:language()}));
     return doc;
-  }catch(e){bw.error=e.message;throw e;}finally{bw.busy=false;}
+  }catch(e){bw.error=t('{date} 查詢失敗：{msg}',{date,msg:e.message});throw e;}finally{bw.busy=false;}
 }
 // 當日各股成交股數（單日主導用）：熱浪圖紀錄 → 時光機收盤畫格 → 查一次全市場單日行情（建立熱浪圖）
 async function dayVolumes(date){
@@ -825,7 +827,8 @@ setInterval(()=>{
 },60e3).unref();
 function chipwatchInfo(date){
   const dates=bwDates();if(!date||date==='latest')date=dates.at(-1)||null;
-  return{capable:chipCapable(),settings:chipSettings(),maxBranches:MAX_BRANCHES,dates:dates.slice(-30),report:date?read(`broker-watch/${date}.json`,null):null,busy:bw.busy,error:bw.error,holders:holderStatus(),warrants:{busy:!!wm.busy,error:wm.error}};
+  return{capable:chipCapable(),settings:chipSettings(),maxBranches:MAX_BRANCHES,dates:dates.slice(-30),date,report:date?read(`broker-watch/${date}.json`,null):null,busy:bw.busy,error:bw.error,
+    query:bw.busy||bw.date?{date:bw.date,done:bw.done,total:bw.total}:null,holders:holderStatus(),warrants:{busy:!!wm.busy,error:wm.error}};
 }
 
 // 大戶集中度：每週股權分散表（全市場一次取回，每個日期存一份精簡檔）；最多每 6 小時確認一次是否有新的一週
@@ -1355,13 +1358,20 @@ const server = http.createServer(async (req,res) => {
       return json(res,200,{ok:true,...chipwatchInfo()});
     }
     if(route==='/api/chipwatch/query'&&req.method==='POST'){
+      // 在背景查詢（分點多、加查權證時可能要幾分鐘），立即回傳；畫面以 GET /api/chipwatch?date= 追蹤進度與結果
       const b=await body(req);let date=b.date;finmind('brokers');
+      if(!chipSettings().branches.length)throw new UserError('請先加入要追蹤的券商分點');
+      if(bw.busy)throw new UserError('分點追蹤查詢中，請稍候');
       if(date&&!validHeatDate(date))throw new UserError('請選擇有效日期');
+      const x=clock(),ds=(await tradingDates()).filter(d=>d<=x.date);
+      // 今天有盤中紀錄但交易日曆還沒列入今天時，仍視為交易日
+      if(x.weekday>=1&&x.weekday<=5&&ds.at(-1)<x.date&&replayToday()?.date===x.date)ds.push(x.date);
+      if(date&&ds.length&&date>=ds[0]&&!ds.includes(date))throw new UserError('{date} 不是交易日',{date});
       // 未指定日期：今天 18:30 後查今天，否則查前一個交易日
-      if(!date){const x=clock(),ds=(await tradingDates()).filter(d=>d<=x.date);date=ds.at(-1)===x.date&&x.hm<'18:30'?ds.at(-2):ds.at(-1);}
-      const doc=await runBrokerWatch(date);
-      if(doc.empty)throw new UserError('{date} 的分點資料尚未公布（約 18:00 後更新）',{date});
-      return json(res,200,{ok:true,...chipwatchInfo(date)});
+      if(!date)date=ds.at(-1)===x.date&&x.hm<'18:30'?ds.at(-2):ds.at(-1);
+      if(!date)throw new UserError('查無交易日');
+      runBrokerWatch(date,{manual:true}).catch(e=>console.error(t('分點追蹤失敗：')+e.message));
+      return json(res,202,{ok:true,started:true,...chipwatchInfo(date)});
     }
     if(route==='/api/holders/rank'&&req.method==='GET'){
       const scope=url.searchParams.get('scope')==='market'?'market':'mine',date=url.searchParams.get('date');

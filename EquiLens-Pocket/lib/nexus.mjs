@@ -74,7 +74,7 @@ export const priceAlertDelete = id => call('price-alerts/delete', { body: { id }
 export const chipwatch = date => call('chipwatch?' + qs({ date }));
 export const warrants = id => call('warrants?' + qs({ id }), { timeout: 180000 });
 export const warrantBrokers = (wid, date) => call('warrants/brokers?' + qs({ wid, date }), { timeout: 60000 });
-export const chipwatchQuery = b => call('chipwatch/query', { body: b, timeout: 300000 });
+export const chipwatchQuery = b => call('chipwatch/query', { body: b, timeout: 60000 });
 export const chipwatchSettings = b => call('chipwatch/settings', { body: b });
 export const brokerSearch = q => call('chipwatch/branches?' + qs({ q }), { timeout: 60000 });
 export const holderRank = (scope, date) => call('holders/rank?' + qs({ scope, date }));

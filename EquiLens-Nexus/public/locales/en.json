@@ -3009,5 +3009,18 @@
  "剩餘天數": "Days left",
  "履約價／價內外": "Strike / moneyness",
  "收盤／成交": "Close / turnover",
- "比例 {0}": "Ratio {0}"
+ "比例 {0}": "Ratio {0}",
+ "{0} 尚無追蹤紀錄。": "No tracking record for {0}.",
+ "{date} 不是交易日": "{date} is not a trading day",
+ "⏳ 正在查詢 {0}：{1}／{2} 個分點{3}，完成後自動顯示": "⏳ Querying {0}: {1} / {2} branches{3}; results appear automatically when done",
+ "⟳ 查詢最新交易日": "⟳ Query latest session",
+ "其他日期…": "Other date…",
+ "尚無紀錄": "No records yet",
+ "查詢日期": "Query date",
+ "查詢此日": "Query this day",
+ "請選擇日期": "Please choose a date",
+ "重新查詢此日": "Re-query this day",
+ "（含認購權證，每個分點 2 次請求）": " (including call warrants, 2 requests per branch)",
+ "（尚無紀錄）": " (no record yet)",
+ "{date} 查詢失敗：{msg}": "Query for {date} failed: {msg}"
 }

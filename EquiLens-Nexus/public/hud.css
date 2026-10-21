@@ -726,6 +726,7 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 .ix-cw-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 4px 4px 10px;border:1px solid rgba(34,230,255,.45);border-radius:999px;font-size:.8rem;color:var(--ink)}
 .ix-cw-chip small{color:var(--muted);font-family:var(--mono)}.ix-cw-chip button{padding:0 7px;border:0;background:none;color:var(--muted)}
 .ix-cw-search{display:flex;gap:6px;max-width:520px}.ix-cw-search input{flex:1}
+.ix-cw-pick{display:inline-flex;gap:6px;align-items:center}
 .ix-cw-found{display:flex;flex-wrap:wrap;gap:6px}.ix-cw-found button{font-size:.78rem;padding:4px 10px}
 .ix-cw-opts{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:.8rem}
 .ix-cw{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}

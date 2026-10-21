@@ -439,6 +439,9 @@ a.ix-alert{color:inherit;text-decoration:none}
 .ix-cw-chip small{color:var(--muted)}.ix-cw-chip button{padding:2px 8px;border:0;background:none;color:var(--muted)}
 .ix-cw-search{display:flex;gap:6px}.ix-cw-search input{flex:1;min-width:0;padding:9px 10px;border-radius:9px;border:1px solid var(--line2);background:var(--surface);color:var(--text);font-size:16px}
 .ix-cw-search button{padding:9px 14px;border-radius:9px;border:1px solid var(--line2);background:var(--surface2);color:var(--text)}
+.card-h:has(.ix-cw-pick){flex-wrap:wrap}.ix-cw-pick{display:flex;gap:6px;width:100%}
+.ix-cw-pick input{flex:1;min-width:0;min-height:44px;padding:0 10px;border-radius:12px;border:1px solid var(--line2);background:var(--surface);color:var(--text);font-size:16px}
+.ix-cw-pick button{padding:0 14px;border-radius:12px;border:1px solid var(--line2);background:var(--surface2);color:var(--text)}
 .ix-cw-found{display:flex;flex-wrap:wrap;gap:6px}.ix-cw-found button{font-size:.8rem;padding:6px 10px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);color:var(--text)}
 .ix-cw-opts{display:grid;gap:8px;font-size:.84rem}
 .ix-cw{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
