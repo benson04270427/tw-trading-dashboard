@@ -29,7 +29,11 @@ import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swa
 import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffset, evaluateSignal, reviewStats, signalTitle, DT_TITLES } from './lib/daytrade.mjs';
 import { createHistoryLoader } from './lib/daytrade-history.mjs';
 import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
-import { dispositions, tpexDayTrade, callWarrantQuotes } from './lib/providers/twse.mjs';
+import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs } from './lib/providers/twse.mjs';
+import { buildRisk, fetchRiskInputs, riskContext } from './lib/riskgauge.mjs';
+import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
+import { request as finmindRequest } from './lib/finmind.mjs';
+import { generateJSON } from './lib/llm.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
 import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
@@ -951,6 +955,69 @@ setInterval(()=>{
 },5000).unref();
 const newsInfo=()=>({...normalizeNews(settings.news),capable:data.has('marketNews')||cnyesOn(),sources:[data.has('marketNews')?data.source('marketNews'):null,cnyesOn()?'cnyes':null].filter(Boolean),status:{at:newsStatus.at||null,error:newsStatus.error,found:newsStatus.found,seeded:newsStatus.seeded,today:alertsFor(today()).list.filter(a=>a.type==='news').length,pausedUntil:newsPauseUntil>Date.now()?newsPauseUntil:null}});
 
+/* ---------- 風控水位與低估選股（台股） ---------- */
+// 風控水位：FinMind 7 個請求（免費等級即可，沒有金鑰時以匿名額度查詢），平日 15:40 與 21:40 各更新一次；等級改變時推播
+let riskJob={busy:false,step:0,total:7,error:'',slots:{}};
+const riskCapable=()=>M().id==='TW';
+function riskInfo(){return{capable:riskCapable(),data:read('risk/latest.json',null),explain:read('risk/explain.json',null),busy:riskJob.busy,step:riskJob.step,total:riskJob.total,error:riskJob.error,llm:llmConfigured(),explainBusy:!!riskExplainBusy};}
+async function runRisk(){
+  if(riskJob.busy||!riskCapable())return;
+  riskJob={...riskJob,busy:true,step:0,error:''};
+  try{
+    const raw=await fetchRiskInputs(today(),finmindRequest,fmOpt(),(i,n)=>{riskJob.step=i;riskJob.total=n;});
+    const prev=read('risk/latest.json',null),r=buildRisk(raw),errs=[...new Set(Object.values(r.errors||{}))];
+    if(!r.available){riskJob.error=errs[0]||t('資料不足，無法評分');return;}
+    fs.mkdirSync(path.join(LOCAL,'risk'),{recursive:true});write('risk/latest.json',r);
+    if(prev?.available&&prev.label!==r.label&&prev.date!==r.date)addAlerts(today(),[{type:'risk',title:t('風控水位：{a} → {b}',{a:t(prev.label),b:t(r.label)}),detail:t('風險分數 {s}，建議持股 {e}%',{s:r.risk,e:r.exposure}),stockId:'',name:'',t:clock().hms,level:'hi',watch:false,date:r.date}]);
+    riskJob.error=errs.length?t('部分指標未取得：')+errs.join('；'):'';
+  }catch(e){riskJob.error=e.message;}finally{riskJob.busy=false;}
+}
+let riskExplainBusy=false;
+async function explainRisk(){
+  const r=read('risk/latest.json',null);if(!r?.available)throw new UserError('請先更新風控水位');
+  if(!llmConfigured())throw new UserError('請先到「資料與設定」設定推理模型');
+  if(riskExplainBusy)throw new UserError('AI 解讀產生中，請稍候');
+  riskExplainBusy=true;
+  try{
+    const zh=language()!=='en';
+    const system=zh?'你是台股的風險管理顧問。根據提供的市場風險指標（每個指標附一年百分位與 0–100 風險分數），用繁體中文寫出簡潔的解讀：目前風險從何而來、哪些指標相互印證或矛盾、接下來一週要盯哪些變化、持股水位調整的思路。只談整體市場，不推薦個股，不保證報酬，語氣專業克制。':'You are a Taiwan equity risk manager. From the market risk indicators (each with a one-year percentile and a 0–100 risk score), write a concise reading in English: where the risk comes from, which indicators confirm or contradict each other, what to watch next week, and how to think about exposure. Market level only, no stock picks, no return promises.';
+    const schema={type:'object',additionalProperties:false,required:['headline','points','watch','stance'],properties:{headline:{type:'string',description:zh?'一句話結論，30 字內':'One-line takeaway'},points:{type:'array',items:{type:'string'},description:zh?'解讀 3–5 則，每則 50 字內':'3–5 points'},watch:{type:'array',items:{type:'string'},description:zh?'下週觀察 2–4 則，每則 30 字內':'2–4 things to watch'},stance:{type:'string',description:zh?'持股水位調整的思路，60 字內':'Exposure stance'}}};
+    const out=await generateJSON({...await llmOptions(),system,prompt:(zh?'風險指標（JSON）：\n':'Risk indicators (JSON):\n')+JSON.stringify(riskContext(r)),schema});
+    const d=out.data||{},arr=v=>Array.isArray(v)?v.map(String).slice(0,6):[];
+    const doc={date:r.date,risk:r.risk,createdAt:new Date().toISOString(),model:out.model,headline:String(d.headline||''),points:arr(d.points),watch:arr(d.watch),stance:String(d.stance||'')};
+    fs.mkdirSync(path.join(LOCAL,'risk'),{recursive:true});write('risk/explain.json',doc);return doc;
+  }finally{riskExplainBusy=false;}
+}
+// 低估選股：證交所／櫃買開放資料 8 個請求，平日 18:40 後更新一次（本益比與收盤行情在盤後更新，月營收每月 10 日前後）
+let screenJob={busy:false,step:0,total:7,error:'',ran:''};
+function screenInfo(q={}){
+  const store=read('value/inputs.json',null),strategy=STRATEGIES[q.strategy]?q.strategy:SCREEN_DEFAULTS.strategy,minTurnover=[0,5e6,1e7,3e7,1e8].includes(Number(q.minTurnover))?Number(q.minTurnover):SCREEN_DEFAULTS.minTurnover;
+  const result=store?.rows?.length?screen(store.rows,{strategy,minTurnover}):null,watch=new Set(watchlist);
+  if(result)result.rows=result.rows.map(r=>({...r,watch:watch.has(r.id)}));
+  return{capable:riskCapable(),strategies:Object.fromEntries(Object.entries(STRATEGIES).map(([k,v])=>[k,{name:v.name,desc:v.desc,rules:v.rules,weights:v.weights}])),strategy,minTurnover,updatedAt:store?.at||null,valDate:store?.valDate||null,revMonth:store?.revMonth||null,sourceErrors:store?.errors||{},result,busy:screenJob.busy,step:screenJob.step,total:screenJob.total,error:screenJob.error};
+}
+async function runScreen(){
+  if(screenJob.busy||!riskCapable())return;
+  screenJob={...screenJob,busy:true,step:0,error:''};
+  try{
+    const raw=await screenInputs({onProgress:(i,n)=>{screenJob.step=i;screenJob.total=n;}}),rows=mergeInputs(raw);
+    if(rows.filter(r=>r.pe>0).length<100){screenJob.error=Object.values(raw.errors)[0]||t('本益比資料不足，請稍後再試');return;}
+    const most=k=>{const c=new Map();for(const r of rows)if(r[k])c.set(r[k],(c.get(r[k])||0)+1);return[...c].sort((a,b)=>b[1]-a[1])[0]?.[0]||null;};
+    fs.mkdirSync(path.join(LOCAL,'value'),{recursive:true});
+    write('value/inputs.json',{at:new Date().toISOString(),valDate:most('valDate'),revMonth:most('revMonth'),errors:raw.errors,rows});
+    screenJob.error=Object.keys(raw.errors).length?t('部分資料未取得：')+Object.values(raw.errors).join('；'):'';
+  }catch(e){screenJob.error=e.message;}finally{screenJob.busy=false;}
+}
+setInterval(()=>{
+  if(!riskCapable())return;const x=clock();
+  // 第一次啟動（還沒有資料）時先各取一次
+  if(!riskJob.busy&&!riskJob.slots.boot){riskJob.slots.boot=1;if(!read('risk/latest.json',null))runRisk();}
+  if(!screenJob.busy&&!screenJob.booted){screenJob.booted=1;if(!read('value/inputs.json',null))runScreen();}
+  if(x.weekday<1||x.weekday>5)return;
+  for(const slot of ['15:40','21:40']){const k=x.date+slot;if(x.hm>=slot&&!riskJob.slots[k]&&!riskJob.busy){riskJob.slots[k]=1;runRisk();break;}}
+  if(x.hm>='18:40'&&screenJob.ran!==x.date&&!screenJob.busy){screenJob.ran=x.date;runScreen();}
+},60e3).unref();
+
 /* ---------- 推理模型 ---------- */
 // 金鑰以服務代號保存（anthropic、openai、gemini、compatible）；OpenAI 相容端點（例如本機模型）可不設金鑰
 function llmConfigured(){const l=config().llm,info=LLM_INFO[l.provider];if(!info||(info.needsBaseUrl&&!l.baseUrl))return false;return !!info.keyOptional||secretConfigured(l.provider,info.keyEnv);}
@@ -1213,7 +1280,7 @@ function importBundle(b,parts){
 }
 
 /* ---------- HTTP ---------- */
-const STATIC = { '/':'index.html', '/app.js':'app.js', '/heatmap.js':'heatmap.js', '/briefing.js':'briefing.js','/flow-cards.js':'flow-cards.js', '/live.js':'live.js', '/insight-ui.js':'insight-ui.js', '/report-card.js':'report-card.js', '/save-image.js':'save-image.js', '/prefs.js':'prefs.js', '/grouprank.js':'grouprank.js', '/i18n.js':'i18n.js', '/setup.js':'setup.js', '/market.js':'market.js', '/daytrade.js':'daytrade.js', '/intraday.js':'intraday.js', '/chipwatch.js':'chipwatch.js', '/hud.css':'hud.css', '/favicon.svg':'favicon.svg' };
+const STATIC = { '/':'index.html', '/app.js':'app.js', '/heatmap.js':'heatmap.js', '/briefing.js':'briefing.js','/flow-cards.js':'flow-cards.js', '/live.js':'live.js', '/riskvalue.js':'riskvalue.js', '/riskvalue-ui.js':'riskvalue-ui.js', '/insight-ui.js':'insight-ui.js', '/report-card.js':'report-card.js', '/save-image.js':'save-image.js', '/prefs.js':'prefs.js', '/grouprank.js':'grouprank.js', '/i18n.js':'i18n.js', '/setup.js':'setup.js', '/market.js':'market.js', '/daytrade.js':'daytrade.js', '/intraday.js':'intraday.js', '/chipwatch.js':'chipwatch.js', '/hud.css':'hud.css', '/favicon.svg':'favicon.svg' };
 // 舊版模組丟出的一般錯誤（尚未改成 UserError）中，可以直接顯示的訊息
 const LEGACY_MESSAGE=/FinMind|金鑰|股票|族群|設定|格式|請|更新|無效|內容|行情|休市|公布|日期|查無|日報|雷達|時光機|畫格|分組|自選/;
 const server = http.createServer(async (req,res) => {
@@ -1344,6 +1411,12 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/price-alerts/delete'&&req.method==='POST'){
       const b=await body(req);priceRules=priceRules.filter(r=>r.id!==b.id);savePriceRules();return json(res,200,{ok:true,...priceRulesInfo()});
     }
+    /* ----- 風控水位與低估選股 ----- */
+    if(route==='/api/risk'&&req.method==='GET')return json(res,200,riskInfo());
+    if(route==='/api/risk/query'&&req.method==='POST'){if(!riskCapable())throw new UserError('風控水位目前只支援台股');if(riskJob.busy)throw new UserError('風控水位更新中，請稍候');runRisk();return json(res,202,riskInfo());}
+    if(route==='/api/risk/explain'&&req.method==='POST'){const doc=await explainRisk();return json(res,200,{ok:true,explain:doc});}
+    if(route==='/api/value'&&req.method==='GET')return json(res,200,screenInfo(Object.fromEntries(url.searchParams)));
+    if(route==='/api/value/query'&&req.method==='POST'){if(!riskCapable())throw new UserError('低估選股目前只支援台股');if(screenJob.busy)throw new UserError('選股資料更新中，請稍候');runScreen();return json(res,202,screenInfo());}
     /* ----- 籌碼追蹤 ----- */
     if(route==='/api/chipwatch'&&req.method==='GET'){const date=url.searchParams.get('date');if(date&&date!=='latest'&&!validHeatDate(date))throw new UserError('請選擇有效日期');return json(res,200,chipwatchInfo(date));}
     if(route==='/api/chipwatch/branches'&&req.method==='GET'){

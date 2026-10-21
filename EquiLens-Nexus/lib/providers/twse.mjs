@@ -151,6 +151,22 @@ async function revenueMap(ctx) {
   revenueCache = { at: Date.now(), map }; return map;
 }
 
+// 低估選股用的全市場原始資料（8 個請求，約 20 秒）：股票清單、本益比／淨值比／殖利率、最新月營收、最新收盤與成交金額。
+// 任一項失敗時其他照用，錯誤列在 errors
+export async function screenInputs(ctx = {}) {
+  const raw = { errors: {} }, tasks = [
+    ['universe', () => universe(ctx)],
+    ['valTw', () => get('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL', ctx)],
+    ['valTp', () => get('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis', ctx)],
+    ['revTw', () => get('https://openapi.twse.com.tw/v1/opendata/t187ap05_L', ctx)],
+    ['revTp', () => get('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O', ctx)],
+    ['priceTw', () => get('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', ctx)],
+    ['priceTp', () => get('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', ctx)],
+  ];
+  for (const [i, [key, fn]] of tasks.entries()) { ctx.onProgress?.(i, tasks.length, key); try { const v = await fn(); raw[key] = Array.isArray(v) ? v : []; } catch (e) { raw[key] = []; raw.errors[key] = e.message; } }
+  return raw;
+}
+
 export default {
   id: 'twse', name: '證交所／櫃買中心 開放資料', site: 'https://openapi.twse.com.tw', docs: 'https://openapi.twse.com.tw', markets: ['TW'],
   key: 'none', interval: 2500,

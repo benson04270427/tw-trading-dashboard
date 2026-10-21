@@ -1,6 +1,7 @@
 import { aggregate, renderTreemap, heatColor } from './heatmap.js';
 import { renderFlowCards, downloadFlowCard } from './flow-cards.js';
 import { initChips, loadChips, brokersView, holdersView } from './chips.js';
+import { initRV, riskCard, valueView, loadRisk, loadValue } from './rv.js';
 import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard, openQuote, openIndex } from './live.js';
 import { setLanguage, getLanguage, tx } from './i18n.js';
 import * as MK from './market.js';
@@ -90,11 +91,11 @@ async function load(force = false) {
   if (!jobTimer) pollJob();
   try {
     if (S.tab === 'brief') { await loadBrief(force); if (!S.stocks) loadStocks(S.tab === 'brief').catch(() => { }); }
-    else if (S.tab === 'home') { S.summary = await api('api/summary'); if (!S.stocks) loadStocks(); }
+    else if (S.tab === 'home') { [S.summary] = await Promise.all([api('api/summary'), loadRisk()]); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'stocks') await loadStocks(true);
     else if (S.tab === 'heat') { if (replayActive()) return; if (!S.heat.data || force) await loadHeat(); if (S.heat.live && liveOpen()) await loadLive(); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'live') { await loadLiveTab(); if (!S.stocks) loadStocks(); }
-    else if (S.tab === 'patterns') { if (!S.pat || force) S.pat = await api('api/patterns'); }
+    else if (S.tab === 'patterns') { if (S.patView === 'value') await loadValue(); else if (!S.pat || force) S.pat = await api('api/patterns'); }
     else if (S.tab === 'flows') { if (S.flows.view !== 'inst') await loadChips(force); else if (!S.flows.data || force) await loadFlows(); }
     S.error = '';
   } catch (e) { if (!e.silent) { S.error = e.message; } }
@@ -214,7 +215,7 @@ function homePage() {
   const movers = d.movers.length ? `<section class="card"><div class="card-h"><h2>研究名單漲跌</h2></div><div class="card-b"><div class="seg" role="group"><button class="${S.moverSide === 'up' ? 'on' : ''}" data-mover="up">漲幅前 5</button><button class="${S.moverSide === 'down' ? 'on' : ''}" data-mover="down">跌幅前 5</button></div></div><div class="list">${(S.moverSide === 'up' ? d.movers.slice(0, 5) : d.movers.slice(-5).reverse()).map(s => stockRow(s)).join('')}</div></section>` : '';
   const pats = `<section class="card"><div class="card-h"><h2>型態新訊號<small>${d.patternMeta?.asOf || ''}</small></h2><button class="more" data-go="patterns">全部 ›</button></div>${d.patterns.map(patCard).join('') || '<div class="empty">目前沒有量價確認或待確認的突破。</div>'}</section>`;
   const groups = d.groups.length ? `<section class="card"><div class="card-h"><h2>族群強弱</h2></div><div class="bars">${d.groups.map(g => barRow(g.name, fmt(g.score), g.score, `<span>站上季線 ${fmt(g.breadth)}%</span><span>營收年增 <span class="${cls(g.growth)}">${pct(g.growth, 1)}</span></span>`, `data-group="${esc(g.id)}"`)).join('')}</div></section>` : '';
-  return `${status}${errBox()}${stale}${index}${heat}${flows}${watch}${movers}${pats}${groups}<div class="foot">資料經由電腦上的衡析 Nexus<br>研究資訊，非交易建議 · <button class="more" style="min-height:32px;font-size:.78rem" id="logout">登出這台裝置</button></div>`;
+  return `${status}${errBox()}${stale}${riskCard()}${index}${heat}${flows}${watch}${movers}${pats}${groups}<div class="foot">資料經由電腦上的衡析 Nexus<br>研究資訊，非交易建議 · <button class="more" style="min-height:32px;font-size:.78rem" id="logout">登出這台裝置</button></div>`;
 }
 
 /* ---------- stocks ---------- */
@@ -386,7 +387,13 @@ function patCard(r) {
   <div class="soft" style="font-size:.8rem;margin-top:2px">${esc(r.pattern)} · ${esc(r.category)} · ${esc(r.sector)}</div><div class="meter"><i style="width:${r.score}%"></i></div>
   <div class="plan num"><div><span>強度</span><b>${r.score}</b></div><div><span>進場帶</span><b>${fmt(r.entry, r.entry < 100 ? 2 : 1)}</b></div><div><span>防守</span><b class="down">${fmt(r.stop, r.stop < 100 ? 2 : 1)}</b></div><div><span>R/R</span><b>${fmt(r.rr, 1)}</b></div></div></button>`;
 }
+// 型態分頁：型態選股／低估選股
+const patSeg = () => `<div class="seg" style="margin-bottom:12px">${[['pattern', '型態選股'], ['value', '低估選股']].map(([v, l]) => `<button class="${(S.patView || 'pattern') === v ? 'on' : ''}" data-pview="${v}">${l}</button>`).join('')}</div>`;
 function patternPage() {
+  if (S.patView === 'value') return patSeg() + valueView();
+  return patSeg() + patternBody();
+}
+function patternBody() {
   const p = S.pat; if (!p) return errBox() + loadingBox();
   const rows = p.rows.filter(r => (!S.patStatus || r.status === S.patStatus) && (!S.patCat || r.category === S.patCat));
   return `${errBox()}<div class="statusline"><span class="pill">${p.from || '—'} → ${p.asOf || '—'}</span><span class="pill">${fmt(p.matched)} 檔 · ${fmt(p.count)} 筆型態</span>${S.job?.running ? '' : '<button class="btn" data-pat-update style="min-height:32px;margin-left:auto">⟳ 更新型態資料</button>'}</div>
@@ -488,6 +495,7 @@ document.addEventListener('click', async e => {
     if ('reload' in ds) return location.reload();
     if (ds.tab) return setTab(ds.tab);
     if (ds.fview) { S.flows.view = ds.fview; draw(); return load(); }
+    if (ds.pview) { S.patView = ds.pview; draw(); return load(); }
     if (b.id === 'refresh') { if (S.tab === 'heat' && !(S.heat.live && liveOpen())) await loadHeat(S.heat.data?.date); return load(S.tab !== 'heat'); }
     if (b.id === 'settings') return openSettings();
     if (ds.setFont) { try { localStorage.setItem('pocket.font', ds.setFont); } catch { } applyFont(); draw(); return openSettings(); }
@@ -595,6 +603,7 @@ setInterval(() => { if (!document.hidden) checkBuild(); }, 10 * 60e3);
 /* ---------- boot ---------- */
 checkBuild();
 applyWake();
+initRV({ api, toast, draw, S, openSheet, $ });
 initLive({ api, toast, draw, S, openSheet, openStock, inScope, aggregate, renderTreemap, heatColor, $, $$, setTab, twToday, openChips });
 initChips({ api, toast, draw, S });
 // 推播或雷達中的分點追蹤／大戶週報：開啟籌碼分頁對應的檢視

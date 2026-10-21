@@ -9,6 +9,7 @@ cd EquiLens-Nexus
 D=/tmp/equilens-demo && rm -rf $D && mkdir -p $D
 EQUITY_DATA_DIR=$D node tools/screenshots/demo-data.mjs
 EQUITY_DATA_DIR=$D node tools/screenshots/demo-data2.mjs
+EQUITY_DATA_DIR=$D node tools/screenshots/demo-risk.mjs   # 風控水位與低估選股
 echo '{"version":1,"setupDone":true,"market":"TW","language":"zh-TW","providers":{"enabled":["finmind","fugle","twse"],"prefer":{}}}' > $D/config.json
 # 電腦版：時間固定從 2026-10-16（五）21:30 開始，對外請求一律失敗（只用示意資料）
 EQUITY_DATA_DIR=$D PORT=4391 FINMIND_API_TOKEN=demo FUGLE_API_KEY=demo ANTHROPIC_API_KEY=demo node --import ./tools/screenshots/clock.mjs server.mjs &

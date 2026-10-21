@@ -20,7 +20,7 @@ const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/heatmap.js': ['heatmap.js', 'text/javascript; charset=utf-8'], '/flow-cards.js': ['flow-cards.js', 'text/javascript; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json'], '/icon.svg': ['icon.svg', 'image/svg+xml'],
-  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/live.js': ['live.js', 'text/javascript; charset=utf-8'], '/chips.js': ['chips.js', 'text/javascript; charset=utf-8'], '/intraday.js': ['intraday.js', 'text/javascript; charset=utf-8'], '/insight-ui.js': ['insight-ui.js', 'text/javascript; charset=utf-8'], '/report-card.js': ['report-card.js', 'text/javascript; charset=utf-8'], '/save-image.js': ['save-image.js', 'text/javascript; charset=utf-8'], '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'], '/market.js': ['market.js', 'text/javascript; charset=utf-8'],  '/icon-192.png': ['icon-192.png', 'image/png'], '/badge-96.png': ['badge-96.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'], '/apple-touch-icon.png': ['icon-192.png', 'image/png'],
+  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/live.js': ['live.js', 'text/javascript; charset=utf-8'], '/chips.js': ['chips.js', 'text/javascript; charset=utf-8'], '/rv.js': ['rv.js', 'text/javascript; charset=utf-8'], '/riskvalue-ui.js': ['riskvalue-ui.js', 'text/javascript; charset=utf-8'], '/intraday.js': ['intraday.js', 'text/javascript; charset=utf-8'], '/insight-ui.js': ['insight-ui.js', 'text/javascript; charset=utf-8'], '/report-card.js': ['report-card.js', 'text/javascript; charset=utf-8'], '/save-image.js': ['save-image.js', 'text/javascript; charset=utf-8'], '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'], '/market.js': ['market.js', 'text/javascript; charset=utf-8'],  '/icon-192.png': ['icon-192.png', 'image/png'], '/badge-96.png': ['badge-96.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'], '/apple-touch-icon.png': ['icon-192.png', 'image/png'],
 };
 
 // 前端版本號：public 內檔案的修改時間雜湊（改了網頁檔即變更，手機 App 回到前景時會自動重新載入）
@@ -124,6 +124,8 @@ async function api(req, res, url) {
     if (route === 'report/card') { const date = q.get('date'); if (date && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.reportCard(date)); }
     if (route === 'report') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.report(date)); }
     if (route === 'price-alerts') return send(req, res, 200, await nexus.priceAlerts());
+    if (route === 'risk') return send(req, res, 200, await nexus.risk());
+    if (route === 'value') { const st = q.get('strategy') || 'value', mt = Number(q.get('minTurnover') ?? 1e7); if (!['value', 'garp', 'income'].includes(st) || ![0, 5e6, 1e7, 3e7, 1e8].includes(mt)) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.value(st, mt)); }
     if (route === 'chipwatch') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.chipwatch(date)); }
     if (route === 'chipwatch/branches') { const k = String(q.get('q') || '').trim(); if (k.length > 30) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.brokerSearch(k)); }
     if (route === 'holders/rank') { const scope = q.get('scope') || 'mine', date = q.get('date'); if (!['mine', 'market'].includes(scope) || (date && date !== 'latest' && !validDate(date))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.holderRank(scope, date)); }
@@ -167,6 +169,9 @@ async function api(req, res, url) {
     if (route === 'price-alerts/delete') { if (typeof b.id !== 'string' || !/^[\w-]{1,40}$/.test(b.id)) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.priceAlertDelete(b.id)); }
     if (route === 'chipwatch/query') { if (b.date && !validDate(b.date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 202, await nexus.chipwatchQuery(b.date ? { date: b.date } : {})); }
     if (route === 'holders/rank/query') return send(req, res, 200, await nexus.holderRankQuery());
+    if (route === 'risk/query') return send(req, res, 202, await nexus.riskQuery());
+    if (route === 'risk/explain') return send(req, res, 200, await nexus.riskExplain());
+    if (route === 'value/query') return send(req, res, 202, await nexus.valueQuery());
     if (route === 'chipwatch/settings') {
       const br = b.branches; if (br !== undefined && (!Array.isArray(br) || br.length > 20 || !br.every(x => x && typeof x.id === 'string' && /^[\w]{1,10}$/.test(x.id) && typeof x.name === 'string' && x.name.length <= 40))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
       const nums = ['dayPct', 'minAmount', 'accumPct', 'accumDays', 'warrantAmount', 'warrantPct', 'warrantDays'];
