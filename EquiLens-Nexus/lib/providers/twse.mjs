@@ -2,6 +2,7 @@
 // 三大法人買賣超、本益比與股價淨值比、最新月營收。沒有盤中即時快照與分 K，盤中功能需搭配其他資料源。
 // 兩個網站都會封鎖過於頻繁的請求，因此每次請求至少間隔 2.5 秒。
 import { DataError, fetchJSON, num, rocDate, ymd, weekdays, addDays } from './common.mjs';
+import { parseTwseWarrants, parseTpexWarrants } from '../warrants.mjs';
 
 // 證交所／櫃買產業代碼
 export const INDUSTRY = { '01': '水泥工業', '02': '食品工業', '03': '塑膠工業', '04': '紡織纖維', '05': '電機機械', '06': '電器電纜', '08': '玻璃陶瓷', '09': '造紙工業', '10': '鋼鐵工業', '11': '橡膠工業', '12': '汽車工業', '14': '建材營造業', '15': '航運業', '16': '觀光餐旅', '17': '金融保險業', '18': '貿易百貨業', '19': '綜合', '20': '其他業', '21': '化學工業', '22': '生技醫療業', '23': '油電燃氣業', '24': '半導體業', '25': '電腦及週邊設備業', '26': '光電業', '27': '通信網路業', '28': '電子零組件業', '29': '電子通路業', '30': '資訊服務業', '31': '其他電子業', '32': '文化創意業', '33': '農業科技業', '34': '電子商務', '35': '綠能環保', '36': '數位雲端', '37': '運動休閒', '38': '居家生活', '80': '管理股票', '91': '存託憑證' };
@@ -96,6 +97,14 @@ async function dailyAll(date, ctx) {
   const tw = await get(`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${ymd(date)}&type=ALLBUT0999&response=json`, ctx);
   const tp = await get(`https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=${tpexDate(date)}&type=EW&response=json`, ctx);
   return [...parseTwseDaily(tw, date), ...parseTpexDaily(tp, date)];
+}
+// 認購權證收盤行情（權證追蹤用）：上市以證交所每日收盤行情 type=0999（認購權證，不含牛證），上櫃以櫃買權證收盤行情（只有最新一個交易日）。
+// 回傳 { q: { 代號: [名稱, 收盤, 成交單位數, 成交金額, 標的?] }, sources: { twse, tpex }, errors }；任一邊失敗時另一邊照用
+export async function callWarrantQuotes(date, { signal } = {}) {
+  const q = {}, sources = { twse: 0, tpex: 0 }, errors = [];
+  try { const r = parseTwseWarrants(await get(`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${ymd(date)}&type=0999&response=json`, { signal })); Object.assign(q, r); sources.twse = Object.keys(r).length; } catch (e) { errors.push(e.message); }
+  try { const r = parseTpexWarrants(await get('https://www.tpex.org.tw/openapi/v1/tpex_warrant_daily_quts', { signal })); if (r.date === date) { Object.assign(q, r.q); sources.tpex = Object.keys(r.q).length; } else if (r.date) errors.push(`TPEx ${r.date}`); } catch (e) { errors.push(e.message); }
+  return { q, sources, errors };
 }
 // 個股歷史：每月一次請求（上市 STOCK_DAY、上櫃 tradingStock）；先試上市，查無資料再試上櫃
 async function daily(id, from, to, ctx) {

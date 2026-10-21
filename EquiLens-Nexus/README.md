@@ -25,7 +25,7 @@
 | 研究總覽／市場族群 | 四維評分（技術、籌碼、話題、行業）與族群脈動 |
 | 型態選股 | 90 個交易日、10 種型態，條件式進場與防守 |
 | 法人／期貨籌碼 | 台股＋FinMind 才顯示：三大法人、外資期權部位、個股買賣超排行與 9:16 圖卡 |
-| 籌碼追蹤 | 台股＋FinMind Sponsor 才顯示：分點追蹤（指定券商分點每日盤後進出、連續買賣、達門檻推播）、大戶集中度排行（千張大戶 1 週／4 週變化） |
+| 籌碼追蹤 | 台股＋FinMind Sponsor 才顯示：分點追蹤（指定券商分點每日盤後進出、連續買賣、達門檻推播）、權證追蹤（追蹤分點的認購權證進出依標的彙總、權證大買與連續買進提醒；個股視窗的認購權證清單，見 docs/features/warrants.md）、大戶集中度排行（千張大戶 1 週／4 週變化） |
 | 話題追蹤／自選追蹤 | 人工判讀的事件證據、自選分組 |
 | 資料與設定 | 市場與語言、遠端存取、資料來源與金鑰、推理模型、研究族群管理、設定檔匯出入、更新排程、評分權重 |
 
@@ -34,7 +34,7 @@
 ## 資料位置
 
 所有資料都在 `.local/`（或環境變數 `EQUITY_DATA_DIR` 指定的資料夾）：`config.json`、`settings.json`、`groups.json`、
-`watchlist.json`、`price-alerts.json`（自訂提醒）、`stocks/`（研究個股行情）、`heatmap-*.json`、`replay/`（時光機）、`alerts-*.json`、`reports/`、`broker-watch/`（分點追蹤）、`holders-all/`（全市場股權分散表）等。
+`watchlist.json`、`price-alerts.json`（自訂提醒）、`stocks/`（研究個股行情）、`heatmap-*.json`、`replay/`（時光機）、`alerts-*.json`、`reports/`、`broker-watch/`（分點追蹤，含認購權證進出）、`warrants/`（權證標的對照、行情與分點快取）、`holders-all/`（全市場股權分散表）等。
 切換研究市場時，目前市場的資料會移到 `.local/markets/<市場>/`，切回時搬回。
 
 金鑰由作業系統加密保存（Windows DPAPI、macOS 鑰匙圈、Linux Secret Service），頁面與 API 不會讀回。

@@ -50,7 +50,9 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
 - **AI after-market report** – written by Claude, OpenAI, Gemini or any OpenAI-compatible endpoint (including local
   models), with a short note on every watchlist stock and a downloadable 9:16 summary card.
 - **Chip tracking** (Taiwan, FinMind Sponsor) – track chosen broker branches (each branch's market-wide trades after the
-  close, streaks, push above a threshold) and rank stocks by the weekly change in 1,000-lot holders.
+  close, streaks, push above a threshold) and rank stocks by the weekly change in 1,000-lot holders. **Warrant tracking**
+  adds each tracked branch's call-warrant trades grouped by underlying (big-buy and consecutive-buy alerts; the issuer's
+  own market making is excluded) and a call-warrant panel in the stock window ([details, zh-TW](docs/features/warrants.md)).
 - **Market-specific modules** – for Taiwan with FinMind: broker branches, shareholding distribution, institutional
   and futures/options flows.
 - **Interface languages** – Traditional Chinese and English.
@@ -65,6 +67,7 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
 | **AI after-market report**<br>![AI after-market report](docs/images/desktop-report.webp) | **Broker-branch tracking**<br>![Broker-branch tracking](docs/images/desktop-chips.webp) |
 | **Institutional and futures/options flows**<br>![Institutional and futures/options flows](docs/images/desktop-flows.webp) | **Stock diagnosis**<br>![Stock diagnosis](docs/images/desktop-detail.webp) |
 | **Pattern scanner**<br>![Pattern scanner](docs/images/desktop-patterns.webp) | **Topic evidence**<br>![Topic evidence](docs/images/desktop-topics.webp) |
+| **Call-warrant panel**<br>![Call-warrant panel](docs/images/desktop-warrants.webp) | **Branch call-warrant trades**<br>![Branch call-warrant trades](docs/images/desktop-chips-warrants.webp) |
 
 **Mobile (EquiLens Pocket)**
 

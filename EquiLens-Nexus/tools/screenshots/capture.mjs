@@ -2,7 +2,7 @@
 // Playwright 是全域安裝：PLAYWRIGHT=$(npm root -g)/playwright/index.mjs
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 const OUT = process.argv[2], ONLY = process.argv[3] ? new Set(process.argv[3].split(',')) : null;
-const T = new Date('2026-10-16T14:40:00+08:00');
+const T = new Date('2026-10-16T21:30:00+08:00');
 const want = k => !ONLY || ONLY.has(k);
 const b = await chromium.launch();
 const VIEW = { width: 1440, height: 1000 };
@@ -55,13 +55,20 @@ const MAIN = (y = 60, h = 840) => ({ x: 238, y, width: 1202, height: h });
     await nav(p, 'live'); const c = p.locator('[data-kbar="3017"]').first(); await c.scrollIntoViewIfNeeded(); await c.click(); await p.waitForTimeout(2000);
     await shot(p, 'desktop-chart', { x: 200, y: 36, width: 1040, height: 720 });
     for (const [v, n] of [['day', 'desktop-chart-day']]) { await p.locator(`[data-cperiod="${v}"]`).first().click(); await p.waitForTimeout(1500); await shot(p, n); }
-    const d = p.locator('[data-stock-detail="3017"]').first(); if (await d.count()) { await d.click(); await p.waitForTimeout(2200); await shot(p, 'desktop-detail'); }
+    const d = p.locator('[data-stock-detail="3017"]').first(); if (await d.count()) {
+      await d.click(); await p.waitForTimeout(2200); await shot(p, 'desktop-detail');
+      // 個股的認購權證：展開第一檔的分點進出
+      await p.waitForTimeout(1500);
+      const wb = p.locator('#ix-warrants [data-wbr]').first(); if (await wb.count()) { await wb.click(); await p.waitForTimeout(1200); }
+      await p.locator('#ix-warrants').evaluate(e => e.closest('section').scrollIntoView({ block: 'start' })); await p.waitForTimeout(600);
+      await shot(p, 'desktop-warrants');
+    }
     await p.keyboard.press('Escape'); await p.waitForTimeout(500);
   }
   if (want('grouprank')) { await p.goto('http://127.0.0.1:4391/'); await p.waitForTimeout(1200); await nav(p, 'grouprank'); await shot(p, 'desktop-grouprank', MAIN(60, 840)); }
   if (want('patterns')) { await nav(p, 'patterns'); await shot(p, 'desktop-patterns', MAIN(60, 840)); }
   if (want('flows')) { await nav(p, 'flows'); await p.locator('[data-flow-cache]').click(); await p.waitForTimeout(2000); await shot(p, 'desktop-flows', MAIN(60, 840)); }
-  if (want('chips')) { await nav(p, 'chips'); await shot(p, 'desktop-chips', MAIN(60, 840)); }
+  if (want('chips')) { await nav(p, 'chips'); await shot(p, 'desktop-chips', MAIN(60, 840)); const w = p.locator('.ix-cw-w').first(); if (await w.count()) { await w.scrollIntoViewIfNeeded(); await p.waitForTimeout(500); await w.screenshot({ path: `${OUT}/desktop-chips-warrants.png` }); } }
   if (want('topics')) { await nav(p, 'topics'); await shot(p, 'desktop-topics', MAIN(60, 640)); }
   await p.close();
 }

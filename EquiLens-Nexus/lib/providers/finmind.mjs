@@ -10,7 +10,8 @@ const tokenOf = t => t ?? getSecret('finmind', 'FINMIND_API_TOKEN');
 let lastRequest = 0, requestTail = Promise.resolve();
 
 // 所有 FinMind 請求共用一條佇列（含金鑰驗證），避免瞬間大量請求
-export async function request(dataset, params = {}, { interval = 7000, token, signal } = {}) {
+// timeout：大型資料集（例如權證標的對照表約需 1 分鐘）可延長
+export async function request(dataset, params = {}, { interval = 7000, token, signal, timeout = 45000 } = {}) {
   const previous = requestTail; let release;
   requestTail = new Promise(r => release = r);
   await previous;
@@ -23,7 +24,7 @@ export async function request(dataset, params = {}, { interval = 7000, token, si
     const path = dataset.startsWith('/'), url = new URL(`https://api.finmindtrade.com/api/v4${path ? dataset : '/data'}`);
     url.search = new URLSearchParams(path ? params : { dataset, ...params }).toString();
     lastRequest = Date.now();
-    return await fetchData(url, secret, signal, dataset, 45000);
+    return await fetchData(url, secret, signal, dataset, timeout);
   } finally { release(); }
 }
 async function fetchData(url, secret, signal, label, timeout) {

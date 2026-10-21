@@ -739,6 +739,14 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 /* 分點追蹤提醒條件 */
 .ix-cw-rules{display:grid;gap:6px;font-size:.8rem}.ix-cw-rules>div{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}.ix-cw-rules b{min-width:64px}.ix-cw-rules select{padding:3px 6px}
 .ix-btable tr.ix-cw-hit td{background:rgba(34,230,255,.06)}
+.ix-detail .ix-wide{grid-column:1/-1}
+.ix-cw-w{margin-top:10px}.ix-cw-wh{font-size:.84rem;margin:6px 0 8px}.ix-cw-wh small{color:var(--muted);font-weight:400;margin-left:6px}
+.ix-btable td.ix-wlist{text-align:left;font-size:.72rem;line-height:1.5;white-space:normal}
+.ix-wtrack{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:.78rem;margin-bottom:10px}.ix-wt{padding:3px 8px;border:1px solid var(--line2);border-radius:4px}.ix-wt.hit{border-color:var(--cyan)}
+.ix-wtable{overflow-x:auto}.ix-wtable td,.ix-wtable th{white-space:nowrap}.ix-wtable tr.ix-wbr td{text-align:left;background:rgba(80,200,255,.04)}
+.ix-wbtn{font-size:.72rem;padding:2px 8px}
+.ix-wtable td small{display:block;font-size:.7rem;color:var(--muted);margin-top:2px}.ix-wtable td small.up{color:var(--up)}.ix-wtable td small.down{color:var(--down)}.ix-wtable td:first-child{white-space:normal}
+.ix-wbrs{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:.76rem}.ix-wbrs div{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}.ix-wbrs b.up{color:var(--up)}.ix-wbrs b.down{color:var(--down)}
 /* 個股即時走勢（K 線視窗「走勢」分頁）：與手機版共用 intraday.js 的標記 */
 .ia-chart{width:100%;height:auto;display:block;user-select:none}
 .ia-ax{font-size:11px;fill:var(--muted)}.ia-ax.up{fill:var(--up)}.ia-ax.down{fill:var(--down)}

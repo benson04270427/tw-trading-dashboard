@@ -1,5 +1,5 @@
 // 衡析 Pocket：盤中分頁（族群／自選即時看板、異動雷達、族群排名、雷達設定）、個股 K 線、熱浪時光機、個股籌碼深度、AI 盤後日報、推播訂閱。
-import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, rotationData, rotationSVG, replayStocks, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
+import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, warrantHTML, warrantBrokersHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, rotationData, rotationSVG, replayStocks, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { tx } from './i18n.js';
 import { intradaySVG, readAt, legendHTML, bookHTML, tapeHTML } from './intraday.js';
 import * as MK from './market.js';
@@ -395,17 +395,25 @@ export function mountReplay() { const el = C.$('#hm'); if (el && L.replay?.agg) 
 /* ---------- 個股詳情：分點、大戶 ---------- */
 export function stockExtrasShell(id) {
   return `<section class="card ix-card"><div class="card-h"><h2>🏦 主力分點<small>近 5 日</small></h2></div><div class="card-b" id="ix-brokers"><div class="empty"><span class="spinner"></span> 讀取券商分點…</div></div></section>
-  <section class="card ix-card"><div class="card-h"><h2>🐋 大戶持股<small>每週股權分散</small></h2></div><div class="card-b" id="ix-holders"><div class="empty"><span class="spinner"></span> 讀取股權分散表…</div></div></section>`;
+  <section class="card ix-card"><div class="card-h"><h2>🐋 大戶持股<small>每週股權分散</small></h2></div><div class="card-b" id="ix-holders"><div class="empty"><span class="spinner"></span> 讀取股權分散表…</div></div></section>
+  <section class="card ix-card"><div class="card-h"><h2>🎫 認購權證<small>權證條件與追蹤分點</small></h2></div><div class="card-b" id="ix-warrants"><div class="empty"><span class="spinner"></span> 讀取權證資料…</div></div></section>`;
 }
 export async function fillStockExtras(id) {
   const fill = async (sel, path, render) => { try { const d = await C.api(path); const el = C.$(sel); if (el && C.S.sheetStock?.id === id) el.innerHTML = render(d); } catch (e) { const el = C.$(sel); if (el && !e.silent) el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; } };
-  await Promise.all([fill('#ix-brokers', 'api/brokers?id=' + id, brokerHTML), fill('#ix-holders', 'api/holders?id=' + id, holderHTML)]);
+  await Promise.all([fill('#ix-brokers', 'api/brokers?id=' + id, brokerHTML), fill('#ix-holders', 'api/holders?id=' + id, holderHTML), fill('#ix-warrants', 'api/warrants?id=' + id, warrantHTML)]);
 }
 
 /* ---------- 事件 ---------- */
 document.addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b || !C) return; const ds = b.dataset;
   try {
+    if (ds.wbr) { // 個股權證：展開／收合單一權證的分點進出（第一次展開時查詢）
+      const row = document.querySelector(`[data-wbr-row="${ds.wbr}"]`); if (!row) return;
+      if (!row.hidden) { row.hidden = true; return; }
+      row.hidden = false; const cell = row.firstElementChild;
+      if (!cell.dataset.loaded) { cell.innerHTML = '<i class="spinner"></i>'; try { cell.innerHTML = warrantBrokersHTML(await C.api(`api/warrants/brokers?wid=${encodeURIComponent(ds.wbr)}&date=${encodeURIComponent(ds.date)}`)); cell.dataset.loaded = '1'; } catch (err) { cell.innerHTML = `<p class="muted">${esc(err.message)}</p>`; } }
+      return;
+    }
     if (ds.lview) { L.view = ds.lview; if (ds.lview === 'radar') checkPush().then(() => C.S.tab === 'live' && C.draw()); if (ds.lview === 'groups') loadGroupRank(); if (ds.lview === 'daytrade') loadDaytrade().then(() => C.S.tab === 'live' && L.view === 'daytrade' && C.draw()); return C.draw(); }
     if ('dtreview' in ds) { await loadDtReview(); return C.draw(); }
     if ('grQuery' in ds) { GR.view = 'live'; return queryGroupRank(); }

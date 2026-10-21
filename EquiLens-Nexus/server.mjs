@@ -16,6 +16,7 @@ import { normalizeRule, createRuleState, scanPriceAlerts, ruleLabel, RULE_KINDS,
 import { aggregateBrokers, brokerAnalysis, parseHolders, holderSignal, replayMinuteBars, fiveMinBars, dailyKRows, replayDayBar } from './lib/insight.mjs';
 import { buildReportContext, generateReport, normalizeReportSettings, overnightOutlook } from './lib/report.mjs';
 import { normalizeChipwatch, branchDay, brokerWatchAlerts, holderMarketDay, rankHolders, holderRankAlert, MAX_BRANCHES } from './lib/chipwatch.mjs';
+import { warrantMaster, branchWarrants, turnoverByTarget, stockWarrants, WARRANT_ID } from './lib/warrants.mjs';
 import { remoteConfig, isRemoteHost, verifyAccessJwt } from './lib/access.mjs';
 import { FUTURES, nearMonth, retailPosition, marginSummary, indexRow, assembleCard } from './lib/market-card.mjs';
 import { buildMarket, marketToday, WEIGHTS, FACTORS, minusDays, bars as priceBars } from './lib/engine.mjs';
@@ -28,7 +29,7 @@ import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swa
 import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffset, evaluateSignal, reviewStats, signalTitle, DT_TITLES } from './lib/daytrade.mjs';
 import { createHistoryLoader } from './lib/daytrade-history.mjs';
 import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
-import { dispositions, tpexDayTrade } from './lib/providers/twse.mjs';
+import { dispositions, tpexDayTrade, callWarrantQuotes } from './lib/providers/twse.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
 import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
@@ -95,7 +96,7 @@ loadMarketState();
 
 // 換市場：把目前市場的資料（股票清單、族群、自選、行情、紀錄）收進 .local/markets/<市場>/，再把目標市場先前收起來的資料搬回來
 const MARKET_FILE=/^(universe|groups|watchlist|watch-groups|evidence|last-job|news-seen|pattern-active|pattern-calendar|pattern-ledger|bulk-ledger|daytrade-prep|price-alerts)\.json$|^(heatmap|flows|grouprank|alerts|index|card)-\d{4}-\d{2}-\d{2}\.json$/;
-const MARKET_DIRS=['stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history'];
+const MARKET_DIRS=['stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history'];
 function switchMarket(next){
   const cur=config().market;if(next===cur)return;
   if(job.running||flowBusy||heatBusy||reportBusy||livePending)throw new UserError('請等待更新完成或停止後，再切換市場');
@@ -714,7 +715,7 @@ async function runBrokerWatch(date,{alert=false}={}){
   try{
     const prev=bwDates().filter(d=>d<date).slice(-10).map(d=>read(`broker-watch/${d}.json`,null)).filter(Boolean);
     const {meta}=uniIndex(),watch=new Set(watchlist),research=new Set(scopeIds(researchScope)),branches=[];let any=false;
-    const vol=await dayVolumes(date),sh=await holderShares(date);
+    const vol=await dayVolumes(date),sh=await holderShares(date),wc=cs.warrants?await warrantContext(date):null;
     for(const b of cs.branches){
       try{
         const rows=await fm('/taiwan_stock_trading_daily_report',{securities_trader_id:b.id,date},fmOpt());
@@ -722,9 +723,16 @@ async function runBrokerWatch(date,{alert=false}={}){
         const name=String(rows[0]?.securities_trader||b.name);
         const history=prev.map(d=>d.branches.find(x=>x.id===b.id)?.nets||{});
         branches.push({id:b.id,name,...branchDay(rows,{meta,watch,research,history,volumes:vol.volumes,shares:sh.shares,settings:cs})});
+        // 同一分點的認購權證進出（每個分點再 1 次請求）；方案或額度不足時其餘分點不再查權證
+        if(wc?.master&&!wc.blocked){
+          try{const wr=await fm('/taiwan_stock_warrant_trading_daily_report',{securities_trader_id:b.id,date},fmOpt());
+            branches.at(-1).warrants=branchWarrants(wr,{date,branchName:name,master:wc.master.m,quotes:wc.quotes?.q||{},turnover:wc.turnover,meta,watch,research,history:prev.map(d=>d.branches.find(x=>x.id===b.id)?.warrants?.nets||{}),settings:cs});}
+          catch(e){branches.at(-1).warrants={error:e.message};if(blocked(e))wc.blocked=e.message;}
+        }
       }catch(e){branches.push({id:b.id,name:b.name,error:e.message,count:0,buy:[],sell:[],mine:[],nets:{}});if(blocked(e))break;}
     }
-    const doc={date,builtAt:new Date().toISOString(),rules:{dayPct:cs.dayPct,minAmount:cs.minAmount,accumPct:cs.accumPct,accumDays:cs.accumDays},volumeSource:vol.source,sharesDate:sh.date,branches};
+    const doc={date,builtAt:new Date().toISOString(),rules:{dayPct:cs.dayPct,minAmount:cs.minAmount,accumPct:cs.accumPct,accumDays:cs.accumDays},volumeSource:vol.source,sharesDate:sh.date,branches,
+      ...(wc?{warrantRules:{amount:cs.warrantAmount,pct:cs.warrantPct,days:cs.warrantDays},warrantInfo:{masterDate:wc.master?.date||null,stale:!!wc.master?.stale,quotes:wc.quotes?.sources||null,turnover:!!wc.turnover,error:wc.error||wc.blocked||''}}:{})};
     if(!any){const err=branches.find(b=>b.error)?.error;if(err)throw new UserError(err);return{...doc,empty:true};}
     fs.mkdirSync(path.join(LOCAL,'broker-watch'),{recursive:true});write(`broker-watch/${date}.json`,doc);
     if(alert)addAlerts(today(),brokerWatchAlerts(doc,{lot:M().lot,lang:language()}));
@@ -746,6 +754,65 @@ async function holderShares(date){
   let r=pick();if(!r&&!hd.busy){try{await refreshHolders();}catch{}r=pick();}
   return r||{date:null,shares:{}};
 }
+/* ----- 權證追蹤（只看認購權證） ----- */
+// 權證標的對照表（FinMind，約 1 分鐘）：每天最多取 1 次，保留最後交易日在 45 天內以後的權證；取不到時沿用上次（標示為舊資料）
+let wm={busy:null,error:''},wq=new Map();
+async function warrantMasterDoc(){
+  const d=today(),c=read('warrants/master.json',null);if(c?.date===d&&c.m)return c;
+  if(wm.busy)return wm.busy;
+  wm.busy=(async()=>{try{
+    const rows=await finmind('brokers')('TaiwanStockInfoWithWarrantSummary',{start_date:minusDays(d,800)},{...fmOpt(),timeout:180000});
+    const m=warrantMaster(rows,{keepFrom:minusDays(d,45)});if(!Object.keys(m).length)throw new UserError('查無權證標的對照資料');
+    const doc={date:d,at:Date.now(),count:Object.keys(m).length,m};fs.mkdirSync(path.join(LOCAL,'warrants'),{recursive:true});write('warrants/master.json',doc);wm.error='';
+    // 清掉 40 天前的行情與權證分點快取
+    try{for(const f of fs.readdirSync(path.join(LOCAL,'warrants'))){const x=/(\d{4}-\d{2}-\d{2})\.json$/.exec(f)?.[1];if(x&&x<minusDays(d,40))fs.rmSync(path.join(LOCAL,'warrants',f),{force:true});}}catch{}
+    return doc;
+  }catch(e){wm.error=e.message;if(c?.m)return{...c,stale:true};throw e;}finally{wm.busy=null;}})();
+  return wm.busy;
+}
+// 認購權證收盤行情（證交所＋櫃買，免金鑰）：每個交易日一份；只取到一邊時 30 分鐘後再試
+async function warrantQuotesFor(date){
+  const name=`warrants/quotes-${date}.json`,c=read(name,null);if(c?.q&&c.complete)return c;
+  if(c?.q&&Date.now()-(wq.get(date)||0)<30*60e3)return c;
+  wq.set(date,Date.now());
+  const r=await callWarrantQuotes(date),doc={date,at:Date.now(),q:r.q,sources:r.sources,errors:r.errors,complete:r.sources.twse>0&&r.sources.tpex>0};
+  if(!Object.keys(r.q).length)return c||doc;
+  fs.mkdirSync(path.join(LOCAL,'warrants'),{recursive:true});write(name,doc);return doc;
+}
+// 分點追蹤用的權證資料：對照表、當日行情、各標的認購權證成交金額
+async function warrantContext(date){
+  try{const master=await warrantMasterDoc();let quotes=null;try{quotes=await warrantQuotesFor(date);}catch{}
+    return{master,quotes,turnover:quotes&&Object.keys(quotes.q).length?turnoverByTarget(quotes.q,master.m,date):null,error:'',blocked:''};}
+  catch(e){return{master:null,error:e.message,blocked:''};}
+}
+// 某股某日收盤：熱浪圖紀錄 → 本機日 K
+function closeOn(id,date){
+  for(const s of read('heatmap-'+date+'.json',null)?.sectors||[])for(const x of s.stocks||[])if(x.id===id&&x.close>0)return x.close;
+  const r=(raw[id]?.price||[]).find(x=>x.date===date);return r?.close>0?r.close:null;
+}
+// 個股的認購權證：清單（依標的查對照表，12 小時快取）、當日行情、追蹤分點最近一次紀錄中這檔的權證進出
+async function warrantReport(id){
+  const fm=finmind('brokers'),x=clock(),ds=await tradingDates(),date=ds.filter(d=>d<x.date||x.hm>='15:00').at(-1),brokerDate=ds.filter(d=>d<x.date||x.hm>='18:30').at(-1);
+  if(!date)throw new UserError('查無交易日');
+  const name=`warrants/by-${id}.json`;let c=read(name,null);
+  if(!c||c.date!==date||Date.now()-c.at>12*3600e3){
+    const rows=await fm('TaiwanStockInfoWithWarrantSummary',{data_id:id,start_date:minusDays(date,800)},{...fmOpt(),timeout:120000});
+    c={date,at:Date.now(),rows:rows.filter(r=>/購/.test(r.type||'')&&String(r.end_date||'').slice(0,10)>=date).map(({stock_id,date,target_stock_id,type,end_date,exercise_ratio,fulfillment_price})=>({stock_id,date,target_stock_id,type,end_date,exercise_ratio,fulfillment_price}))};
+    fs.mkdirSync(path.join(LOCAL,'warrants'),{recursive:true});write(name,c);
+  }
+  let quotes=null;try{quotes=await warrantQuotesFor(date);}catch{}
+  const close=closeOn(id,date),r=stockWarrants(c.rows,{id,date,quotes:quotes?.q||{},close,targetName:uniIndex().meta.get(id)?.name||''});
+  const bd=bwDates().at(-1),doc=bd?read(`broker-watch/${bd}.json`,null):null;
+  const tracked=(doc?.branches||[]).flatMap(b=>{const w=b.warrants;if(!w||w.error)return[];const x=[...(w.buy||[]),...(w.sell||[]),...(w.mine||[])].find(v=>v.id===id);return x?[{branch:b.name,branchId:b.id,netAmt:x.netAmt,share:x.share,streak:x.streak,big:!!x.big,run:!!x.run,warrants:x.warrants}]:[];});
+  return{id,date,close,...r,quotes:quotes?{sources:quotes.sources,complete:!!quotes.complete}:null,tracked,trackedDate:bd||null,brokerDate:brokerDate||null};
+}
+// 單一權證某日的分點進出（依權證代號查詢，1 次請求，查過的日子保存）
+async function warrantBrokers(wid,date){
+  const name=`warrants/br-${wid}-${date}.json`;let rows=read(name,null);
+  if(!rows){rows=aggregateBrokers(await finmind('brokers')('/taiwan_stock_warrant_trading_daily_report',{data_id:wid,date},fmOpt()));if(rows.length){fs.mkdirSync(path.join(LOCAL,'warrants'),{recursive:true});write(name,rows);}}
+  const sorted=rows.slice().sort((a,b)=>b.net-a.net);
+  return{wid,date,count:rows.length,buy:sorted.filter(x=>x.net>0).slice(0,8),sell:sorted.filter(x=>x.net<0).reverse().slice(0,8),tracked:chipSettings().branches.map(b=>b.id)};
+}
 // 平日 18:30 後（FinMind 約 18:00 更新）自動查當天，尚未公布時每 30 分鐘重試，最多 8 次
 setInterval(()=>{
   const cs=chipSettings(),x=clock(),date=x.date;
@@ -758,7 +825,7 @@ setInterval(()=>{
 },60e3).unref();
 function chipwatchInfo(date){
   const dates=bwDates();if(!date||date==='latest')date=dates.at(-1)||null;
-  return{capable:chipCapable(),settings:chipSettings(),maxBranches:MAX_BRANCHES,dates:dates.slice(-30),report:date?read(`broker-watch/${date}.json`,null):null,busy:bw.busy,error:bw.error,holders:holderStatus()};
+  return{capable:chipCapable(),settings:chipSettings(),maxBranches:MAX_BRANCHES,dates:dates.slice(-30),report:date?read(`broker-watch/${date}.json`,null):null,busy:bw.busy,error:bw.error,holders:holderStatus(),warrants:{busy:!!wm.busy,error:wm.error}};
 }
 
 // 大戶集中度：每週股權分散表（全市場一次取回，每個日期存一份精簡檔）；最多每 6 小時確認一次是否有新的一週
@@ -913,7 +980,7 @@ async function generateDaily(date){
     try{const w=await weekAgenda();outlook=overnightOutlook(date,w,{market:M(),lang});agenda={[t('經濟數據')]:w.macro.filter(e=>e.date>=date&&e.impact==='High').slice(0,12).map(e=>`${e.date} ${e.countryName} ${e.title}`),[t('財報')]:w.earnings.filter(e=>e.date>=date).slice(0,12).map(e=>`${e.date} ${(lang==='zh-TW'&&e.zh)||e.name}(${e.symbol}) ${e.timing}`)};}catch{}
     // 大盤與籌碼數據（指數、融資券、期貨、散戶多空、法人、選擇權 P/C）：與圖卡同一份資料
     let market=null;try{if(data.finmind())market=assembleCard({date,heat,flows,...await marketInputs(date),report:null});}catch{}
-    const chipCtx=chips?{...(chips.brokers?{[t('追蹤分點')]:{[t('日期')]:chips.brokers.date,[t('分點')]:chips.brokers.branches.filter(b=>b.count).map(b=>({[t('名稱')]:b.name,[t('買超')]:b.buy.slice(0,5).map(x=>`${x.name} +${Math.round(x.net/M().lot)}`),[t('賣超')]:b.sell.slice(0,5).map(x=>`${x.name} ${Math.round(x.net/M().lot)}`),[t('自選／研究')]:b.mine.slice(0,8).map(x=>`${x.name} ${x.net>0?'+':''}${Math.round(x.net/M().lot)}`)}))}}:{}),...(chips.rank?{[t('千張大戶')]:{[t('日期')]:chips.rank.date,[t('集中')]:chips.rank.rows.filter(x=>x.tone==='籌碼集中').slice(0,8).map(x=>`${x.name} ${x.big1000}%（4 週 +${x.d4}）`),[t('渙散')]:chips.rank.rows.filter(x=>x.tone==='籌碼渙散').slice(-8).map(x=>`${x.name} ${x.big1000}%（4 週 ${x.d4}）`)}}:{})}:null;
+    const chipCtx=chips?{...(chips.brokers?{[t('追蹤分點')]:{[t('日期')]:chips.brokers.date,[t('分點')]:chips.brokers.branches.filter(b=>b.count).map(b=>({[t('名稱')]:b.name,[t('買超')]:b.buy.slice(0,5).map(x=>`${x.name} +${Math.round(x.net/M().lot)}`),[t('賣超')]:b.sell.slice(0,5).map(x=>`${x.name} ${Math.round(x.net/M().lot)}`),[t('自選／研究')]:b.mine.slice(0,8).map(x=>`${x.name} ${x.net>0?'+':''}${Math.round(x.net/M().lot)}`),...(b.warrants?.buy?.length?{[t('認購權證淨買（萬元）')]:b.warrants.buy.slice(0,5).map(x=>`${x.name} +${Math.round(x.netAmt/1e4)}${x.streak>=2?`（${t('連 {n} 日',{n:x.streak})}）`:''}`)}:{})}))}}:{}),...(chips.rank?{[t('千張大戶')]:{[t('日期')]:chips.rank.date,[t('集中')]:chips.rank.rows.filter(x=>x.tone==='籌碼集中').slice(0,8).map(x=>`${x.name} ${x.big1000}%（4 週 +${x.d4}）`),[t('渙散')]:chips.rank.rows.filter(x=>x.tone==='籌碼渙散').slice(-8).map(x=>`${x.name} ${x.big1000}%（4 週 ${x.d4}）`)}}:{})}:null;
     const context=buildReportContext({date,heat,flows,market,outlook,chips:chipCtx&&Object.keys(chipCtx).length?chipCtx:null,alerts:alertsFor(date).list.filter(a=>!['report','news','broker','holders'].includes(a.type)),watch,movers:{[t('漲幅前5')]:research.slice(0,5).map(pick),[t('跌幅前5')]:research.slice(-5).reverse().map(pick)},patterns,news,agenda},lang);
     const r=await generateReport({llm:await llmOptions(),context,lang,marketName:marketName(),hasFlows:!!flows});
     const doc={date,createdAt:new Date().toISOString(),provider:config().llm.provider,model:r.model,usage:r.usage,lang,...r.report};
@@ -1284,7 +1351,7 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/chipwatch/settings'&&req.method==='POST'){
       const b=await body(req),cur=chipSettings();
       if(b.branches!==undefined&&(!Array.isArray(b.branches)||b.branches.length>MAX_BRANCHES))throw new UserError('最多追蹤 {n} 個分點',{n:MAX_BRANCHES});
-      settings={...settings,chipwatch:normalizeChipwatch({...cur,...Object.fromEntries(['branches','auto','dayPct','minAmount','accumPct','accumDays','holdersPush'].filter(k=>b[k]!==undefined).map(k=>[k,b[k]]))})};saveSettings();
+      settings={...settings,chipwatch:normalizeChipwatch({...cur,...Object.fromEntries(['branches','auto','dayPct','minAmount','accumPct','accumDays','holdersPush','warrants','warrantAmount','warrantPct','warrantDays'].filter(k=>b[k]!==undefined).map(k=>[k,b[k]]))})};saveSettings();
       return json(res,200,{ok:true,...chipwatchInfo()});
     }
     if(route==='/api/chipwatch/query'&&req.method==='POST'){
@@ -1349,6 +1416,15 @@ const server = http.createServer(async (req,res) => {
       const id=url.searchParams.get('id'),n=Math.min(10,Math.max(2,Number(url.searchParams.get('days')||5)));
       if(!validId(id))throw new UserError('股票代碼格式錯誤');
       return json(res,200,await once(`b:${id}:${n}`,()=>brokerReport(id,n)));
+    }
+    if(route==='/api/warrants'&&req.method==='GET'){
+      const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');
+      return json(res,200,await once(`w:${id}`,()=>warrantReport(id)));
+    }
+    if(route==='/api/warrants/brokers'&&req.method==='GET'){
+      const wid=String(url.searchParams.get('wid')||'').toUpperCase(),date=url.searchParams.get('date');
+      if(!WARRANT_ID.test(wid)||!validHeatDate(date))throw new UserError('資料格式錯誤');
+      return json(res,200,await once(`wb:${wid}:${date}`,()=>warrantBrokers(wid,date)));
     }
     if(route==='/api/holders'&&req.method==='GET'){
       const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');

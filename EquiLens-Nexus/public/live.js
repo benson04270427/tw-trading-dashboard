@@ -1,5 +1,5 @@
 // 衡析 Nexus：盤中雷達頁（族群／自選即時看板＋異動雷達＋雷達設定）、個股 K 線視窗、桌面通知、新聞推播、個股籌碼深度、AI 盤後日報與排程設定。
-import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
+import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, warrantHTML, warrantBrokersHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { t, tx, translateTree } from './i18n.js';
 import * as MK from './market.js';
 import { initDaytrade, loadDaytrade, daytradePanel } from './daytrade.js';
@@ -273,11 +273,12 @@ document.addEventListener('mousemove', e => {
 /* ---------- 個股診斷：分點、大戶 ---------- */
 export function detailExtrasShell(stock) {
   return `${stock ? rulesSection(stock) : ''}<div class="ix-detail"><section class="panel"><div class="panelhead"><h3>🏦 主力分點 · 近 5 日</h3><span class="fine">FinMind 券商分點</span></div><div class="contentpad" id="ix-brokers"><p><i class="spinner"></i>讀取券商分點…</p></div></section>
-  <section class="panel"><div class="panelhead"><h3>🐋 大戶持股 · 每週</h3><span class="fine">股權分散表</span></div><div class="contentpad" id="ix-holders"><p><i class="spinner"></i>讀取股權分散表…</p></div></section></div>`;
+  <section class="panel"><div class="panelhead"><h3>🐋 大戶持股 · 每週</h3><span class="fine">股權分散表</span></div><div class="contentpad" id="ix-holders"><p><i class="spinner"></i>讀取股權分散表…</p></div></section>
+  <section class="panel ix-wide"><div class="panelhead"><h3>🎫 認購權證</h3><span class="fine">FinMind 權證標的對照 · 證交所／櫃買權證行情</span></div><div class="contentpad" id="ix-warrants"><p><i class="spinner"></i>讀取權證資料…</p></div></section></div>`;
 }
 export async function fillDetailExtras(id, current) {
   const fill = async (sel, path, render) => { try { const d = await C.api(path); if (current() === id && document.querySelector(sel)) document.querySelector(sel).innerHTML = render(d); } catch (e) { if (current() === id && document.querySelector(sel)) document.querySelector(sel).innerHTML = `<p class="fine">${esc(e.message)}</p>`; } };
-  await Promise.all([fill('#ix-brokers', 'brokers?id=' + id, brokerHTML), fill('#ix-holders', 'holders?id=' + id, holderHTML)]);
+  await Promise.all([fill('#ix-brokers', 'brokers?id=' + id, brokerHTML), fill('#ix-holders', 'holders?id=' + id, holderHTML), fill('#ix-warrants', 'warrants?id=' + id, warrantHTML)]);
 }
 
 /* ---------- AI 盤後日報（今日焦點頁頂端） ---------- */
@@ -330,6 +331,13 @@ async function saveNews(patch) {
 document.addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b || !C) return; const ds = b.dataset;
   try {
+    if (ds.wbr) { // 個股權證：展開／收合單一權證的分點進出（第一次展開時查詢）
+      const row = document.querySelector(`[data-wbr-row="${ds.wbr}"]`); if (!row) return;
+      if (!row.hidden) { row.hidden = true; return; }
+      row.hidden = false; const cell = row.firstElementChild;
+      if (!cell.dataset.loaded) { cell.innerHTML = '<i class="spinner"></i>'; try { cell.innerHTML = warrantBrokersHTML(await C.api(`warrants/brokers?wid=${encodeURIComponent(ds.wbr)}&date=${encodeURIComponent(ds.date)}`)); cell.dataset.loaded = '1'; } catch (err) { cell.innerHTML = `<p class="muted">${esc(err.message)}</p>`; } }
+      return;
+    }
     if (ds.kbar) return openChart(ds.kbar, 'live');
     if (ds.chartLive) return openChart(ds.chartLive, 'live');
     if (ds.igroup) { K.group = ds.igroup; return refreshChart(); }

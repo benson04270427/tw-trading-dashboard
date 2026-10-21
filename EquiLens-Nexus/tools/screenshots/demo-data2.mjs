@@ -6,6 +6,8 @@ const { loadDay } = await import(NEX + '/lib/replay.mjs');
 const { buildGroupRanking, quotesFromReplay, compareRanks, RANK_RULES } = await import(NEX + '/lib/grouprank.mjs');
 const { buildFlows } = await import(NEX + '/lib/flows.mjs');
 const { branchDay, CHIP_DEFAULTS } = await import(NEX + '/lib/chipwatch.mjs');
+const { warrantMaster, branchWarrants, turnoverByTarget } = await import(NEX + '/lib/warrants.mjs');
+const { aggregateBrokers, holderSignal } = await import(NEX + '/lib/insight.mjs');
 const R = f => JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8'));
 const W = (f, v) => { fs.mkdirSync(path.dirname(path.join(DIR, f)), { recursive: true }); fs.writeFileSync(path.join(DIR, f), JSON.stringify(v)); };
 let seed = 7; const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
@@ -37,13 +39,37 @@ const optionDaily = [];
 for (const d of fdays.slice(-2)) for (let k = 21800; k <= 24600; k += 200) for (const cp of ['call', 'put']) optionDaily.push({ date: d, option_id: 'TXO', contract_date: '202610', strike_price: k, call_put: cp, trading_session: 'position', open_interest: Math.round((cp === 'call' ? 9000 * Math.exp(-(((k - 24000) / 600) ** 2)) : 11000 * Math.exp(-(((k - 22400) / 500) ** 2))) + 300 + (d === LAST ? 200 : 0)) });
 W(`flows-${LAST}.json`, buildFlows(LAST, { info, stocks, total, futures, options, optionDaily }));
 
+// 認購權證（示意）：熱門標的各 10–16 檔，發行商、履約價、行使比例、到期日、收盤與成交金額
+const ISSUERS = ['凱基', '元大', '富邦', '群益', '統一', '元富', '永豐', '國泰'], short = n => n.replace(/-KY$|\*/g, '').slice(0, 3);
+const wRows = [], wQuotes = {}; let wn = 30000;
+for (const [tid, n, hot] of [['3017', 16, 6], ['3324', 12, 5], ['2421', 10, 4], ['6669', 14, 3], ['2330', 16, 3], ['2382', 12, 2], ['2368', 10, 2], ['1519', 10, 1]]) {
+  const sClose = heatById.get(tid)?.close || 100;
+  for (let k = 0; k < n; k++) {
+    const id = String(++wn).padStart(6, '0'), issuer = ISSUERS[k % ISSUERS.length], strike = Math.round(sClose * (0.85 + rnd() * 0.45)), ratio = [0.02, 0.025, 0.04, 0.05, 0.1][k % 5], end = `2027-0${1 + (k % 8)}-1${k % 9}`;
+    const days = (Date.parse(end) - Date.parse(LAST)) / 864e5, intrinsic = Math.max(0, sClose - strike) * ratio, close = Math.round((intrinsic + sClose * ratio * 0.12 * Math.sqrt(days / 365)) * 100) / 100;
+    const value = Math.round((k < 4 ? hot * 4e6 : hot * 3e5) * (0.4 + rnd()));
+    wRows.push({ stock_id: id, date: '2026-04-01', target_stock_id: tid, type: '認購', end_date: end, exercise_ratio: ratio, fulfillment_price: strike });
+    wQuotes[id] = [`${short(name.get(tid))}${issuer}5${'ABC'[k % 3]}購${String(k + 1).padStart(2, '0')}`, close, Math.round(value / close), value];
+  }
+}
+const wMaster = warrantMaster(wRows), wTurn = turnoverByTarget(wQuotes, wMaster, LAST);
+W('warrants/master.json', { date: LAST, at: Date.now(), count: Object.keys(wMaster).length, m: wMaster });
+W(`warrants/quotes-${LAST}.json`, { date: LAST, at: Date.now(), q: wQuotes, sources: { twse: Object.keys(wQuotes).length, tpex: 0 }, errors: [], complete: true });
+for (const tid of new Set(wRows.map(r => r.target_stock_id))) W(`warrants/by-${tid}.json`, { date: LAST, at: Date.now(), rows: wRows.filter(r => r.target_stock_id === tid) });
+const wTop = Object.entries(wQuotes).filter(([id]) => wMaster[id][0][0] === '3017').sort((a, b) => b[1][3] - a[1][3])[0][0];
+W(`warrants/br-${wTop}-${LAST}.json`, aggregateBrokers([['9268', '凱基台北', 820], ['1650', '新加坡商瑞銀', 310], ['9A00', '永豐金', 120], ['9800', '元大', -540], ['9600', '富邦', -260], ['8440', '摩根大通', -90]].map(([sid, nm, lots]) => ({ securities_trader_id: sid, securities_trader: nm, price: wQuotes[wTop][1], buy: Math.max(0, lots) * 1000, sell: Math.max(0, -lots) * 1000 }))));
+// 個股診斷用的主力分點（近 5 日）與大戶持股快取
+for (const d of fdays.slice(-5)) W(`brokers/3017-${d}.json`, aggregateBrokers(['9268 凱基台北', '1650 新加坡商瑞銀', '8440 摩根大通', '9800 元大', '9600 富邦', '9A00 永豐金', '5920 元富', '9200 凱基', '1360 港商麥格理', '1440 美林'].map((x, i) => { const [sid, nm] = x.split(' '), lots = Math.round((i < 4 ? 1 : -1) * (80 + rnd() * 400)); return { securities_trader_id: sid, securities_trader: nm, price: heatById.get('3017').close * (0.98 + rnd() * 0.03), buy: Math.max(0, lots) * 1000, sell: Math.max(0, -lots) * 1000 }; })));
+{ const wk = []; for (let d = Date.parse(LAST + 'T00:00:00Z'); wk.length < 12; d -= 7 * 864e5) wk.unshift(new Date(d).toISOString().slice(0, 10)); const series = wk.map((d, i) => ({ date: d, big1000: Math.round((61 + i * 0.22) * 100) / 100, big400: Math.round((68 + i * 0.2) * 100) / 100, small: Math.round((18 - i * 0.15) * 100) / 100, people: Math.round(64000 - i * 600) })); W('holders/3017.json', { at: Date.now(), data: { series, signal: holderSignal(series) } }); }
+
 // 分點追蹤：兩個追蹤分點、最近 5 日
 const branches = [{ id: '9268', name: '凱基台北' }, { id: '1650', name: '新加坡商瑞銀' }, { id: '8440', name: '摩根大通' }];
 const bdays = fdays.slice(-5), history = { };
 const vols = Object.fromEntries([...heatById.values()].map(s => [s.id, (s.volume || 0) * 1000]));
 const shares = Object.fromEntries(universe.map(s => [s.id, Math.round(2e10 / (heatById.get(s.id)?.close || 100))]));
 for (const d of bdays) {
-  const doc = { date: d, builtAt: new Date().toISOString(), rules: { dayPct: 10, minAmount: 1e7, accumPct: 0.3, accumDays: 5 }, volumeSource: 'heatmap', sharesDate: '2026-10-16', branches: [] };
+  const doc = { date: d, builtAt: `${d}T10:31:00.000Z`, rules: { dayPct: 10, minAmount: 1e7, accumPct: 0.3, accumDays: 5 }, volumeSource: 'heatmap', sharesDate: '2026-10-16', branches: [],
+    warrantRules: { amount: 5e6, pct: 10, days: 3 }, warrantInfo: { masterDate: LAST, stale: false, quotes: { twse: Object.keys(wQuotes).length, tpex: 0 }, turnover: true, error: '' } };
   for (const b of branches) {
     const rows = [];
     const picks = universe.filter(() => rnd() < 0.35).slice(0, 26);
@@ -51,6 +77,11 @@ for (const d of bdays) {
     const h = (history[b.id] ||= []);
     doc.branches.push({ id: b.id, name: b.name, ...branchDay(rows, { meta: gm, watch, research, history: h, volumes: vols, shares, settings: CHIP_DEFAULTS }) });
     h.push(doc.branches.at(-1).nets);
+    // 同一分點的認購權證：凱基台北連日大買散熱股的權證
+    const wr = Object.entries(wQuotes).filter(() => rnd() < 0.3).map(([id, q]) => { const tid = wMaster[id][0][0], hotW = b.id === '9268' && ['3017', '3324'].includes(tid); const units = Math.round((hotW ? 1.2e6 + rnd() * 1.5e6 : 5e4 + rnd() * 6e5) * (rnd() < (hotW ? 0.95 : 0.55) ? 1 : -1)); return { stock_id: id, price: q[1], buy: Math.max(0, units), sell: Math.max(0, -units) }; });
+    const wh = (history['w' + b.id] ||= []);
+    doc.branches.at(-1).warrants = branchWarrants(wr, { date: d, branchName: b.name, master: wMaster, quotes: wQuotes, turnover: wTurn, meta: gm, watch, research, history: wh });
+    wh.push(doc.branches.at(-1).warrants.nets);
   }
   W(`broker-watch/${d}.json`, doc);
 }
@@ -119,5 +150,5 @@ W('price-alerts.json', [
   { id: 'p4', stockId: '6669', name: '緯穎', kind: 'volume', value: 2, repeat: false, active: true, createdAt: '2026-10-15T01:00:00Z' },
 ]);
 let settings = {}; try { settings = R('settings.json'); } catch { }
-W('settings.json', { ...settings, chipwatch: { branches, auto: true, dayPct: 10, minAmount: 1e7, accumPct: 0.3, accumDays: 5, holdersPush: true } });
+W('settings.json', { ...settings, autoUpdate: false, chipwatch: { branches, auto: true, dayPct: 10, minAmount: 1e7, accumPct: 0.3, accumDays: 5, holdersPush: true } });
 console.log('ok part 2');

@@ -2,12 +2,14 @@
 // 1. 分點追蹤：使用者指定要追的券商分點，每個交易日盤後以「依券商代碼查分點」一次取回該分點當天所有股票進出，
 //    整理成買超／賣超排行，標出自選與研究名單股票、連續買賣天數。兩種提醒：
 //    單日主導＝淨買超占當日成交量達門檻且淨買超金額達門檻；多日吃貨＝最近 N 個交易日累計淨買超占集保總股數達門檻。
+//    另查同一分點的認購權證進出（見 warrants.mjs），依標的彙總，提醒單日大買與連續買進。
 // 2. 大戶集中度排行：每週股權分散表（全市場單日一次取回），比較千張大戶比例的 1 週／4 週變化與股東人數變化，
 //    排出籌碼集中與渙散的股票（自選＋研究名單，或全市場普通股）。
 import { holderLevels } from './insight.mjs';
 import { t } from './i18n.mjs';
+import { WARRANT_DEFAULTS } from './warrants.mjs';
 
-export const CHIP_DEFAULTS = { branches: [], auto: true, dayPct: 10, minAmount: 1e7, accumPct: 0.3, accumDays: 5, holdersPush: true };
+export const CHIP_DEFAULTS = { branches: [], auto: true, dayPct: 10, minAmount: 1e7, accumPct: 0.3, accumDays: 5, holdersPush: true, ...WARRANT_DEFAULTS };
 export const MAX_BRANCHES = 20;
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = v => Math.round(v * 100) / 100;
@@ -17,7 +19,8 @@ export function normalizeChipwatch(v = {}) {
   const branches = (Array.isArray(x.branches) ? x.branches : []).filter(b => b && /^\w{1,10}$/.test(String(b.id)) && !seen.has(String(b.id)) && seen.add(String(b.id)))
     .slice(0, MAX_BRANCHES).map(b => ({ id: String(b.id), name: String(b.name || b.id).slice(0, 40) }));
   const pick = (k, lo, hi, round = false) => { const n = Number(x[k]); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, round ? Math.round(n) : n)) : CHIP_DEFAULTS[k]; };
-  return { branches, auto: x.auto !== false, dayPct: pick('dayPct', 1, 50), minAmount: pick('minAmount', 0, 1e9, true), accumPct: pick('accumPct', 0.05, 5), accumDays: pick('accumDays', 2, 20, true), holdersPush: x.holdersPush !== false };
+  return { branches, auto: x.auto !== false, dayPct: pick('dayPct', 1, 50), minAmount: pick('minAmount', 0, 1e9, true), accumPct: pick('accumPct', 0.05, 5), accumDays: pick('accumDays', 2, 20, true), holdersPush: x.holdersPush !== false,
+    warrants: x.warrants !== false, warrantAmount: pick('warrantAmount', 1e5, 1e9, true), warrantPct: pick('warrantPct', 1, 100), warrantDays: pick('warrantDays', 2, 10, true) };
 }
 
 /* ---------- 分點追蹤 ---------- */
@@ -63,16 +66,22 @@ export function branchDay(rows, { meta = new Map(), watch = new Set(), research 
 }
 // 盤後提醒：每個分點一則，列出達「單日主導」或「多日吃貨」條件的股票（自選與研究名單優先）
 export function brokerWatchAlerts(doc, { lot = 1000, lang } = {}) {
-  const out = [], lots = v => Math.round(v / lot).toLocaleString('en-US'), yi = v => (v / 1e8).toFixed(v >= 1e9 ? 1 : 2);
+  const out = [], lots = v => Math.round(v / lot).toLocaleString('en-US'), yi = v => (v / 1e8).toFixed(v >= 1e9 ? 1 : 2), wan = v => Math.round(v / 1e4).toLocaleString('en-US');
   for (const b of doc.branches) {
-    if (b.error || !b.count || !b.signals?.length) continue;
+    if (b.error || !b.count || (!b.signals?.length && !b.warrants?.signals?.length)) continue;
     const order = x => (x.watch ? 0 : x.research ? 1 : 2), list = b.signals.slice().sort((a, c) => order(a) - order(c) || c.netAmt - a.netAmt);
     const day = list.filter(x => x.day).slice(0, 5), accum = list.filter(x => x.accum).slice(0, 5);
     const mark = x => x.watch ? t('（自選）', null, lang) : x.research ? t('（研究）', null, lang) : '';
     const parts = [];
     if (day.length) parts.push(t('單日主導：{list}', { list: day.map(x => t('{name}{mark} +{lots} 張（占成交量 {pct}%、{amt} 億）', { name: x.name, mark: mark(x), lots: lots(x.net), pct: x.volPct, amt: yi(x.netAmt) }, lang)).join('、') }, lang));
     if (accum.length) parts.push(t('多日吃貨：{list}', { list: accum.map(x => t('{name}{mark} {days} 日 +{lots} 張（占股本 {pct}%）', { name: x.name, mark: mark(x), days: x.accumDays, lots: lots(x.accumNet), pct: x.accumPct }, lang)).join('、') }, lang));
-    const mine = list.filter(x => x.watch || x.research);
+    // 認購權證：單日大買（淨買金額與占該標的權證成交）、連續買進（連 N 日淨買、累計金額）
+    const w = (b.warrants?.signals || []).slice().sort((a, c) => order(a) - order(c) || c.netAmt - a.netAmt).slice(0, 5);
+    const wText = x => { const v = { name: x.name, mark: mark(x), amt: wan(x.netAmt), share: x.share == null ? '' : t('（占 {pct}%）', { pct: x.share }, lang), days: x.streak, sum: wan(x.streakAmt) };
+      return t(x.big && x.run ? '{name}{mark} 淨買 {amt} 萬{share}，連 {days} 日 +{sum} 萬' : x.big ? '{name}{mark} 淨買 {amt} 萬{share}' : '{name}{mark} 連 {days} 日 +{sum} 萬', v, lang); };
+    if (w.length) parts.push(t('認購權證：{list}', { list: w.map(wText).join('、') }, lang));
+    if (!parts.length) continue;
+    const mine = [...list, ...w].filter(x => x.watch || x.research);
     out.push({ type: 'broker', stockId: '', name: '', title: t('分點追蹤：{name}', { name: b.name }, lang), detail: `${doc.date} · ${parts.join(' · ')}`, level: mine.some(x => x.watch) ? 'hi' : 'mid', watch: mine.some(x => x.watch), date: doc.date, branch: b.id });
   }
   return out;
