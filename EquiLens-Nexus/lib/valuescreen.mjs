@@ -5,6 +5,8 @@ const num = v => { if (v == null) return null; const s = String(v).replace(/,/g,
 const r1 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 10) / 10;
 const r2 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100;
 const COMMON = /^[1-9]\d{3}$/;
+// 民國日期（1151021、115/10/21）或西元日期 → YYYY-MM-DD
+export const isoDate = v => { const t = String(v ?? '').trim(), m = /^(\d{2,3})\/?(\d{2})\/?(\d{2})$/.exec(t); if (m) return `${Number(m[1]) + 1911}-${m[2]}-${m[3]}`; const g = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(t); return g ? `${g[1]}-${g[2]}-${g[3]}` : null; };
 // 欄位名稱在不同版本的開放資料略有差異：依序找第一個存在的欄位，或以規則比對欄位名稱
 const field = (r, names, re) => { for (const n of names) if (r[n] !== undefined) return r[n]; if (re) { const k = Object.keys(r).find(k => re.test(k)); if (k) return r[k]; } return undefined; };
 const median = a => { const s = a.filter(v => v != null).sort((x, y) => x - y); if (!s.length) return null; const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
@@ -21,7 +23,7 @@ export const DEFAULTS = { strategy: 'value', minTurnover: 1e7, limit: 60 };
 export function mergeInputs(raw) {
   const out = new Map(), get = id => { if (!out.has(id)) out.set(id, { id }); return out.get(id); };
   for (const u of raw.universe || []) if (COMMON.test(u.id)) Object.assign(get(u.id), { name: u.name, sector: u.sector, market: u.market });
-  const val = (r, code, pe, pb, y) => { const id = String(field(r, code) ?? '').trim(); if (!out.has(id)) return; Object.assign(get(id), { pe: num(field(r, pe)), pb: num(field(r, pb)), yield: num(field(r, y)), valDate: String(field(r, ['Date']) ?? '') }); };
+  const val = (r, code, pe, pb, y) => { const id = String(field(r, code) ?? '').trim(); if (!out.has(id)) return; Object.assign(get(id), { pe: num(field(r, pe)), pb: num(field(r, pb)), yield: num(field(r, y)), valDate: isoDate(field(r, ['Date'])) }); };
   for (const r of raw.valTw || []) val(r, ['Code'], ['PEratio'], ['PBratio'], ['DividendYield']);
   for (const r of raw.valTp || []) val(r, ['SecuritiesCompanyCode'], ['PriceEarningRatio'], ['PriceBookRatio'], ['YieldRatio']);
   for (const r of [...(raw.revTw || []), ...(raw.revTp || [])]) {
