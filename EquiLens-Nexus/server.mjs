@@ -34,6 +34,7 @@ import { buildRisk, fetchRiskInputs, riskContext } from './lib/riskgauge.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
+import { buildVerdict } from './lib/verdict.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
 import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
@@ -1018,6 +1019,19 @@ setInterval(()=>{
   if(x.hm>='18:40'&&screenJob.ran!==x.date&&!screenJob.busy){screenJob.ran=x.date;runScreen();}
 },60e3).unref();
 
+// 個股判讀卡：日 K 與法人取自本機研究資料，盤中價格取自即時資料，融資由 FinMind 取得（每檔每 30 分鐘最多 1 次）
+const marginCache=new Map();
+async function marginRows(id){
+  const c=marginCache.get(id);if(c&&Date.now()-c.at<30*60e3)return c.rows;
+  let rows=c?.rows||[];try{rows=await finmindRequest('TaiwanStockMarginPurchaseShortSale',{data_id:id,start_date:minusDays(today(),20)},fmOpt());}catch{}
+  marginCache.set(id,{at:Date.now(),rows});return rows;
+}
+async function verdictReport(id){
+  const r=raw[id]||read(`stocks/${id}.json`,{}),meta=uniIndex().meta.get(id)||{},groups=researchScope.groups.filter(g=>g.stockIds.includes(id)).map(g=>g.name);
+  const mg=M().id==='TW'?await marginRows(id):[];
+  return buildVerdict({id,name:meta.name||id,sector:meta.sector||'',groups,rows:r.price||[],inst:r.institutions||[],marginRows:mg,live:liveRow(id,today()),today:today(),p:M()});
+}
+
 /* ---------- 推理模型 ---------- */
 // 金鑰以服務代號保存（anthropic、openai、gemini、compatible）；OpenAI 相容端點（例如本機模型）可不設金鑰
 function llmConfigured(){const l=config().llm,info=LLM_INFO[l.provider];if(!info||(info.needsBaseUrl&&!l.baseUrl))return false;return !!info.keyOptional||secretConfigured(l.provider,info.keyEnv);}
@@ -1411,6 +1425,7 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/price-alerts/delete'&&req.method==='POST'){
       const b=await body(req);priceRules=priceRules.filter(r=>r.id!==b.id);savePriceRules();return json(res,200,{ok:true,...priceRulesInfo()});
     }
+    if(route==='/api/verdict'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`v:${id}`,()=>verdictReport(id)));}
     /* ----- 風控水位與低估選股 ----- */
     if(route==='/api/risk'&&req.method==='GET')return json(res,200,riskInfo());
     if(route==='/api/risk/query'&&req.method==='POST'){if(!riskCapable())throw new UserError('風控水位目前只支援台股');if(riskJob.busy)throw new UserError('風控水位更新中，請稍候');runRisk();return json(res,202,riskInfo());}

@@ -83,3 +83,29 @@ export function valueHTML(info, { limit = 30 } = {}) {
   return `${tabs}${ctl}${err}${meta}${body}
     <p class="ix-foot">本益比與淨值比和同產業比較（同業少於 6 檔時與全市場比較），ROE＝淨值比 ÷ 本益比（估算），營收成長、ROE 與殖利率和全市場比較。分數 0～100，依策略權重加總。資料：證交所與櫃買中心開放資料（免金鑰），平日 18:40 後更新。低本益比可能來自一次性獲利或產業循環高點，請搭配財報與產業狀況判斷；這不是買賣建議。</p>`;
 }
+
+// 個股判讀卡：綜合判讀、撐壓位、三大法人近 20 日、融資（股票視窗頂端）
+function instBars(list = []) {
+  if (!list.length) return '';
+  const W = 300, H = 56, max = Math.max(...list.map(x => Math.abs(x.amount ?? 0)), 0.01), bw = W / list.length;
+  return `<svg class="vd-bars" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="法人每日買賣超">${list.map((x, i) => { const v = x.amount ?? 0, h = Math.max(1.5, Math.abs(v) / max * (H / 2 - 2)); return `<rect class="${v >= 0 ? 'vd-up' : 'vd-down'}" x="${(i * bw + bw * 0.15).toFixed(1)}" y="${(v >= 0 ? H / 2 - h : H / 2).toFixed(1)}" width="${(bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}"/>`; }).join('')}<line class="vd-zero" x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}"/></svg>`;
+}
+export function verdictHTML(v) {
+  if (!v) return '<p class="ix-empty">讀取中…</p>';
+  if (!v.available) return '<p class="ix-empty">這檔股票還沒有日 K 資料，更新研究資料後即可判讀。</p>';
+  const c = x => x == null ? 'muted' : x > 0 ? 'up' : x < 0 ? 'down' : 'muted', yi = x => x == null ? '—' : sign(x, Math.abs(x) >= 100 ? 0 : 1);
+  const head = `<div class="vd-price"><b class="num ${c(v.change)}">${fmt(v.price, 2)}</b><span class="num ${c(v.change)}">${sign(v.change, 2)}　${sign(v.pct, 2)}%</span></div>
+    <div class="vd-chips">${v.limit ? `<span class="vd-chip ${v.limit.kind.startsWith('up') ? 'vd-chip-up' : 'vd-chip-down'}">${esc(v.date.slice(5).replace('-', '/'))} ${esc(v.limit.label)}</span>` : ''}<span class="vd-chip">${v.session === 'live' ? '盤中' : '收盤'}</span>${v.amount ? `<span class="vd-chip">成交 ${fmt(v.amount / 1e8, 1)} 億</span>` : ''}</div>`;
+  const pts = v.points.length ? `<div class="vd-box"><h4>綜合判讀</h4><ul>${v.points.map(p => `<li class="vd-${p.tone}">${esc(p.text)}</li>`).join('')}</ul></div>` : '';
+  const tags = v.tags?.length ? `<p class="vd-tags">${v.tags.map(esc).join(' · ')}</p>` : '';
+  const L = v.levels, lv = L ? `<div class="vd-sec"><div class="vd-sh"><b>撐壓位</b><span class="soft">${esc(L.appliesTo.slice(5).replace('-', '/'))} 適用</span></div>
+    <div class="vd-track"><i style="left:${L.pct.toFixed(1)}%" class="${L.above ? 'vd-up' : L.below ? 'vd-down' : ''}"></i></div>
+    <div class="vd-lv"><span><small>支撐</small><b class="num down">${fmt(L.support, 2)}</b></span><span><small>交界</small><b class="num">${fmt(L.pivot, 2)}</b></span><span><small>壓力</small><b class="num up">${fmt(L.resistance, 2)}</b></span></div>
+    <p class="vd-small">距壓力 <span class="${c(L.toR)}">${sign(L.toR)}%</span>　距支撐 <span class="${c(L.toS)}">${sign(L.toS)}%</span>　· 以 ${esc(L.from.slice(5).replace('-', '/'))} 高低收計算的樞紐點，波動參考位，非進出場訊號</p></div>` : '';
+  const I = v.institutions, ins = I ? `<div class="vd-sec"><div class="vd-sh"><b>三大法人 近 ${I.days} 日</b><span class="soft">${esc(I.asOf.slice(5).replace('-', '/'))} 公布</span></div>
+    <div class="vd-ih"><b class="${I.total > 0 ? 'up' : I.total < 0 ? 'down' : ''}">${esc(I.label)}</b><span class="muted">買超 ${I.buyDays}/${I.days} 日</span><b class="num ${c(I.total)}">${yi(I.total)} 億</b></div>
+    ${instBars(I.list)}<div class="vd-lv"><span><small>外資</small><b class="num ${c(I.foreign)}">${yi(I.foreign)}</b></span><span><small>投信</small><b class="num ${c(I.trust)}">${yi(I.trust)}</b></span><span><small>自營</small><b class="num ${c(I.dealer)}">${yi(I.dealer)}</b></span></div></div>` : '';
+  const M = v.margin, mg = M ? `<div class="vd-sec"><div class="vd-sh"><b>融資</b><span class="soft">${esc(M.asOf.slice(5).replace('-', '/'))}</span></div>
+    <div class="vd-lv"><span><small>餘額</small><b class="num">${fmt(M.balance)}</b></span><span><small>單日</small><b class="num ${c(M.d1)}">${sign(M.d1, 0)}</b></span><span><small>5 日</small><b class="num ${c(M.d5)}">${sign(M.d5, 0)}</b></span><span><small>使用率</small><b class="num">${M.usage == null ? '—' : fmt(M.usage, 1) + '%'}</b></span></div></div>` : '';
+  return `<div class="vd">${head}${pts}${tags}${lv}${ins}${mg}<p class="ix-foot">判讀依本機日 K、法人與融資資料整理，僅供研究參考，不是買賣建議。</p></div>`;
+}

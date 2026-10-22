@@ -125,6 +125,7 @@ async function api(req, res, url) {
     if (route === 'report') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.report(date)); }
     if (route === 'price-alerts') return send(req, res, 200, await nexus.priceAlerts());
     if (route === 'risk') return send(req, res, 200, await nexus.risk());
+    if (route === 'verdict') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.verdict(q.get('id'))); }
     if (route === 'value') { const st = q.get('strategy') || 'value', mt = Number(q.get('minTurnover') ?? 1e7); if (!['value', 'garp', 'income'].includes(st) || ![0, 5e6, 1e7, 3e7, 1e8].includes(mt)) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.value(st, mt)); }
     if (route === 'chipwatch') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.chipwatch(date)); }
     if (route === 'chipwatch/branches') { const k = String(q.get('q') || '').trim(); if (k.length > 30) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.brokerSearch(k)); }
