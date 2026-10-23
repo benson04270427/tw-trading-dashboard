@@ -109,3 +109,57 @@ export function verdictHTML(v) {
     <div class="vd-lv"><span><small>餘額</small><b class="num">${fmt(M.balance)}</b></span><span><small>單日</small><b class="num ${c(M.d1)}">${sign(M.d1, 0)}</b></span><span><small>5 日</small><b class="num ${c(M.d5)}">${sign(M.d5, 0)}</b></span><span><small>使用率</small><b class="num">${M.usage == null ? '—' : fmt(M.usage, 1) + '%'}</b></span></div></div>` : '';
   return `<div class="vd">${head}${pts}${tags}${lv}${ins}${mg}<p class="ix-foot">判讀依本機日 K、法人與融資資料整理，僅供研究參考，不是買賣建議。</p></div>`;
 }
+
+// ---- 訊號面板（ATR 追蹤線訊號、共振、交易計畫） ----
+const px = v => fmt(v, Number.isInteger(Number(v)) ? 0 : 2);
+const md = d => esc(String(d || '').slice(5).replace('-', '/'));
+// 近 90 根 K 棒、追蹤線（多方段與空方段分色）、訊號點與最新訊號的進場／停損／停利線
+export function signalChartSVG(d) {
+  const c = d.chart; if (!c?.bars?.length) return '';
+  const W = 600, H = 210, padR = 54, n = c.bars.length, bw = (W - padR) / n, s = d.signal;
+  const lv = s ? [s.entry, s.stop, ...s.targets.map(t => t.price)] : [];
+  const lo = Math.min(...c.bars.map(b => b[3]), ...c.line.filter(Boolean).map(l => l[0]), ...lv), hi = Math.max(...c.bars.map(b => b[2]), ...c.line.filter(Boolean).map(l => l[0]), ...lv);
+  const y = v => (8 + (hi - v) / ((hi - lo) || 1) * (H - 16)).toFixed(1), x = i => (i * bw + bw / 2).toFixed(1);
+  const candles = c.bars.map((b, i) => { const up = b[4] >= b[1]; return `<g class="${up ? 'sg-cu' : 'sg-cd'}"><line x1="${x(i)}" x2="${x(i)}" y1="${y(b[2])}" y2="${y(b[3])}"/><rect x="${(i * bw + bw * 0.18).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" y="${y(Math.max(b[1], b[4]))}" height="${Math.max(1, y(Math.min(b[1], b[4])) - y(Math.max(b[1], b[4]))).toFixed(1)}"/></g>`; }).join('');
+  let path = '', prev = null; const segs = [];
+  c.line.forEach((l, i) => { if (!l) { prev = null; return; } if (!prev || prev[1] !== l[1]) { segs.push({ dir: l[1], pts: [] }); } segs.at(-1).pts.push(`${x(i)},${y(l[0])}`); prev = l; });
+  path = segs.map(g => `<polyline class="${g.dir > 0 ? 'sg-lu' : 'sg-ld'}" points="${g.pts.join(' ')}"/>`).join('');
+  const marks = c.flips.map(([i, dir]) => dir > 0 ? `<path class="sg-mu" d="M${x(i)} ${(+y(c.bars[i][3]) + 4).toFixed(1)}l-5 9h10z"/>` : `<path class="sg-md" d="M${x(i)} ${(+y(c.bars[i][2]) - 4).toFixed(1)}l-5 -9h10z"/>`).join('');
+  const start = s ? Math.max(0, c.bars.findIndex(b => b[0] === s.date)) : 0;
+  const hl = (v, cls, label) => `<line class="${cls}" x1="${x(start)}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/><text class="${cls}-t" x="${W - padR + 4}" y="${(+y(v) + 4).toFixed(1)}">${esc(label)}</text>`;
+  const lines = s ? [hl(s.entry, 'sg-le', '進 ' + px(s.entry)), hl(s.stop, 'sg-ls', '損 ' + px(s.stop)), ...s.targets.map((t, k) => hl(t.price, 'sg-lt', `TP${k + 1}`))].join('') : '';
+  return `<svg class="sg-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="近 ${n} 日 K 線與追蹤線">${candles}${path}${lines}${marks}</svg>`;
+}
+export function signalHTML(d, { editable = false } = {}) {
+  if (!d) return '<p class="ix-empty">讀取中…</p>';
+  if (!d.available) return `<p class="ix-empty">${esc(d.reason || '這檔股票還沒有日 K 資料')}</p>`;
+  const tone = x => x > 0 ? 'up' : x < 0 ? 'down' : 'muted', row = (k, v) => `<div class="sg-row"><span>${k}</span><b>${v}</b></div>`;
+  const R = d.resonance, s = d.signal, F = d.flow, V = d.volatility;
+  const core = `<h4 class="sg-h">核心分析</h4>
+    ${row('大週期共振', `<span class="${tone(R.tone)}">${esc(R.label)}</span> <span class="soft">(多${R.bull} / 空${R.bear}${R.frames.length ? '　' + R.frames.map(f => `${esc(f.label)}${f.trend > 0 ? '↑' : f.trend < 0 ? '↓' : '→'}`).join(' ') : ''})</span>`)}
+    ${row('市場狀態', `<span class="amber">${esc(d.regime || '—')}</span>`)}
+    ${row('波動狀態', V ? `${esc(V.label)} <span class="soft">ATR ${fmt(V.atrPct, 2)}%</span>` : '—')}
+    ${row('量能流向', F ? `<span class="${tone(F.tone)}">${esc(F.label)} ${F.pct}%</span>` : '—')}`;
+  const track = s ? `<h4 class="sg-h">訊號追蹤</h4>
+    ${row('最新訊號', `<span class="${s.side === 'buy' ? 'up' : 'down'}">${esc(s.label)} @ ${px(s.entry)}</span> <span class="soft">(${md(s.date)}，${s.age ? s.age + ' 根前' : '最新一根'})</span>`)}
+    ${row('與大趨勢', d.align === 'with' ? '<span class="sg-ok">順大趨勢</span>' : d.align === 'against' ? '<span class="amber">逆大趨勢</span>' : '<span class="muted">週線中性</span>')}
+    ${row('現在可進場？', `<span class="${s.entryNow.ok ? 'sg-ok' : 'amber'}">${esc(s.entryNow.label)}</span>`)}
+    ${row('信心分數', `<span class="sg-bar"><i style="width:${d.confidence}%"></i></span> <span class="num">${d.confidence}/100</span>`)}
+    ${row('目前 ADX', `<span class="amber num">${fmt(d.adx, 1)} (${esc(d.adxLabel || '—')})</span>`)}` : `<h4 class="sg-h">訊號追蹤</h4><p class="soft">資料期間內還沒有訊號。</p>`;
+  const Z = d.size, cur = d.settings || {};
+  const size = Z ? (Z.lot > 1 ? `${Z.lots ? `${fmt(Z.lots)} 張` : ''}${Z.odd ? `${Z.lots ? '＋' : ''}${fmt(Z.odd)} 股零股` : ''}${!Z.lots && !Z.odd ? '0' : ''} <span class="soft">(風險 ${fmt(Z.risk)} ／預算 ${fmt(Z.budget)})</span>${Z.over ? ` <span class="amber">⚠ 一張風險 ${fmt(Z.oneLotRisk)} 超過預算</span>` : ''}` : `${fmt(Z.shares)} 股 <span class="soft">(風險 ${fmt(Z.risk)} ／預算 ${fmt(Z.budget)})</span>`)
+    : s && !s.stopped && s.status.kind !== 'done' ? '<span class="soft">設定資金與每筆風險後顯示</span>' : '—';
+  const plan = s ? `<h4 class="sg-h">交易計畫（依最新訊號）</h4>
+    ${row('進場價', `<span class="num">${px(s.entry)}</span>`)}
+    ${row('停損價', `<span class="num sg-bad">${px(s.stop)}</span> <span class="soft">(${fmt(d.params.stopAtr, 1)} 倍 ATR)</span>`)}
+    ${s.targets.map((t, k) => row(`停利 ${k + 1}`, `<span class="num sg-ok">${px(t.price)}</span> <span class="soft">(${t.r}R)</span>${t.hit ? ' ✓' : ''}`)).join('')}
+    ${row('目前結果', `<span class="${s.status.kind === 'stopped' ? 'amber' : 'sg-ok'}">${esc(s.status.label)}</span>`)}
+    ${row('建議張數', size)}
+    ${row('持倉立場', `<span class="${tone(d.stance.tone)}">${esc(d.stance.label)}</span>`)}
+    ${row('追蹤停損線', `<span class="amber num">${px(d.trail)}</span>`)}` : '';
+  const H = d.history, foot = `<h4 class="sg-h">資料</h4>
+    ${row('K 線', `日線，資料到 ${md(d.date)}${d.provisional ? '（今天盤中，暫定）' : ''}`)}
+    ${H ? row('過去訊號', `${H.trades} 次，先到 TP1 ${H.tp1} 次（${H.rate}%）、先停損 ${H.stopped} 次`) : ''}`;
+  const form = editable ? `<form class="sg-form" data-sg-settings="${esc(d.id)}"><label>總資金<input name="capital" type="number" min="0" step="1000" inputmode="numeric" value="${cur.capital ?? ''}" placeholder="例如 1000000"></label><label>每筆風險 %<input name="riskPct" type="number" min="0.1" max="20" step="0.1" value="${cur.riskPct ?? ''}" placeholder="1"></label><button type="submit">儲存</button><span class="soft" data-sg-msg></span></form>` : '';
+  return `<div class="sg">${signalChartSVG(d)}<div class="sg-grid"><div>${core}${track}</div><div>${plan}${foot}</div></div>${form}<p class="ix-foot">ATR 追蹤線（${d.params.stPeriod} 日、${d.params.stMult} 倍）翻轉即為訊號，停損 ${d.params.stopAtr} 倍 ATR、停利 ${d.params.targets.join('／')}R；以日線計算，僅供研究參考，不是買賣建議。</p></div>`;
+}

@@ -47,6 +47,7 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
   alerts are unchanged ([details, zh-TW](docs/features/daytrade-market.md)).
 - **Group ranking** – your research groups ranked by turnover-weighted gain, with daily close records.
 - **Pattern scanner** – 10 classic patterns over 90 sessions with conditional entry and stop levels.
+- **Signal panel** (Taiwan and US) – daily ATR trailing-line (SuperTrend) buy/sell signals in the stock window with day/week/month alignment, ADX, volume flow, a confidence score, a 1.5× ATR stop, 1.5R/2.5R/4R targets and a trailing stop; position size from your capital and risk per trade; new signals on watchlist stocks are pushed. See [docs/features/signal-panel.md](docs/features/signal-panel.md).
 - **Risk gauge** (Taiwan) – retail long/short ratio, margin growth, foreign TAIEX futures and spot flows, USD/TWD and index trend, each ranked against its own past year, combined into a 0–100 risk score and a suggested equity exposure (20–90%), with an optional AI reading. Needs only the free FinMind tier. See [risk-gauge.md](docs/features/risk-gauge.md).
 - **Value screener** (Taiwan) – whole-market P/E and P/B versus industry peers, estimated ROE, monthly revenue growth and yield, with deep-value, growth-at-a-reasonable-price and high-yield strategies, from free TWSE/TPEx open data. See [value-screener.md](docs/features/value-screener.md).
 - **AI after-market report** – written by Claude, OpenAI, Gemini or any OpenAI-compatible endpoint (including local

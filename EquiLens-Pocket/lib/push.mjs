@@ -78,7 +78,7 @@ export function setLastSeq(seq) { const s = store(); s.lastSeq = seq; save(s); }
 // 通知文字依 Nexus 的介面語言翻譯
 export const localize = n => ({ ...n, title: tx(n.title), body: n.body ? tx(n.body) : n.body });
 // 將雷達、新聞與日報事件轉成通知；同一批太多時合併成一則摘要。
-const ICON = { volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰', 'dt-weak': '⚠️', 'dt-risk': '🛑', custom: '🔔', broker: '🏦', holders: '🐋' };
+const ICON = { signal: '📶', volume: '🔥', 'surge-up': '🚀', 'surge-down': '⚡', 'limit-up': '🔺', 'limit-down': '🔻', 'limit-up-open': '⚠️', 'limit-down-open': '↗️', 'pattern-entry': '🎯', stop: '🛑', report: '📰', news: '🗞️', 'dt-breakout': '💥', 'dt-vwap': '📈', 'dt-bid': '🟢', 'dt-stop': '⏰', 'dt-weak': '⚠️', 'dt-risk': '🛑', custom: '🔔', broker: '🏦', holders: '🐋' };
 export function notificationsFor(alerts) { return build(alerts).map(localize); }
 // 當沖做多訊號每 5 分鐘彙整成一則推播（在整 5 分鐘時送出，例如 09:20、09:25）；
 // 多單轉弱、跌破參考停損、停止新增部位等風險提醒不彙整，仍立即推播。
@@ -116,10 +116,14 @@ function build(alerts) {
   const custom = alerts.filter(a => a.type === 'custom'), customOut = custom.length <= 6
     ? custom.map(a => ({ title: `🔔 ${a.name} ${a.stockId}`, body: `${a.close}（${a.change > 0 ? '+' : ''}${a.change ?? '—'}%）· ${a.detail}`, tag: `custom:${a.rule || a.stockId}`, url: '/#live' }))
     : [{ title: `🔔 自訂提醒 ${custom.length} 則`, body: custom.slice(0, 6).map(a => `${a.name}：${a.detail}`).join('\n'), tag: 'custom-batch', url: '/#live' }];
+  // 訊號面板：自選股收盤後出現新的買進／賣出訊號，各自推播（一次超過 4 則合併）
+  const sig = alerts.filter(a => a.type === 'signal'), sigOut = sig.length <= 4
+    ? sig.map(a => ({ title: `📶 ${a.name} ${a.stockId} ${a.title}`, body: `${a.close} · ${a.detail}`, tag: `signal:${a.stockId}`, url: '/#live' }))
+    : [{ title: `📶 自選股新訊號 ${sig.length} 則`, body: sig.slice(0, 6).map(a => `${a.name} ${a.title}`).join('、'), tag: 'signal-batch', url: '/#live' }];
   const risk = alerts.filter(a => a.type === 'risk').map(a => ({ title: `🛡️ ${a.title}`, body: a.detail, tag: 'risk', url: '/#home' }));
   const chips = alerts.filter(a => a.type === 'broker' || a.type === 'holders').map(a => ({ title: `${ICON[a.type]} ${a.title}`, body: a.detail, tag: `${a.type}:${a.date || ''}`, url: '/#flows' }));
-  const head = [...report, ...customOut, ...chips, ...risk];
-  const rest = alerts.filter(a => !['report', 'news', 'custom', 'broker', 'holders', 'risk'].includes(a.type));
+  const head = [...report, ...customOut, ...chips, ...risk, ...sigOut];
+  const rest = alerts.filter(a => !['report', 'news', 'custom', 'broker', 'holders', 'risk', 'signal'].includes(a.type));
   if (rest.length <= 4) return [...head, ...newsOut, ...rest.map(a => !a.stockId ? { title: `${ICON[a.type] || '📡'} ${a.title}`, body: a.detail, tag: a.type, url: '/#live' } : { title: `${ICON[a.type] || '📡'} ${a.name} ${a.stockId} ${a.title}`, body: `${a.close}（${a.change > 0 ? '+' : ''}${a.change ?? '—'}%）· ${a.detail}`, tag: `${a.type}:${a.stockId}`, url: '/#live' })];
   const watch = rest.filter(a => a.watch);
   return [...head, ...newsOut, { title: `📡 盤中雷達：${rest.length} 則異動`, body: (watch.length ? watch : rest).slice(0, 5).map(a => `${a.name}${a.title}`).join('、'), tag: 'radar-batch', url: '/#live' }];

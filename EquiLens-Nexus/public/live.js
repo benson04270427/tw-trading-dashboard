@@ -1,5 +1,5 @@
 // 衡析 Nexus：盤中雷達頁（族群／自選即時看板＋異動雷達＋雷達設定）、個股 K 線視窗、桌面通知、新聞推播、個股籌碼深度、AI 盤後日報與排程設定。
-import { verdictHTML } from './riskvalue-ui.js';
+import { verdictHTML, signalHTML } from './riskvalue-ui.js';
 import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, warrantHTML, warrantBrokersHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { t, tx, translateTree } from './i18n.js';
 import * as MK from './market.js';
@@ -273,14 +273,25 @@ document.addEventListener('mousemove', e => {
 
 /* ---------- 個股診斷：分點、大戶 ---------- */
 export function detailExtrasShell(stock) {
-  return `<section class="panel vd-panel"><div class="panelhead"><h3>🧭 個股判讀</h3><span class="fine">撐壓位 · 法人 20 日 · 融資</span></div><div class="contentpad rv-wrap" id="ix-verdict"><p><i class="spinner"></i>整理判讀…</p></div></section>${stock ? rulesSection(stock) : ''}<div class="ix-detail"><section class="panel"><div class="panelhead"><h3>🏦 主力分點 · 近 5 日</h3><span class="fine">FinMind 券商分點</span></div><div class="contentpad" id="ix-brokers"><p><i class="spinner"></i>讀取券商分點…</p></div></section>
+  return `<section class="panel vd-panel"><div class="panelhead"><h3>🧭 個股判讀</h3><span class="fine">撐壓位 · 法人 20 日 · 融資</span></div><div class="contentpad rv-wrap" id="ix-verdict"><p><i class="spinner"></i>整理判讀…</p></div></section><section class="panel sg-panel"><div class="panelhead"><h3>📶 訊號面板</h3><span class="fine">ATR 追蹤線 · 日週月共振 · 交易計畫</span></div><div class="contentpad" id="ix-signal"><p><i class="spinner"></i>計算訊號…</p></div></section>${stock ? rulesSection(stock) : ''}<div class="ix-detail"><section class="panel"><div class="panelhead"><h3>🏦 主力分點 · 近 5 日</h3><span class="fine">FinMind 券商分點</span></div><div class="contentpad" id="ix-brokers"><p><i class="spinner"></i>讀取券商分點…</p></div></section>
   <section class="panel"><div class="panelhead"><h3>🐋 大戶持股 · 每週</h3><span class="fine">股權分散表</span></div><div class="contentpad" id="ix-holders"><p><i class="spinner"></i>讀取股權分散表…</p></div></section>
   <section class="panel ix-wide"><div class="panelhead"><h3>🎫 認購權證</h3><span class="fine">FinMind 權證標的對照 · 證交所／櫃買權證行情</span></div><div class="contentpad" id="ix-warrants"><p><i class="spinner"></i>讀取權證資料…</p></div></section></div>`;
 }
 export async function fillDetailExtras(id, current) {
   const fill = async (sel, path, render) => { try { const d = await C.api(path); if (current() === id && document.querySelector(sel)) document.querySelector(sel).innerHTML = render(d); } catch (e) { if (current() === id && document.querySelector(sel)) document.querySelector(sel).innerHTML = `<p class="fine">${esc(e.message)}</p>`; } };
-  await Promise.all([fill('#ix-verdict', 'verdict?id=' + id, verdictHTML), fill('#ix-brokers', 'brokers?id=' + id, brokerHTML), fill('#ix-holders', 'holders?id=' + id, holderHTML), fill('#ix-warrants', 'warrants?id=' + id, warrantHTML)]);
+  await Promise.all([fill('#ix-verdict', 'verdict?id=' + id, verdictHTML), fill('#ix-signal', 'signal?id=' + id, d => signalHTML(d, { editable: true })), fill('#ix-brokers', 'brokers?id=' + id, brokerHTML), fill('#ix-holders', 'holders?id=' + id, holderHTML), fill('#ix-warrants', 'warrants?id=' + id, warrantHTML)]);
 }
+
+// 訊號面板的資金與每筆風險設定：儲存後重新計算這一檔
+document.addEventListener('submit', async e => {
+  const f = e.target.closest?.('[data-sg-settings]'); if (!f) return; e.preventDefault();
+  const msg = f.querySelector('[data-sg-msg]'), fd = new FormData(f), box = f.closest('#ix-signal');
+  try {
+    await C.api('signal/settings', { capital: Number(fd.get('capital')) || null, riskPct: Number(fd.get('riskPct')) || null });
+    const id = f.dataset.sgSettings; if (msg) msg.textContent = '已儲存';
+    if (box && id) box.innerHTML = signalHTML(await C.api('signal?id=' + id), { editable: true });
+  } catch (err) { if (msg) msg.textContent = err.message; }
+});
 
 /* ---------- AI 盤後日報（今日焦點頁頂端） ---------- */
 async function loadReport(date) { try { L.report = await C.api('report' + (date ? '?date=' + date : '')); } catch (e) { L.report = { error: e.message }; } L.reportLoaded = true; }

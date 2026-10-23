@@ -88,6 +88,7 @@ export const watchSet = b => call('watch/set', { body: b }).finally(invalidate);
 // 風控水位與低估選股（台股）
 export const risk = () => call('risk');
 export const verdict = id => call('verdict?id=' + encodeURIComponent(id), { timeout: 60000 });
+export const signal = id => call('signal?id=' + encodeURIComponent(id), { timeout: 60000 });
 export const riskQuery = () => call('risk/query', { body: {} });
 export const riskExplain = () => call('risk/explain', { body: {}, timeout: 180000 });
 export const value = (strategy, minTurnover) => call(`value?strategy=${encodeURIComponent(strategy)}&minTurnover=${encodeURIComponent(minTurnover)}`);

@@ -35,6 +35,7 @@ import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
 import { buildVerdict } from './lib/verdict.mjs';
+import { buildSignal, newSignal, normalizeSignalSettings } from './lib/signal.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
 import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
@@ -1033,6 +1034,40 @@ async function verdictReport(id){
   return buildVerdict({id,name:meta.name||id,sector:meta.sector||'',groups,rows:r.price||[],inst:r.institutions||[],marginRows:mg,live:liveRow(id,today()),today:today(),p:M()});
 }
 
+/* ---------- 訊號面板 ---------- */
+// 日 K：研究名單用本機資料；研究名單以外（例如只在自選）的股票向資料源取近 400 天，快取 6 小時
+const signalCache=new Map();
+async function signalRows(id){
+  const r=raw[id]||read(`stocks/${id}.json`,{});if(r.price?.length)return r.price;
+  const c=signalCache.get(id);if(c&&Date.now()-c.at<6*3600e3)return c.rows;
+  if(!data.has('daily'))return[];
+  let rows=c?.rows||[];try{rows=(await data.daily(id,minusDays(today(),400),today(),{})).price||[];}catch{}
+  signalCache.set(id,{at:Date.now(),rows});return rows;
+}
+async function signalReport(id,{live=true}={}){
+  const meta=uniIndex().meta.get(id)||{};
+  return buildSignal({id,name:meta.name||id,rows:await signalRows(id),live:live?liveRow(id,today()):null,today:today(),p:M(),settings:normalizeSignalSettings(settings.signal)});
+}
+// 研究更新完成後掃描自選股：最新一根 K 棒出現新訊號就推播（第一次只記錄、不推播）
+let signalScanBusy=false;
+async function scanSignals(){
+  const cfg=normalizeSignalSettings(settings.signal);if(!cfg.push||signalScanBusy||!watchlist.length)return;
+  signalScanBusy=true;
+  try{
+    const seen=read('signal-seen.json',null),first=!seen,next={...(seen||{})},out=[];
+    // 研究名單以外的自選股要另外向資料源取日 K，最多 60 檔
+    const ids=[...watchlist.filter(inScope),...watchlist.filter(id=>!inScope(id)).slice(0,60)];
+    for(const id of ids){
+      let sig;try{sig=await signalReport(id,{live:false});}catch{continue;}
+      const ns=newSignal(sig);if(!ns)continue;
+      const key=`${ns.date}:${ns.side}`;if(next[id]===key)continue;next[id]=key;
+      if(first)continue;
+      out.push({type:'signal',title:t(ns.side==='buy'?'買進訊號':'賣出訊號'),detail:t('進場 {e}、停損 {s}、TP1 {t}，信心 {c}',{e:ns.entry,s:ns.stop,t:ns.targets[0].price,c:sig.confidence})+(sig.resonance.tone?` · ${t(sig.resonance.label)}`:''),stockId:id,name:sig.name,close:sig.price,change:null,t:clock().hms,level:'hi',watch:true,date:ns.date});
+    }
+    write('signal-seen.json',next);if(out.length)addAlerts(today(),out);
+  }catch(e){console.error(t('訊號掃描失敗：')+e.message);}finally{signalScanBusy=false;}
+}
+
 /* ---------- 推理模型 ---------- */
 // 金鑰以服務代號保存（anthropic、openai、gemini、compatible）；OpenAI 相容端點（例如本機模型）可不設金鑰
 function llmConfigured(){const l=config().llm,info=LLM_INFO[l.provider];if(!info||(info.needsBaseUrl&&!l.baseUrl))return false;return !!info.keyOptional||secretConfigured(l.provider,info.keyEnv);}
@@ -1187,7 +1222,7 @@ async function refresh(scope, ids) {
     }
     job.message = controller.signal.aborted ? t('更新已停止，資料已保留') : t('已完成 {n} 檔更新', { n:job.done }) + (job.errors.length ? t('，部分資料未取得') : '');
   } catch (e) { job.message = e.message; job.errors.push({ message:e.message }); }
-  finally { job.running = false; job.finishedAt = new Date().toISOString(); job.dataset = null; write('last-job.json', job); invalidate(); }
+  finally { job.running = false; job.finishedAt = new Date().toISOString(); job.dataset = null; write('last-job.json', job); invalidate(); void scanSignals(); }
 }
 async function refreshPatternMarket(){
   controller=new AbortController();job={running:true,done:0,total:0,current:t('股票清單'),errors:[],message:t('準備全市場型態資料'),startedAt:new Date().toISOString()};write('last-job.json',job);
@@ -1426,6 +1461,8 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/price-alerts/delete'&&req.method==='POST'){
       const b=await body(req);priceRules=priceRules.filter(r=>r.id!==b.id);savePriceRules();return json(res,200,{ok:true,...priceRulesInfo()});
     }
+    if(route==='/api/signal'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await signalReport(id));}
+    if(route==='/api/signal/settings'&&req.method==='POST'){const b=await body(req);settings={...settings,signal:normalizeSignalSettings(b)};saveSettings();return json(res,200,{ok:true,settings:settings.signal});}
     if(route==='/api/verdict'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`v:${id}`,()=>verdictReport(id)));}
     /* ----- 風控水位與低估選股 ----- */
     if(route==='/api/risk'&&req.method==='GET')return json(res,200,riskInfo());

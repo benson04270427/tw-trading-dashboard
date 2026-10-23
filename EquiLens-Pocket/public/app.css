@@ -548,3 +548,23 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 .vd-small{font-size:.72rem;color:var(--soft);margin:8px 0 0;line-height:1.6}
 .vd-ih{display:flex;align-items:baseline;gap:10px}.vd-ih b:first-child{font-size:1.15rem}.vd-ih b:last-child{margin-left:auto}
 .vd-bars{width:100%;height:56px;display:block;margin:8px 0}.vd-bars .vd-up{fill:var(--up)}.vd-bars .vd-down{fill:var(--down)}.vd-zero{stroke:var(--line2);stroke-width:1;vector-effect:non-scaling-stroke}
+
+/* 訊號面板 */
+.sg{display:flex;flex-direction:column;gap:10px}
+.sg-chart{width:100%;height:210px;border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.12)}
+.sg-chart .sg-cu line,.sg-chart .sg-cu rect{stroke:var(--up);fill:var(--up)}.sg-chart .sg-cd line,.sg-chart .sg-cd rect{stroke:var(--down);fill:var(--down)}
+.sg-chart line{stroke-width:1;vector-effect:non-scaling-stroke}.sg-chart rect{opacity:.85}
+.sg-chart polyline{fill:none;stroke-width:2;vector-effect:non-scaling-stroke}.sg-chart .sg-lu{stroke:#3fd47a}.sg-chart .sg-ld{stroke:#ff8a3d}
+.sg-chart .sg-mu{fill:#3fd47a}.sg-chart .sg-md{fill:#ff8a3d}
+.sg-chart .sg-le,.sg-chart .sg-ls,.sg-chart .sg-lt{stroke-dasharray:4 3}.sg-chart .sg-le{stroke:var(--muted)}.sg-chart .sg-ls{stroke:#ff6b6b}.sg-chart .sg-lt{stroke:#3fd47a}
+.sg-chart text{font-size:10px}.sg-chart .sg-le-t{fill:var(--muted)}.sg-chart .sg-ls-t{fill:#ff6b6b}.sg-chart .sg-lt-t{fill:#3fd47a}
+.sg-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px}
+@media (max-width:760px){.sg-grid{grid-template-columns:1fr}}
+.sg-h{margin:10px 0 4px;font-size:.8rem;color:var(--cyan,var(--accent));letter-spacing:.06em}.sg-h::before{content:"── "}.sg-h::after{content:" ──"}
+.sg-row{display:flex;gap:12px;align-items:baseline;padding:3px 0;font-size:.88rem;line-height:1.5}
+.sg-row>span{flex:0 0 6.5em;color:var(--muted)}.sg-row>b{font-weight:600;flex:1;min-width:0}
+.sg-ok{color:#3fd47a}.sg-bad{color:#ff6b6b}
+.sg-bar{display:inline-block;width:110px;height:12px;border-radius:3px;background:repeating-linear-gradient(90deg,var(--line) 0 3px,transparent 3px 5px);vertical-align:-1px;overflow:hidden}
+.sg-bar i{display:block;height:100%;background:#3fd47a}
+.sg-form{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;padding-top:6px;border-top:1px dashed var(--line);font-size:.84rem}
+.sg-form label{display:flex;flex-direction:column;gap:3px;color:var(--muted)}.sg-form input{width:9em}

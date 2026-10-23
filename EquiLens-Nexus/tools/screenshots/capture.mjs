@@ -57,6 +57,8 @@ const MAIN = (y = 60, h = 840) => ({ x: 238, y, width: 1202, height: h });
     for (const [v, n] of [['day', 'desktop-chart-day']]) { await p.locator(`[data-cperiod="${v}"]`).first().click(); await p.waitForTimeout(1500); await shot(p, n); }
     const d = p.locator('[data-stock-detail="3017"]').first(); if (await d.count()) {
       await d.click(); await p.waitForTimeout(2200); await shot(p, 'desktop-detail');
+      // 訊號面板（未設定資金時的畫面）
+      const sg = p.locator('#ix-signal').first(); if (await sg.count()) { await sg.scrollIntoViewIfNeeded(); await p.waitForTimeout(800); await sg.locator('xpath=..').screenshot({ path: `${OUT}/desktop-signal.png` }); }
       // 個股的認購權證：展開第一檔的分點進出
       await p.waitForTimeout(1500);
       const wb = p.locator('#ix-warrants [data-wbr]').first(); if (await wb.count()) { await wb.click(); await p.waitForTimeout(1200); }
