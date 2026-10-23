@@ -1,5 +1,5 @@
 // 電腦版：風控水位頁與低估選股頁（畫面見 riskvalue-ui.js；股票名稱由 live.js 的 data-alert-stock 開啟個股視窗）
-import { riskHTML, valueHTML, moversHTML, picksHTML } from './riskvalue-ui.js';
+import { riskHTML, valueHTML, moversHTML, picksHTML, zonesHTML, macroHTML } from './riskvalue-ui.js';
 let C = null; // { api, toast, page, reload }
 const R = { info: null, error: '' }, V = { info: null, error: '', strategy: 'value', minTurnover: 1e7, scope: 'ai' };
 export function initRiskValue(ctx) { C = ctx; }
@@ -21,6 +21,18 @@ let picksPolling = false;
 async function pollPicks() { if (picksPolling) return; picksPolling = true; try { do { await sleep(3000); if (C.page() !== 'home') return; H.picks = await C.api('picks'); repaintHome(); } while (H.picks?.busy); } finally { picksPolling = false; } }
 setInterval(async () => { if (C?.page() === 'home' && H.movers?.source === 'live' && !document.hidden) { try { H.movers = await C.api('movers'); repaintHome(); } catch { } } }, 60e3);
 
+// 策略選股頁、總經大地圖頁
+const Z = { info: null, tab: 'value', error: '' }, MC = { info: null, error: '' };
+export function zonesPage() { return `${errBox(Z.error)}<section class="panel"><div class="contentpad rv-wrap" id="zones-box">${zonesHTML(Z.info, { tab: Z.tab })}</div></section>`; }
+export function macroPage() { return `${errBox(MC.error)}<section class="panel"><div class="contentpad rv-wrap" id="macro-box">${macroHTML(MC.info)}</div></section>`; }
+const repaintBox = (pg, id, html) => { const el = document.getElementById(id); if (el && C.page() === pg) el.innerHTML = html(); };
+export async function enterZones() { try { Z.info = await C.api('zones'); Z.error = ''; } catch (e) { Z.error = e.message; } repaintBox('zones', 'zones-box', () => zonesHTML(Z.info, { tab: Z.tab })); if (Z.info?.busy) pollZones(); }
+let zonesPolling = false;
+async function pollZones() { if (zonesPolling) return; zonesPolling = true; try { do { await sleep(3000); if (C.page() !== 'zones') return; Z.info = await C.api('zones'); repaintBox('zones', 'zones-box', () => zonesHTML(Z.info, { tab: Z.tab })); } while (Z.info?.busy); } finally { zonesPolling = false; } }
+export async function enterMacro() { try { MC.info = await C.api('macro'); MC.error = ''; } catch (e) { MC.error = e.message; } repaintBox('macro', 'macro-box', () => macroHTML(MC.info)); if (MC.info?.busy) pollMacro(); }
+let macroPolling = false;
+async function pollMacro() { if (macroPolling) return; macroPolling = true; try { do { await sleep(3000); if (C.page() !== 'macro') return; MC.info = await C.api('macro'); repaintBox('macro', 'macro-box', () => macroHTML(MC.info)); } while (MC.info?.busy); } finally { macroPolling = false; } }
+
 let riskPolling = false, valuePolling = false;
 export async function enterRisk() { try { R.info = await C.api('risk'); R.error = ''; } catch (e) { R.error = e.message; } repaint(); if (R.info?.busy) pollRisk(); }
 async function pollRisk() { if (riskPolling) return; riskPolling = true; try { do { await sleep(3000); if (C.page() !== 'risk') return; R.info = await C.api('risk'); repaint(); } while (R.info?.busy); if (R.info?.data?.available && !R.info.error) C.toast('風控水位已更新'); } catch (e) { R.error = e.message; repaint(); } finally { riskPolling = false; } }
@@ -29,9 +41,20 @@ export async function enterValue() { try { V.info = await C.api(valueQuery()); V
 async function pollValue() { if (valuePolling) return; valuePolling = true; try { do { await sleep(3000); if (C.page() !== 'value') return; V.info = await C.api(valueQuery()); repaint(); } while (V.info?.busy); if (V.info?.result && !V.info.error) C.toast('選股資料已更新'); } catch (e) { V.error = e.message; repaint(); } finally { valuePolling = false; } }
 
 document.addEventListener('click', async e => {
-  if (!C || !['risk', 'value', 'home'].includes(C.page())) return;
-  const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-scope],[data-rv-watch],[data-rv-mtab]'); if (!b) return;
+  if (!C || !['risk', 'value', 'home', 'zones', 'macro'].includes(C.page())) return;
+  const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-scope],[data-rv-watch],[data-rv-mtab],[data-rv-zone]'); if (!b) return;
   try {
+    if (C.page() === 'zones') {
+      if (b.dataset.rvZone) { Z.tab = b.dataset.rvZone; return repaintBox('zones', 'zones-box', () => zonesHTML(Z.info, { tab: Z.tab })); }
+      if (b.dataset.rvWatch) { const id = b.dataset.rvWatch, on = !b.classList.contains('on'); await C.api('watch/set', { id, on }); C.toast(on ? '已加入自選' : '已從自選移除'); C.reload?.(); return enterZones(); }
+      if (b.dataset.rv === 'zones-query') { b.disabled = true; Z.info = await C.api('zones/query', {}); repaintBox('zones', 'zones-box', () => zonesHTML(Z.info, { tab: Z.tab })); return pollZones(); }
+      return;
+    }
+    if (C.page() === 'macro') {
+      if (b.dataset.rv === 'macro-query') { b.disabled = true; MC.info = await C.api('macro/query', {}); repaintBox('macro', 'macro-box', () => macroHTML(MC.info)); return pollMacro(); }
+      if (b.dataset.rv === 'macro-explain') { b.disabled = true; b.innerHTML = '<i class="spinner"></i>產生中…'; await C.api('macro/explain', {}); MC.info = await C.api('macro'); return repaintBox('macro', 'macro-box', () => macroHTML(MC.info)); }
+      return;
+    }
     if (C.page() === 'home') {
       if (b.dataset.rvMtab) { H.tab = b.dataset.rvMtab; repaintHome(); return; }
       if (b.dataset.rvWatch) { const id = b.dataset.rvWatch, on = !b.classList.contains('on'); await C.api('watch/set', { id, on }); C.toast(on ? '已加入自選' : '已從自選移除'); C.reload?.(); return enterHome(); }

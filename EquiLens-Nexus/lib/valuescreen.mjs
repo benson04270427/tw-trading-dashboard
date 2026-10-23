@@ -33,8 +33,9 @@ export function mergeInputs(raw) {
     const cur = num(field(r, ['營業收入-當月營收'])), last = num(field(r, ['營業收入-去年當月營收'])), cum = num(field(r, ['累計營業收入-當月累計營收'])), cumLast = num(field(r, ['累計營業收入-去年累計營收']));
     const yoy = last > 0 && cur != null ? (cur / last - 1) * 100 : num(field(r, ['營業收入-去年同月增減(%)'], /去年同月增減/));
     const cumYoY = cumLast > 0 && cum != null ? (cum / cumLast - 1) * 100 : num(field(r, ['累計營業收入-前期比較增減(%)'], /前期比較增減/));
+    const prevM = num(field(r, ['營業收入-上月營收'])), mom = prevM > 0 && cur != null ? (cur / prevM - 1) * 100 : num(field(r, ['營業收入-上月比較增減(%)'], /上月比較增減/));
     const ym = String(r['資料年月'] ?? ''), y = Number(ym.slice(0, -2)) + 1911, m = Number(ym.slice(-2));
-    Object.assign(get(id), { revYoY: r1(yoy), revCumYoY: r1(cumYoY), revMonth: y > 1911 && m ? `${y}-${String(m).padStart(2, '0')}` : null });
+    Object.assign(get(id), { revYoY: r1(yoy), revMoM: r1(mom), revCumYoY: r1(cumYoY), revMonth: y > 1911 && m ? `${y}-${String(m).padStart(2, '0')}` : null });
   }
   for (const r of raw.priceTw || []) { const id = String(field(r, ['Code']) ?? '').trim(); if (out.has(id)) Object.assign(get(id), { close: num(field(r, ['ClosingPrice'])), turnover: num(field(r, ['TradeValue'])) }); }
   for (const r of raw.priceTp || []) { const id = String(field(r, ['SecuritiesCompanyCode']) ?? '').trim(); if (out.has(id)) Object.assign(get(id), { close: num(field(r, ['Close', 'ClosingPrice'])), turnover: num(field(r, ['TransactionAmount', 'TradeValue'], /Amount$/)) }); }

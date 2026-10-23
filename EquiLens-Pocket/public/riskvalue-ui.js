@@ -189,3 +189,92 @@ export function picksHTML(info) {
   return `<div class="pk-meta"><span class="soft">${esc(d.date)} 收盤 · 候選 ${fmt(d.candidates)} 檔${d.market === 'TW' ? (d.flows ? ' · 含法人買賣超' : ' · 法人資料未取得') : ''}${info.news ? ' · 含近兩日新聞' : ''}</span>${btn}</div>${err}<div class="pk-list">${cards}</div>
   <p class="ix-foot">依固定規則加總：法人買超排行${d.market === 'TW' ? '（外資、投信）' : ''}、ATR 追蹤線訊號、當日量價、營收年增、近兩日新聞${d.market === 'TW' ? '與 AI 供應鏈' : ''}；同一供應鏈或產業最多 2 檔。這是研究清單，不是買賣建議。</p>`;
 }
+
+// ---- 目標價（股價與未來 12 個月目標區間） ----
+export function targetChartSVG(d) {
+  const c = (d.closes || []).filter(x => x[1] > 0); if (c.length < 5 || !d.mean) return '';
+  const W = 600, H = 220, P = 30, split = W * 0.58, px = d.price ?? c.at(-1)[1];
+  const lo = Math.min(...c.map(x => x[1]), d.low ?? d.mean) * 0.97, hi = Math.max(...c.map(x => x[1]), d.high ?? d.mean) * 1.03;
+  const y = v => (8 + (hi - v) / (hi - lo) * (H - 24)).toFixed(1), x = i => (4 + i * (split - 4) / (c.length - 1)).toFixed(1);
+  const line = `<polyline class="tg-price" points="${c.map((p, i) => `${x(i)},${y(p[1])}`).join(' ')}"/>`;
+  const curve = (v, cls) => v == null ? '' : `<path class="${cls}" d="M${split} ${y(px)} C ${split + (W - P - split) * 0.45} ${y(px)}, ${split + (W - P - split) * 0.4} ${y(v)}, ${W - P - 70} ${y(v)} L ${W - 70} ${y(v)}"/>`;
+  const band = d.high != null && d.low != null ? `<path class="tg-band" d="M${split} ${y(px)} C ${split + 60} ${y(px)}, ${split + 50} ${y(d.high)}, ${W - P - 70} ${y(d.high)} L ${W - 70} ${y(d.high)} L ${W - 70} ${y(d.low)} L ${W - P - 70} ${y(d.low)} C ${split + 50} ${y(d.low)}, ${split + 60} ${y(px)}, ${split} ${y(px)} Z"/>` : '';
+  const lab = (v, t) => v == null ? '' : `<text class="tg-lab" x="${W - 66}" y="${(+y(v) + 4).toFixed(1)}">${esc(t)} ${fmt(v, v < 100 ? 2 : 0)}</text>`;
+  return `<svg class="tg-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="股價與目標價">${band}<line class="tg-now" x1="${split}" x2="${split}" y1="4" y2="${H - 16}"/>${line}${curve(d.high, 'tg-hi')}${curve(d.mean, 'tg-mean')}${curve(d.low, 'tg-lo')}${lab(d.high, '最高')}${lab(d.mean, '平均')}${lab(d.low, '最低')}
+    <text class="tg-ax" x="4" y="${H - 3}">${esc(String(c[0][0]).slice(5).replace('-', '/'))}</text><text class="tg-ax" x="${split - 18}" y="${H - 3}">${esc(String(c.at(-1)[0]).slice(5).replace('-', '/'))}</text><text class="tg-ax" x="${(split + W - 70) / 2 - 20}" y="${H - 3}">未來 12 個月</text></svg>`;
+}
+export function targetsHTML(d) {
+  if (!d) return '<p class="ix-empty">讀取中…</p>';
+  if (!d.available) return `<p class="ix-empty">${esc(d.reason || '這檔股票沒有目標價資料。')}${d.error ? `<br><small class="soft">${esc(d.error)}</small>` : ''}</p>`;
+  const nd = v => fmt(v, v < 100 ? 2 : 0), up = v => v == null ? '—' : `<b class="num ${v > 0 ? 'up' : v < 0 ? 'down' : ''}">${sign(v, 2)}%</b>`;
+  const head = `<div class="tg-sum"><div><small>平均目標價</small><b class="num amber">${nd(d.mean)}</b></div><div><small>上漲空間</small>${up(d.upside)}</div><div><small>目前股價</small><b class="num">${nd(d.price)}</b></div>${d.ratings ? `<div><small>分析師評等</small><b>買進 ${d.ratings.buy}・持有 ${d.ratings.hold}・賣出 ${d.ratings.sell}</b></div>` : `<div><small>近 120 天</small><b>${d.count} 筆${d.stale ? '（較舊）' : ''}</b></div>`}</div>`;
+  const legend = '<div class="tg-legend"><span><i class="tg-k-price"></i>股價</span><span><i class="tg-k-mean"></i>目標價</span></div>';
+  const rows = d.market === 'US'
+    ? `<table class="tg-table"><thead><tr><th>月份</th><th>共識</th><th>買進／持有／賣出</th><th>當時股價</th></tr></thead><tbody>${d.history.map(h => `<tr><td>${esc(h.date.slice(0, 7))}</td><td>${esc(h.rating || '—')}</td><td class="num">${h.buy ?? '—'}／${h.hold ?? '—'}／${h.sell ?? '—'}</td><td class="num">${h.price != null ? fmt(h.price, 2) : '—'}</td></tr>`).join('')}</tbody></table>`
+    : `<table class="tg-table"><thead><tr><th>來源</th><th>評等</th><th>目標價</th><th>上漲空間</th><th>發布日</th></tr></thead><tbody>${d.history.map(h => `<tr><td>${esc(h.broker)}${h.eps ? `<br><small class="soft">EPS ${fmt(h.eps, 2)}（${h.epsYear}）</small>` : ''}</td><td>${esc([h.change, h.rating].filter(Boolean).join(' ') || '—')}</td><td class="num">${h.target ? nd(h.target) : '—'}</td><td>${h.upside != null ? up(h.upside) : '—'}</td><td class="num">${esc(h.date.slice(2).replace(/-/g, '/'))}</td></tr>`).join('')}</tbody></table>`;
+  return `<div class="tg">${head}${legend}${targetChartSVG(d)}${rows}<p class="ix-foot">${d.market === 'US' ? '平均／最高／最低為分析師目前的共識目標價；表格為每月的共識評等。' : '平均／最高／最低取近 120 天內每個來源最新的目標價；台股以 FactSet 共識目標價為主，另含部分外資券商（未具名）。'}資料來源：${esc(d.source || '')}。目標價是分析師預估，不代表會達到，也不是買賣建議。</p></div>`;
+}
+
+// ---- 策略選股：價值區、升溫區與個股入選紀錄 ----
+const pctCell = v => v == null ? '<span class="soft">—</span>' : `<span class="num ${v > 0 ? 'up' : v < 0 ? 'down' : ''}">${fmt(v, 2)}</span>`;
+export function zonesHTML(info, { tab = 'value', limit = 80 } = {}) {
+  if (!info) return '<p class="ix-empty">讀取中…</p>';
+  if (!info.capable) return '<p class="ix-empty">策略選股目前只支援台股與美股。</p>';
+  const N = info.names, d = info.data, us = info.market === 'US';
+  const tabs = `<div class="rv-strats">${['value', 'heat'].map(k => `<button data-rv-zone="${k}" class="${tab === k ? 'selected' : ''}" aria-pressed="${tab === k}">${esc(N[k])}${d ? ` <small class="num">${d.zones[k].length}</small>` : ''}</button>`).join('')}</div>`;
+  const btn = `<button class="rv-btn" data-rv="zones-query" ${info.busy ? 'disabled' : ''}>${info.busy ? `<i class="spinner"></i>計算中${info.total ? ` ${info.step}/${info.total}` : ''}` : '⟳ 重新計算'}</button>`;
+  const err = info.error ? `<p class="rv-err">${esc(info.error)}</p>` : '';
+  const desc = { value: us ? '有獲利、近四季營收年增 ≥ 10%，本益比在同產業候選中偏低，股價距 52 週高點回檔 10% 以上。' : '有獲利、單月營收年增 ≥ 15% 且月增 > 0，本益比在同產業的較低一半，且 PEG ≤ 1。範圍：AI 供應鏈、研究名單與自選。', heat: us ? '當日上漲 ≥ 3%（或 ≥ 2% 且成交金額增加 ≥ 50%），股價在 52 週高點 5% 以內，營收仍在成長。' : '當日上漲 ≥ 3%、成交金額較前一日增加 ≥ 30%（或漲停），營收年增 > 0。範圍：AI 供應鏈、研究名單與自選。' }[tab];
+  const meta = `<div class="pk-meta"><span class="soft">${d ? `${esc(d.date)} 收盤 · 已累積 ${info.days} 天紀錄` : '尚未計算'}</span>${btn}</div><p class="rv-desc">${esc(desc)}</p>`;
+  if (!d) return `${tabs}${meta}${err}<div class="rv-empty"><p>${info.busy ? '計算中…' : '每日研究資料更新後自動計算，也可以按「重新計算」。'}</p></div>`;
+  const list = d.zones[tab].slice(0, limit);
+  const head = us ? '<span>股價／漲跌幅</span><span>營收年增%</span><span>本益比</span><span>距 52 週高</span>' : '<span>股價／漲跌幅</span><span>單月營收月增%</span><span>單月營收年增%</span><span>本益比</span>';
+  const cells = r => us ? `<span class="zn-px"><b class="num">${fmt(r.close, 2)}</b>${chg(r.change)}</span>${pctCell(r.revYoY)}<span class="num">${r.pe != null ? fmt(r.pe, 1) : '—'}</span>${pctCell(r.offHigh)}` : `<span class="zn-px"><b class="num">${fmt(r.close, 2)}</b>${chg(r.change)}</span>${pctCell(r.revMoM)}${pctCell(r.revYoY)}<span class="num">${r.pe != null ? fmt(r.pe, 1) : '—'}</span>`;
+  const rows = list.length ? list.map(r => `<div class="zn-row"><button class="ix-cw-stock zn-name" data-alert-stock="${esc(r.id)}">${esc(r.name)} <small class="num">${esc(r.id)}</small>${r.chain ? `<br><span class="rv-chain">${esc(r.chain)}</span>` : r.sector ? `<br><small class="soft">${esc(r.sector)}</small>` : ''}</button>${cells(r)}${star(r.id, r.watch)}</div>`).join('') : '<p class="ix-empty">今天沒有股票符合條件。</p>';
+  return `${tabs}${meta}${err}<div class="zn-head"><span>股票名稱</span>${head}<span></span></div><div class="zn-list">${rows}</div><p class="ix-foot">依固定規則每日收盤後篩選並保存，可在 K 線視窗的「策略」分頁查看每檔的入選紀錄。這是研究清單，不是買賣建議。</p>`;
+}
+export function zoneHistoryHTML(d) {
+  if (!d) return '<p class="ix-empty">讀取中…</p>';
+  const c = (d.closes || []).filter(x => x[1] > 0), e = d.entries || [], N = d.names || {};
+  let chart = '';
+  if (c.length > 5) {
+    const W = 600, H = 220, lo = Math.min(...c.map(x => x[1])) * 0.97, hi = Math.max(...c.map(x => x[1])) * 1.03, idx = new Map(c.map((x, i) => [x[0], i]));
+    const x = i => (4 + i * (W - 8) / (c.length - 1)).toFixed(1), y = v => (14 + (hi - v) / (hi - lo) * (H - 34)).toFixed(1);
+    const area = `<path class="zn-area" d="M${x(0)} ${H - 18} ${c.map((p, i) => `L${x(i)} ${y(p[1])}`).join(' ')} L${x(c.length - 1)} ${H - 18} Z"/><polyline class="zn-line" points="${c.map((p, i) => `${x(i)},${y(p[1])}`).join(' ')}"/>`;
+    const dots = e.filter(z => idx.has(z.date)).map(z => { const i = idx.get(z.date), cy = +y(c[i][1]); return `<g class="zn-dot zn-${z.zone}"><circle cx="${x(i)}" cy="${cy}" r="5"/><text x="${x(i)}" y="${z.zone === 'heat' ? cy - 10 : cy + 18}" text-anchor="middle">${esc(z.zone === 'heat' ? '升溫' : '價值')}</text></g>`; }).join('');
+    chart = `<svg class="zn-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="股價與入選紀錄">${area}${dots}<text class="tg-ax" x="4" y="${H - 3}">${esc(c[0][0].slice(0, 7).replace('-', '/'))}</text><text class="tg-ax" x="${W - 52}" y="${H - 3}">${esc(c.at(-1)[0].slice(0, 7).replace('-', '/'))}</text></svg>`;
+  }
+  const table = e.length ? `<table class="tg-table"><thead><tr><th>入選策略名稱</th><th>入選日期</th><th>收盤價</th></tr></thead><tbody>${e.slice(0, 30).map(z => `<tr><td class="zn-t-${z.zone}">${esc(N[z.zone] || z.zone)}</td><td class="num">${esc(z.date.replace(/-/g, ''))}</td><td class="num">${fmt(z.close, 2)}</td></tr>`).join('')}</tbody></table>`
+    : `<p class="ix-empty">${d.days ? `近 ${d.days} 個交易日（${esc(d.since || '')} 起）沒有入選紀錄。` : '還沒有入選紀錄；每天收盤後計算一次，之後就會累積。'}</p>`;
+  return `${chart}${table}<p class="ix-foot">${esc(N.value || '價值區')}與${esc(N.heat || '升溫區')}每天收盤後依固定規則篩選，紀錄從開始計算的那天起累積。</p>`;
+}
+
+// ---- 總經大地圖 ----
+export function macroChartSVG(d) {
+  const r = d.recent || [], p = d.projection || []; if (r.length < 5) return '';
+  const W = 640, H = 260, n = r.length + p.length, vals = [...r.map(x => x[1]), ...p.flatMap(x => [x[2], x[3]])], lo = Math.min(...vals) * 0.985, hi = Math.max(...vals) * 1.015;
+  const x = i => (6 + i * (W - 60) / (n - 1)).toFixed(1), y = v => (12 + (hi - v) / (hi - lo) * (H - 36)).toFixed(1);
+  const past = `<polyline class="mc-line" points="${r.map((q, i) => `${x(i)},${y(q[1])}`).join(' ')}"/>`, o = r.length - 1;
+  const band = p.length ? `<path class="mc-band" d="M${x(o)} ${y(r.at(-1)[1])} ${p.map((q, k) => `L${x(o + k + 1)} ${y(q[3])}`).join(' ')} ${[...p].reverse().map((q, k) => `L${x(o + p.length - k)} ${y(q[2])}`).join(' ')} Z"/>` : '';
+  const proj = p.length ? `<polyline class="mc-proj" points="${x(o)},${y(r.at(-1)[1])} ${p.map((q, k) => `${x(o + k + 1)},${y(q[1])}`).join(' ')}"/>` : '';
+  const iMin = r.reduce((m, q, i) => q[1] < r[m][1] ? i : m, 0), iMax = r.reduce((m, q, i) => q[1] > r[m][1] ? i : m, 0);
+  const tag = (i, v, t, below) => `<g class="mc-tag"><rect x="${(+x(i) - 26).toFixed(1)}" y="${(+y(v) + (below ? 6 : -24)).toFixed(1)}" width="52" height="17" rx="3"/><text x="${x(i)}" y="${(+y(v) + (below ? 18 : -12)).toFixed(1)}" text-anchor="middle">${esc(t)}</text></g>`;
+  const ticks = [0, Math.floor(r.length / 2), o, o + Math.floor(p.length / 2), n - 1].map(i => { const dd = i <= o ? r[i][0] : p[i - o - 1]?.[0]; return dd ? `<text class="tg-ax" x="${x(i)}" y="${H - 4}" text-anchor="middle">${esc(dd.slice(5).replace('-', '/'))}</text>` : ''; }).join('');
+  const yt = [lo, (lo + hi) / 2, hi].map(v => `<text class="tg-ax" x="${W - 2}" y="${(+y(v) + 3).toFixed(1)}" text-anchor="end">${fmt(v, 0)}</text>`).join('');
+  return `<svg class="mc-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="指數與推估路徑">${band}<line class="tg-now" x1="${x(o)}" x2="${x(o)}" y1="6" y2="${H - 16}"/>${past}${proj}${tag(iMax, r[iMax][1], fmt(r[iMax][1], 0), false)}${tag(iMin, r[iMin][1], fmt(r[iMin][1], 0), true)}${p.length && d.upProb != null ? tag(n - 1, p.at(-1)[1], `${fmt(d.upProb, 1)}%`, false) : ''}${ticks}${yt}</svg>`;
+}
+const MONTHS = ['1 月', '2 月', '3 月', '4 月', '5 月', '6 月', '7 月', '8 月', '9 月', '10 月', '11 月', '12 月'];
+export function macroHTML(info) {
+  if (!info) return '<p class="ix-empty">讀取中…</p>';
+  if (!info.capable) return '<p class="ix-empty">總經大地圖目前只支援台股與美股。</p>';
+  const d = info.data, err = info.error ? `<p class="rv-err">${esc(info.error)}</p>` : '';
+  if (!d?.available) return `${err}<div class="rv-empty"><p>${info.busy ? '正在取得指數十年日線…' : '尚無指數資料。'}</p><button class="rv-btn" data-rv="macro-query" ${info.busy ? 'disabled' : ''}>⟳ 取得資料</button></div>`;
+  const ex = info.explain, exOf = m => ex?.months?.find(x => x.month === m.m);
+  const head = `<div class="tg-sum"><div><small>${esc(d.indexName)}（${esc(d.date.slice(5).replace('-', '/'))}）</small><b class="num">${fmt(d.close, 2)}</b></div><div><small>一年位階</small><b class="num">${d.position != null ? fmt(d.position, 1) + '%' : '—'}</b></div><div><small>未來 ${d.horizon} 日歷史同期</small><b class="num ${d.endMedian > 0 ? 'up' : d.endMedian < 0 ? 'down' : ''}">${sign(d.endMedian, 2)}%</b></div><div><small>上漲機率（${d.years} 年）</small><b class="num">${d.upProb != null ? fmt(d.upProb, 1) + '%' : '—'}</b></div>${d.risk != null ? `<div><small>風控分數</small><b class="num">${fmt(d.risk)}</b></div>` : ''}</div>`;
+  const legend = '<div class="tg-legend"><span><i class="tg-k-price"></i>指數</span><span><i class="tg-k-mean"></i>預估指數（歷史同期中位數）</span><span><i class="mc-k-band"></i>25%～75% 區間</span></div>';
+  const ai = `<div class="rv-ai-head mc-ai"><b>AI 月度展望</b>${info.llm ? `<button class="rv-btn" data-rv="macro-explain" ${info.explainBusy ? 'disabled' : ''}>${info.explainBusy ? '<i class="spinner"></i>產生中…' : ex ? '重新產生' : '產生展望'}</button>` : '<span class="soft">在「資料與設定」設定推理模型後，可讓 AI 依統計與事件寫出每月展望</span>'}</div>`;
+  const cards = d.months.map(m => { const e = exOf(m); return `<div class="mc-card"><div class="mc-mon"><b>${MONTHS[m.m - 1]}</b>${m.years ? `<span class="num ${m.avg > 0 ? 'up' : 'down'}">${sign(m.avg, 2)}%</span><small class="soft">上漲 ${fmt(m.up, 0)}%</small>` : ''}</div><div class="mc-body">${e ? `<h4>${esc(e.title)}</h4><ol>${e.points.map(p => `<li>${esc(p)}</li>`).join('')}</ol>` : ''}
+    ${m.years ? `<p class="mc-stat">過去 ${m.years} 年：平均 ${sign(m.avg, 2)}%、中位數 ${sign(m.median, 2)}%、上漲 ${fmt(m.up, 0)}%，最佳 ${sign(m.best, 1)}%、最差 ${sign(m.worst, 1)}%</p>` : ''}
+    <ul class="mc-ev">${m.events.map(v => `<li><span class="num soft">${esc(v.date)}</span> ${esc(v.text)}</li>`).join('')}</ul></div></div>`; }).join('');
+  return `${err}${head}${legend}${macroChartSVG(d)}${ai}<div class="mc-cards">${cards}</div><p class="ix-foot">預估指數＝目前收盤 ×（過去 ${d.years} 年同一時間點之後各交易日報酬的中位數），區間為 25%～75% 分位；高低點標示近 90 個交易日的最高與最低，路徑終點標示歷史同期上漲機率。這是歷史季節性的統計，不是預測，也不是買賣建議。事件日期依例行規則與已公布的排程，實際以官方公告為準。</p>`;
+}

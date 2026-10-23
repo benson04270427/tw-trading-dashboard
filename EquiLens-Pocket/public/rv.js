@@ -1,5 +1,5 @@
 // 手機版：盤勢分頁的風控水位卡片（完整分析開在底部視窗）與型態分頁的「低估選股」（畫面見 riskvalue-ui.js）
-import { riskHTML, valueHTML, moversHTML, picksHTML } from './riskvalue-ui.js';
+import { riskHTML, valueHTML, moversHTML, picksHTML, zonesHTML, macroHTML } from './riskvalue-ui.js';
 let X = null; // { api, toast, draw, S, openSheet, $ }
 const R = { info: null, error: '', sheet: false }, V = { info: null, error: '', strategy: 'value', minTurnover: 1e7, scope: 'ai' };
 export function initRV(ctx) { X = ctx; }
@@ -17,6 +17,14 @@ export function moversCard() { return H.movers?.available === false ? '' : `<sec
 export async function loadHomeRank() { try { [H.movers, H.picks] = await Promise.all([X.api('api/movers'), X.api('api/picks')]); } catch { } if (H.picks?.busy) pollPicks(); }
 let pp = false;
 async function pollPicks() { if (pp) return; pp = true; try { do { await sleep(3000); H.picks = await X.api('api/picks'); if (X.S.tab === 'home') X.draw(); } while (H.picks?.busy); } catch { } finally { pp = false; } }
+// 型態分頁的「策略選股」、盤勢分頁的「總經大地圖」
+const Z = { info: null, tab: 'value' }, MC = { info: null };
+export function zonesView() { return `<div class="rv-wrap">${zonesHTML(Z.info, { tab: Z.tab, limit: 60 })}</div>`; }
+export function macroCard() { return MC.info && !MC.info.capable ? '' : `<section class="card"><div class="card-h"><h2>總經大地圖<small>${MC.info?.data?.indexName || ''}</small></h2></div><div class="card-b rv-wrap">${macroHTML(MC.info)}</div></section>`; }
+export async function loadZones() { try { Z.info = await X.api('api/zones'); } catch { } if (Z.info?.busy) pollZ(); }
+export async function loadMacro() { try { MC.info = await X.api('api/macro'); } catch { } }
+let zp = false;
+async function pollZ() { if (zp) return; zp = true; try { do { await sleep(3000); Z.info = await X.api('api/zones'); if (X.S.tab === 'patterns') X.draw(); } while (Z.info?.busy); } catch { } finally { zp = false; } }
 export function valueView() { return `${errLine(V.error)}<div class="rv-wrap">${valueHTML(V.info, { limit: 40 })}</div>`; }
 const sheetBody = () => `<div class="rv-wrap">${errLine(R.error)}${riskHTML(R.info)}</div>`;
 function repaintSheet() { if (R.sheet && X.$('#sheet')?.classList.contains('open')) { const b = X.$('#sheet-body'), y = b.scrollTop; b.innerHTML = sheetBody(); b.scrollTop = y; } else R.sheet = false; }
@@ -31,10 +39,15 @@ async function pollValue() { if (vp) return; vp = true; try { do { await sleep(3
 
 document.addEventListener('click', async e => {
   if (!X) return;
-  const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-scope],[data-rv-watch],[data-rv-mtab]'); if (!b) return;
+  const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-scope],[data-rv-watch],[data-rv-mtab],[data-rv-zone]'); if (!b) return;
   e.stopPropagation();
   try {
     if (b.dataset.rvMtab) { H.tab = b.dataset.rvMtab; X.draw(); return; }
+    if (b.dataset.rvZone) { Z.tab = b.dataset.rvZone; X.draw(); return; }
+    if (b.dataset.rv === 'zones-query') { b.disabled = true; Z.info = await X.api('api/zones/query', {}); X.draw(); pollZ(); return; }
+    if (b.dataset.rv === 'macro-query') { b.disabled = true; MC.info = await X.api('api/macro/query', {}); X.draw(); return; }
+    if (b.dataset.rv === 'macro-explain') { b.disabled = true; b.innerHTML = '<i class="spinner"></i>產生中…'; await X.api('api/macro/explain', {}); MC.info = await X.api('api/macro'); X.draw(); return; }
+    if (b.dataset.rvWatch && X.S.tab === 'patterns' && X.S.patView === 'zones') { const id = b.dataset.rvWatch, on = !b.classList.contains('on'); await X.api('api/watch', { id, on }); X.S.stocks = null; X.S.summary = null; await loadZones(); X.draw(); X.toast(on ? '已加入自選' : '已移除自選'); return; }
     if (b.dataset.rvWatch && X.S.tab === 'home') { const id = b.dataset.rvWatch, on = !b.classList.contains('on'); await X.api('api/watch', { id, on }); X.S.stocks = null; X.S.summary = null; await loadHomeRank(); X.draw(); X.toast(on ? '已加入自選' : '已移除自選'); return; }
     if (b.dataset.rv === 'picks-query') { b.disabled = true; H.picks = await X.api('api/picks/query', {}); X.draw(); pollPicks(); return; }
     if (b.dataset.rvScope) { V.scope = b.dataset.rvScope; V.info = await X.api(vq()); X.draw(); return; }

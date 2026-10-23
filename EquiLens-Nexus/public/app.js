@@ -6,7 +6,7 @@ import { initGroupRank, groupRankPage, enterGroupRank } from './grouprank.js';
 import { initLive, livePage, enterLive, detailExtrasShell, fillDetailExtras, reportPanel, claudeSettings, newsSettings, openChart } from './live.js';
 import { initSetup, setupWizard, systemSettings } from './setup.js';
 import { initChipwatch, chipPage, enterChips } from './chipwatch.js';
-import { initRiskValue, riskPage, valuePage, enterRisk, enterValue, homeRank, enterHome } from './riskvalue.js';
+import { initRiskValue, riskPage, valuePage, enterRisk, enterValue, homeRank, enterHome, zonesPage, enterZones, macroPage, enterMacro } from './riskvalue.js';
 import { setLanguage } from './i18n.js';
 import * as MK from './market.js';
 
@@ -26,6 +26,8 @@ const PAGES = {
   live: { title: '盤中雷達', eyebrow: 'Intraday Radar · Live Board', sub: '盤中定時掃描即時行情：族群與自選股即時走勢、爆量與急拉急殺、漲跌停與型態進場提醒，手機同步推播。' },
   risk: { title: '風控水位', eyebrow: 'Risk Gauge · Exposure', sub: '市場情緒、資金與信用、利率匯率與大盤趨勢，各與過去一年比較後換算成風險分數與建議持股水位（台股與美股各有一套指標）。' },
   value: { title: '低估選股', eyebrow: 'Value Screener · AI Supply Chain', sub: '以本益比、淨值比、殖利率、ROE 與月營收成長，在 AI 供應鏈（可切換電子科技或全市場）找出比同業便宜、但獲利與營收沒有轉壞的公司。' },
+  zones: { title: '策略選股', eyebrow: 'Value Zone · Heating Zone', sub: '每天收盤後依固定規則篩出價值區與升溫區，並保存每檔的入選紀錄（K 線視窗「策略」分頁可回看）。' },
+  macro: { title: '總經大地圖', eyebrow: 'Macro Map · Seasonality', sub: '大盤指數近況、依過去十年同期走勢推估的路徑與區間，以及未來幾個月的歷史統計與重點事件。' },
   overview: { title: '研究總覽', eyebrow: 'Research Matrix', sub: '從趨勢到證據，找到值得深入研究的公司。' },
   sectors: { title: '市場族群', eyebrow: 'Custom Groups', sub: '依你的族群分類研究，保留檔案順序與跨族群歸屬。' },
   patterns: { title: '型態選股', eyebrow: 'Pattern Scanner · 90 Sessions', sub: '90 個交易日，看見價格結構、確認訊號與風險邊界。' },
@@ -43,6 +45,8 @@ const ICONS = {
   live: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12l6-4"/>',
   risk: '<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4-5"/><path d="M3 20h18"/>',
   value: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/><path d="M8 11h5M10.5 8.5v5"/>',
+  zones: '<path d="M3 20h18"/><path d="M6 16l4-5 3 3 5-7"/><circle cx="18" cy="7" r="1.6"/><circle cx="10" cy="11" r="1.6"/>',
+  macro: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 2.6 14.6 0 17M12 3.5c-2.6 2.4-2.6 14.6 0 17"/>',
   overview: '<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>',
   sectors: '<circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/><circle cx="17" cy="17" r="3"/>',
   patterns: '<path d="M3 17l5-6 4 3 4-8 5 5"/><path d="M3 21h18"/>',
@@ -54,10 +58,10 @@ const ICONS = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
 };
 // 只有部分市場或資料源才有的頁面（法人／期貨籌碼目前只有台股 FinMind）
-const navAllowed = k => (k !== 'flows' || !!state?.capabilities?.flows) && (k !== 'chips' || !!state?.capabilities?.brokers) && (k !== 'value' || (state?.marketProfile?.id || state?.config?.market) === 'TW') && (k !== 'risk' || ['TW', 'US'].includes(state?.marketProfile?.id || state?.config?.market));
+const navAllowed = k => (k !== 'flows' || !!state?.capabilities?.flows) && (k !== 'chips' || !!state?.capabilities?.brokers) && (k !== 'value' || (state?.marketProfile?.id || state?.config?.market) === 'TW') && (!['risk', 'zones', 'macro'].includes(k) || ['TW', 'US'].includes(state?.marketProfile?.id || state?.config?.market));
 const PROVIDER_NAMES = { finmind: 'FinMind', twse: 'TWSE / TPEx', fugle: 'Fugle', twelvedata: 'Twelve Data', alphavantage: 'Alpha Vantage' };
 const dataSources = () => [...new Set(Object.values(state.capabilities || {}).filter(Boolean))].map(id => PROVIDER_NAMES[id] || id).join(' / ') || '—';
-const NAV = [['TODAY', ['home']], ['MARKET', ['heatmap', 'live', 'grouprank', 'risk']], ['RESEARCH', ['overview', 'sectors', 'patterns', 'value', 'flows', 'chips', 'topics', 'watchlist']], ['SYSTEM', ['method', 'settings']]];
+const NAV = [['TODAY', ['home']], ['MARKET', ['heatmap', 'live', 'grouprank', 'risk', 'macro']], ['RESEARCH', ['overview', 'sectors', 'patterns', 'value', 'zones', 'flows', 'chips', 'topics', 'watchlist']], ['SYSTEM', ['method', 'settings']]];
 // 衡析標誌：圓角六角形＋上升折線（深色主題：電光青六角形、深墨折線；淺色主題反轉，見 hud.css 的 --mark-hex／--mark-line）
 const BRAND = `<svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><polygon class="mk-hex" points="50,10 84.64,30 84.64,70 50,90 15.36,70 15.36,30" stroke-width="10" stroke-linejoin="round"/><polyline class="mk-line" points="28,67 44,50 56,60 74,34" fill="none" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
@@ -84,7 +88,7 @@ initChipwatch({ api, toast, page: () => page });
 initRiskValue({ api, toast, page: () => page, reload: () => load(false) });
 initSetup({ api, toast, state: () => state, reload: () => load(), redraw: () => draw(), page: () => page, esc });
 
-function setPage(p) { if (['settings', 'topics'].includes(page)) saveDrafts(); page = p; index = 0; $('.sidebar')?.classList.remove('open'); draw(); window.scrollTo(0, 0); if (p === 'patterns') loadPatterns(); if (p === 'home') enterHome(); if (p === 'live') enterLive(); if (p === 'grouprank') enterGroupRank(); if (p === 'chips') enterChips(); if (p === 'risk') enterRisk(); if (p === 'value') enterValue(); }
+function setPage(p) { if (['settings', 'topics'].includes(page)) saveDrafts(); page = p; index = 0; $('.sidebar')?.classList.remove('open'); draw(); window.scrollTo(0, 0); if (p === 'patterns') loadPatterns(); if (p === 'home') enterHome(); if (p === 'zones') enterZones(); if (p === 'macro') enterMacro(); if (p === 'live') enterLive(); if (p === 'grouprank') enterGroupRank(); if (p === 'chips') enterChips(); if (p === 'risk') enterRisk(); if (p === 'value') enterValue(); }
 
 /* ---------- market clock ---------- */
 function twNow() { return MK.parts(); }
@@ -110,7 +114,7 @@ function draw() {
   <div class="top-tools"><label class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input id="search" type="search" placeholder="搜尋研究名單代碼或名稱" aria-label="搜尋股票代碼或名稱" value="${esc(query)}"><kbd>/</kbd></label><button class="ghost" data-live="pip" aria-label="浮動雷達視窗" title="浮動雷達視窗（永遠置頂）">📡</button><button class="ghost" data-page="settings" aria-label="設定" title="資料與設定">⚙</button></div></header>
   <main class="main" id="main"><div class="pagehead"><div><p class="eyebrow">${info.eyebrow}</p><h1>${info.title}</h1><p class="subtitle">${info.sub}</p></div><div class="actions">${page === 'overview' ? '<button data-action="new-group">＋ 新增族群</button>' : ''}${page === 'overview' || page === 'watchlist' ? `<button data-action="export">↓ 匯出清單</button><button class="primary" data-action="update" ${state.job.running ? 'disabled' : ''}>⟳ 更新${page === 'watchlist' ? '自選' : '資料'}</button>` : ''}</div></div>
   ${jobBanner()}${page !== 'settings' && !state.dataConfigured ? `<div class="notice warn"><span>尚未設定資料來源。目前僅顯示已取得的資料。</span><button data-page="settings">設定資料來源 →</button></div>` : ''}${state.scopeError ? `<div class="notice warn"><span>${esc(state.scopeError)}</span></div>` : ''}
-  <div id="pagecontent">${({ home: () => homeRank() + reportPanel() + briefPage(), heatmap: heatPage, live: livePage, grouprank: groupRankPage, flows: flowPage, chips: chipPage, risk: riskPage, value: valuePage, patterns: patternPage, overview, watchlist: overview, sectors: groupPage, topics, settings, method })[page]()}</div>
+  <div id="pagecontent">${({ home: () => homeRank() + reportPanel() + briefPage(), heatmap: heatPage, live: livePage, grouprank: groupRankPage, flows: flowPage, chips: chipPage, risk: riskPage, value: valuePage, zones: zonesPage, macro: macroPage, patterns: patternPage, overview, watchlist: overview, sectors: groupPage, topics, settings, method })[page]()}</div>
   <footer class="footer"><span>DATA · <span translate="no">${esc(dataSources())}</span> · 各欄位以原始日期為準 · MODEL v${esc(state.version)} · APP v${esc(state.appVersion || '2.0.0')}</span><span>研究排序工具 · 分數不等於報酬率或合理股價 · 非交易建議</span></footer></main></div></div>`;
   restoreDrafts(); tick();
   if (activeId) { const el = document.getElementById(activeId); if (el && el !== document.body && ['search', 'heat-search', 'pattern-search'].includes(activeId)) { el.focus(); try { el.setSelectionRange(selection, selection); } catch { } } }
@@ -411,6 +415,6 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => { const k = e.target.dataset?.prefSelect; if (k) { setPrefs({ [k]: e.target.value }); toast('下次開啟衡析時生效'); } });
 
-try { applyState(await api('state')); await setLanguage(state.config?.language || 'zh-TW'); draw(); if (page === 'patterns') loadPatterns(); if (page === 'home') enterHome(); if (page === 'live') enterLive(); if (page === 'grouprank') enterGroupRank(); if (page === 'chips') enterChips(); if (page === 'risk') enterRisk(); if (page === 'value') enterValue(); } catch (e) { $('#app').innerHTML = `<div class="boot"><b>NEXUS OFFLINE</b><p>暫時無法連接本機服務：${esc(e.message)}。請重新啟動衡析 Nexus 後重新整理。</p></div>`; }
+try { applyState(await api('state')); await setLanguage(state.config?.language || 'zh-TW'); draw(); if (page === 'patterns') loadPatterns(); if (page === 'home') enterHome(); if (page === 'zones') enterZones(); if (page === 'macro') enterMacro(); if (page === 'live') enterLive(); if (page === 'grouprank') enterGroupRank(); if (page === 'chips') enterChips(); if (page === 'risk') enterRisk(); if (page === 'value') enterValue(); } catch (e) { $('#app').innerHTML = `<div class="boot"><b>NEXUS OFFLINE</b><p>暫時無法連接本機服務：${esc(e.message)}。請重新啟動衡析 Nexus 後重新整理。</p></div>`; }
 let pollBusy = false;
 setInterval(async () => { if (!state || document.hidden || pollBusy) return; pollBusy = true; try { const previous = state.job.running; await load(false); if (previous && !state.job.running && page === 'patterns') await loadPatterns(); if (previous || state.job.running) { if (['settings', 'topics', 'flows', 'heatmap'].includes(page) || document.querySelector('dialog[open]')) return; draw(); if (previous && !state.job.running && $('#detail-dialog').open && selectedId) await openStock(selectedId); } } catch { } finally { pollBusy = false; } }, 5000);

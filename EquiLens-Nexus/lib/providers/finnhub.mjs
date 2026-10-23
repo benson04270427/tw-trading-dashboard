@@ -23,6 +23,12 @@ export function parseMetric(b, id, date) {
   return pe == null && pb == null && dy == null ? [] : [{ date, stock_id: id, PER: pe, PBR: pb, dividend_yield: dy }];
 }
 
+// 策略選股用的基本面（本益比、營收與 EPS 成長、52 週高低）：每檔 1 個請求
+export function parseFundamentals(b) {
+  const m = b?.metric; if (!m) return null;
+  return { pe: num(m.peTTM ?? m.peBasicExclExtraTTM), revGrowth: num(m.revenueGrowthTTMYoy) ?? (Number.isFinite(m.revenueGrowthTTMYoy) ? m.revenueGrowthTTMYoy : null), epsGrowth: Number.isFinite(m.epsGrowthTTMYoy) ? m.epsGrowthTTMYoy : null, high52: num(m['52WeekHigh']), low52: num(m['52WeekLow']), mcap: num(m.marketCapitalization) };
+}
+export const fundamentals = async (id, ctx) => parseFundamentals(await get('/stock/metric', { symbol: id, metric: 'all' }, ctx));
 export default {
   id: 'finnhub', name: 'Finnhub', site: 'https://finnhub.io', docs: 'https://finnhub.io/docs/api', markets: ['US'],
   key: 'required', keyEnv: 'FINNHUB_API_KEY', interval: 1100,

@@ -94,6 +94,13 @@ export const riskExplain = () => call('risk/explain', { body: {}, timeout: 18000
 export const value = (strategy, minTurnover, scope = 'ai') => call(`value?strategy=${encodeURIComponent(strategy)}&minTurnover=${encodeURIComponent(minTurnover)}&scope=${encodeURIComponent(scope)}`);
 export const valueQuery = () => call('value/query', { body: {} });
 export const movers = () => call('movers');
+export const targets = id => call('targets?id=' + encodeURIComponent(id), { timeout: 60000 });
+export const zones = () => call('zones');
+export const zonesQuery = () => call('zones/query', { body: {} });
+export const zoneHistory = id => call('zones/history?id=' + encodeURIComponent(id), { timeout: 60000 });
+export const macro = () => call('macro');
+export const macroQuery = () => call('macro/query', { body: {} });
+export const macroExplain = () => call('macro/explain', { body: {}, timeout: 180000 });
 export const picks = () => call('picks');
 export const picksQuery = () => call('picks/query', { body: {} });
 export const groupStockAdd = (groupId, stockId) => call('group-stocks', { body: { groupId, stockId } }).finally(invalidate);

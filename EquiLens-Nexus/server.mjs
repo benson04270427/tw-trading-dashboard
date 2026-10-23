@@ -31,14 +31,20 @@ import { createHistoryLoader } from './lib/daytrade-history.mjs';
 import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
 import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs } from './lib/providers/twse.mjs';
 import { buildRisk, fetchRiskInputs, riskContext } from './lib/riskgauge.mjs';
-import { buildRiskUS, fetchRiskInputsUS } from './lib/riskgauge-us.mjs';
+import { buildRiskUS, fetchRiskInputsUS, parseFred } from './lib/riskgauge-us.mjs';
+import { buildMacro } from './lib/macro.mjs';
+import { fetchJSON } from './lib/providers/common.mjs';
+import { nyseHolidays } from './lib/providers/nasdaq.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
 import { SCOPES, AI_INDEX } from './lib/aichain.mjs';
-import { PICKS_VERSION, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh } from './lib/picks.mjs';
+import { PICKS_VERSION, heatStocks, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh } from './lib/picks.mjs';
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
 import { buildVerdict } from './lib/verdict.mjs';
 import { buildSignal, newSignal, normalizeSignalSettings } from './lib/signal.mjs';
+import { twTargets, usTargets, buildTargets } from './lib/targets.mjs';
+import { ZONES_VERSION, ZONE_NAMES, zonesTW, zonesUS, historyOf } from './lib/zones.mjs';
+import { fundamentals as finnhubFundamentals } from './lib/providers/finnhub.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
 import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
@@ -1055,6 +1061,16 @@ async function signalReport(id,{live=true}={}){
   const meta=uniIndex().meta.get(id)||{};
   return buildSignal({id,name:meta.name||id,rows:await signalRows(id),live:live?liveRow(id,today()):null,today:today(),p:M(),settings:normalizeSignalSettings(settings.signal)});
 }
+// 目標價：台股鉅亨網（FactSet 共識）、美股 Nasdaq；每檔快取 12 小時
+const targetCache=new Map();
+async function targetsReport(id){
+  const mk=M().id;if(!['TW','US'].includes(mk))return{id,available:false,reason:t('目標價目前只支援台股與美股')};
+  let c=targetCache.get(id);
+  if(!c||Date.now()-c.at>12*3600e3){let raw=null,error='';try{raw=mk==='TW'?await twTargets(id):await usTargets(id);}catch(e){error=e.message;raw=c?.raw||null;}c={at:Date.now(),raw,error};targetCache.set(id,c);}
+  const rows=await signalRows(id),closes=rows.map(r=>[String(r.date).slice(0,10),Number(r.close)]).filter(x=>x[1]>0).slice(-250),live=liveRow(id,today());
+  const price=Number(live?.close)>0?Number(live.close):closes.at(-1)?.[1]??null;
+  return{...buildTargets({id,name:uniIndex().meta.get(id)?.name||id,market:mk,raw:c.raw,price,closes,today:today()}),error:c.error||''};
+}
 // 研究更新完成後掃描自選股：最新一根 K 棒出現新訊號就推播（第一次只記錄、不推播）
 let signalScanBusy=false;
 async function scanSignals(){
@@ -1119,6 +1135,78 @@ async function runPicks({push=true}={}){
   }catch(e){picksJob.error=e.message;}finally{picksJob.busy=false;}
 }
 function picksInfo(){const d=read('picks/latest.json',null),w=new Set(watchlist);return{data:d?{...d,picks:d.picks.map(p=>({...p,watch:w.has(p.id)}))}:null,busy:picksJob.busy,error:picksJob.error,news:data.has('news'),market:M().id};}
+/* ---------- 總經大地圖：指數十年日線（台股 FinMind TAIEX、美股 FRED SP500），每天更新一次 ---------- */
+let macroJob={busy:false,error:'',explainBusy:false};
+async function runMacro(){
+  if(macroJob.busy||!['TW','US'].includes(M().id))return;macroJob={...macroJob,busy:true,error:''};
+  try{
+    const start=minusDays(today(),366*11);let closes=[];
+    if(M().id==='TW'){const rows=await finmindRequest('TaiwanStockPrice',{data_id:'TAIEX',start_date:start,end_date:today()},fmOpt());closes=rows.map(r=>[String(r.date).slice(0,10),Number(r.close)]).filter(x=>x[1]>0);}
+    else{const r=await fetchJSON(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500&cosd=${start}`,{headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0 Safari/537.36'},label:'FRED',timeout:40000,text:true});if(!r.ok)throw new UserError('FRED：資料服務回應 {status}',{status:r.status});closes=parseFred(r.body);}
+    if(closes.length<300)throw new UserError('指數歷史資料不足');
+    fs.mkdirSync(path.join(LOCAL,'macro'),{recursive:true});write('macro/index.json',{at:today(),closes});
+  }catch(e){macroJob.error=e.message;}finally{macroJob.busy=false;}
+}
+function macroInfo(){
+  const mk=M().id,idx=read('macro/index.json',null);if(!['TW','US'].includes(mk))return{capable:false};
+  if(!macroJob.busy&&(!idx||idx.at<today()))void runMacro();
+  const hol=new Set();if(mk==='US'){const y=Number(today().slice(0,4));for(const yy of [y,y+1])for(const d of nyseHolidays(yy))hol.add(d);}
+  const data=idx?buildMacro({market:mk,closes:idx.closes,today:today(),holidays:hol,risk:read('risk/latest.json',null)?.risk??null}):null,ex=read('macro/explain.json',null);
+  return{capable:true,data,busy:macroJob.busy,error:macroJob.error,llm:llmConfigured(),explain:ex&&data&&ex.date===data.date&&ex.market===mk?ex:null,explainBusy:macroJob.explainBusy};
+}
+async function explainMacro(){
+  const info=macroInfo(),d=info.data;if(!d?.available)throw new UserError('指數資料還沒取得，請稍候再試');
+  if(!llmConfigured())throw new UserError('請先到「資料與設定」設定推理模型');if(macroJob.explainBusy)throw new UserError('AI 解讀產生中，請稍候');
+  macroJob.explainBusy=true;
+  try{
+    const zh=language()!=='en',name=d.market==='US'?'S&P 500':(zh?'台股加權指數':'TAIEX');
+    const system=zh?`你是總體經濟與${name}的市場策略分析師。根據提供的指數近況、過去十年同期統計、風控分數與各月重點事件，為接下來三個月各寫一段展望：一句標題（15 字內）與 2–3 點說明（每點 60 字內，提到具體事件與歷史統計）。語氣專業克制，不保證報酬，不推薦個股。`:`You are a macro strategist for the ${name}. From the recent index level, ten-year seasonal statistics, the risk score and each month's scheduled events, write an outlook for each of the next three months: a short title and 2–3 points citing concrete events and statistics. No return promises, no stock picks.`;
+    const schema={type:'object',additionalProperties:false,required:['months'],properties:{months:{type:'array',items:{type:'object',additionalProperties:false,required:['month','title','points'],properties:{month:{type:'integer'},title:{type:'string'},points:{type:'array',items:{type:'string'}}}}}}};
+    const ctx={指數:name,日期:d.date,收盤:d.close,一年位階:d.position,風控分數:d.risk,未來40日歷史同期中位數報酬:d.endMedian,上漲機率:d.upProb,各月:d.months.map(m=>({月份:m.m,平均報酬:m.avg,上漲機率:m.up,最佳:m.best,最差:m.worst,事件:m.events.map(e=>`${e.date} ${e.text}`)}))};
+    const out=await generateJSON({...await llmOptions(),system,prompt:JSON.stringify(ctx),schema});
+    const months=(out.data?.months||[]).slice(0,3).map(m=>({month:Number(m.month),title:String(m.title||''),points:(m.points||[]).map(String).slice(0,4)}));
+    const doc={date:d.date,market:d.market,createdAt:new Date().toISOString(),model:out.model,months};fs.mkdirSync(path.join(LOCAL,'macro'),{recursive:true});write('macro/explain.json',doc);return doc;
+  }finally{macroJob.explainBusy=false;}
+}
+
+/* ---------- 策略選股：價值區、升溫區（入選紀錄存在 .local/zones/） ---------- */
+let zonesJob={busy:false,step:0,total:0,error:''};
+const zoneFiles=()=>{try{return fs.readdirSync(path.join(LOCAL,'zones')).map(f=>/^(\d{4}-\d{2}-\d{2})\.json$/.exec(f)?.[1]).filter(Boolean).sort();}catch{return[];}};
+async function runZones(){
+  if(zonesJob.busy)return;const heat=latestHeat(),mk=M().id;
+  if(!heat||!['TW','US'].includes(mk)){zonesJob.error=heat?t('策略選股目前只支援台股與美股'):t('還沒有收盤熱浪圖，請先到「資金熱浪」查詢或等每日更新');return;}
+  zonesJob={busy:true,step:0,total:0,error:''};
+  try{
+    const stocks=heatStocks(heat),research=scopeIds(researchScope);let zones;
+    if(mk==='TW'){
+      const value=read('value/inputs.json',null)?.rows||[];if(!value.length)zonesJob.error=t('低估選股資料還沒取得，價值區暫時空白');
+      zones=zonesTW({value,heat:stocks,scope:new Set([...AI_INDEX.keys(),...research,...watchlist]),chain:AI_INDEX});
+    }else{
+      // 美股：成交金額前 300 名＋研究名單＋自選，向 Finnhub 取基本面（每檔 1 個請求，當天取過的不重取）
+      const key=await getSecret('finnhub','FINNHUB_API_KEY');
+      const ids=[...new Set([...[...stocks].sort((a,b)=>(b.money??0)-(a.money??0)).slice(0,300).map(x=>x.id),...research,...watchlist])].filter(id=>stocks.some(x=>x.id===id));
+      const cache=read('zones/us-fund.json',{}),fund=new Map(),fresh=minusDays(today(),3);
+      if(!key)zonesJob.error=t('需要 Finnhub 金鑰才能計算美股價值區與升溫區（52 週高點、本益比、營收成長）');
+      zonesJob.total=ids.length;
+      for(const id of ids){
+        zonesJob.step++;const c=cache[id];
+        if(c&&c.at>=fresh){fund.set(id,c.f);continue;}
+        if(!key)continue;
+        try{const f=await finnhubFundamentals(id,{key,signal:AbortSignal.timeout(20e3)});if(f){cache[id]={at:today(),f};fund.set(id,f);}}catch(e){if(e.code==='quota'||e.code==='auth'){zonesJob.error=e.message;break;}}
+      }
+      fs.mkdirSync(path.join(LOCAL,'zones'),{recursive:true});write('zones/us-fund.json',cache);
+      zones=zonesUS({heat:stocks,fund});
+    }
+    const doc={version:ZONES_VERSION,market:mk,date:heat.date,generatedAt:new Date().toISOString(),names:ZONE_NAMES[mk],zones};
+    fs.mkdirSync(path.join(LOCAL,'zones'),{recursive:true});write(`zones/${heat.date}.json`,doc);write('zones/latest.json',doc);
+  }catch(e){zonesJob.error=e.message;}finally{zonesJob.busy=false;}
+}
+function zonesInfo(){const d=read('zones/latest.json',null),w=new Set(watchlist),mark=l=>(l||[]).map(r=>({...r,watch:w.has(r.id)}));return{capable:['TW','US'].includes(M().id),names:ZONE_NAMES[M().id]||ZONE_NAMES.TW,market:M().id,data:d?{...d,zones:{value:mark(d.zones.value),heat:mark(d.zones.heat)}}:null,days:zoneFiles().length,busy:zonesJob.busy,step:zonesJob.step,total:zonesJob.total,error:zonesJob.error};}
+async function zoneHistory(id){
+  const files=zoneFiles().slice(-260).map(d=>read(`zones/${d}.json`,null)).filter(Boolean),rows=await signalRows(id);
+  return{id,name:uniIndex().meta.get(id)?.name||id,market:M().id,names:ZONE_NAMES[M().id]||ZONE_NAMES.TW,days:files.length,since:files[0]?.date||null,entries:historyOf(id,files),closes:rows.map(r=>[String(r.date).slice(0,10),Number(r.close)]).filter(x=>x[1]>0).slice(-250)};
+}
+setTimeout(()=>{if(!read('zones/latest.json',null)&&latestHeat())runZones();},40e3).unref();
 // 第一次啟動且已有收盤熱浪圖時先產生一次（不推播）
 setTimeout(()=>{if(!read('picks/latest.json',null)&&latestHeat())runPicks({push:false});},20e3).unref();
 
@@ -1278,7 +1366,7 @@ async function refresh(scope, ids) {
     }
     job.message = controller.signal.aborted ? t('更新已停止，資料已保留') : t('已完成 {n} 檔更新', { n:job.done }) + (job.errors.length ? t('，部分資料未取得') : '');
   } catch (e) { job.message = e.message; job.errors.push({ message:e.message }); }
-  finally { job.running = false; job.finishedAt = new Date().toISOString(); job.dataset = null; write('last-job.json', job); invalidate(); void scanSignals().then(()=>runPicks()); }
+  finally { job.running = false; job.finishedAt = new Date().toISOString(); job.dataset = null; write('last-job.json', job); invalidate(); void scanSignals().then(()=>runPicks()).then(()=>runZones()); }
 }
 async function refreshPatternMarket(){
   controller=new AbortController();job={running:true,done:0,total:0,current:t('股票清單'),errors:[],message:t('準備全市場型態資料'),startedAt:new Date().toISOString()};write('last-job.json',job);
@@ -1520,6 +1608,13 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/movers'&&req.method==='GET')return json(res,200,moversInfo());
     if(route==='/api/picks'&&req.method==='GET')return json(res,200,picksInfo());
     if(route==='/api/picks/query'&&req.method==='POST'){if(picksJob.busy)throw new UserError('每日精選產生中，請稍候');void runPicks({push:false});await new Promise(r=>setTimeout(r,300));return json(res,202,picksInfo());}
+    if(route==='/api/macro'&&req.method==='GET')return json(res,200,macroInfo());
+    if(route==='/api/macro/query'&&req.method==='POST'){void runMacro();await new Promise(r=>setTimeout(r,300));return json(res,202,macroInfo());}
+    if(route==='/api/macro/explain'&&req.method==='POST')return json(res,200,await explainMacro());
+    if(route==='/api/zones'&&req.method==='GET')return json(res,200,zonesInfo());
+    if(route==='/api/zones/query'&&req.method==='POST'){if(zonesJob.busy)throw new UserError('策略選股計算中，請稍候');void runZones();await new Promise(r=>setTimeout(r,300));return json(res,202,zonesInfo());}
+    if(route==='/api/zones/history'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await zoneHistory(id));}
+    if(route==='/api/targets'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`tg:${id}`,()=>targetsReport(id)));}
     if(route==='/api/signal'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await signalReport(id));}
     if(route==='/api/signal/settings'&&req.method==='POST'){const b=await body(req);settings={...settings,signal:normalizeSignalSettings(b)};saveSettings();return json(res,200,{ok:true,settings:settings.signal});}
     if(route==='/api/verdict'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`v:${id}`,()=>verdictReport(id)));}

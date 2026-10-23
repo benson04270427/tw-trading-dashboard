@@ -585,3 +585,37 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 .pk-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .pk-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}.pk-px{margin-left:auto}
 .pk-news{margin:6px 0 0;padding-left:1.1em;font-size:.8rem;line-height:1.6}.pk-news a{color:inherit}
+
+/* 目標價 */
+.tg-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:8px}
+.tg-sum>div{border:1px solid var(--line);border-radius:10px;padding:8px 12px;display:flex;flex-direction:column;gap:2px}.tg-sum small{color:var(--muted)}.tg-sum b{font-size:1.15rem}
+.tg-legend{display:flex;gap:16px;justify-content:center;font-size:.78rem;color:var(--muted)}.tg-legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+.tg-k-price{background:var(--text)}.tg-k-mean{background:var(--amber)}
+.tg-chart{width:100%;height:auto;max-height:260px}
+.tg-chart polyline,.tg-chart path{fill:none;vector-effect:non-scaling-stroke}.tg-price{stroke:var(--text);stroke-width:1.5}
+.tg-mean{stroke:var(--amber);stroke-width:1.6;stroke-dasharray:4 3}.tg-hi,.tg-lo{stroke:color-mix(in srgb,var(--amber) 55%,transparent);stroke-width:1;stroke-dasharray:3 3}
+.tg-chart .tg-band{fill:color-mix(in srgb,var(--amber) 10%,transparent);stroke:none}.tg-now{stroke:var(--line);stroke-dasharray:3 3}
+.tg-lab{fill:var(--amber);font-size:11px}.tg-ax{fill:var(--muted);font-size:10px}
+.tg-table{width:100%;border-collapse:collapse;font-size:.84rem;margin-top:8px}.tg-table th{color:var(--muted);font-weight:500;text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}.tg-table td{padding:6px 4px;border-bottom:1px solid var(--line)}
+
+/* 策略選股 */
+.zn-head,.zn-row{display:grid;grid-template-columns:minmax(0,1.5fr) 1.3fr 1fr 1fr 1fr 2em;gap:8px;align-items:center}
+.zn-head{font-size:.74rem;color:var(--muted);padding:6px 0;border-bottom:1px solid var(--line)}.zn-head>span:not(:first-child){text-align:right}
+.zn-row{padding:8px 0;border-bottom:1px solid var(--line);font-size:.86rem}.zn-row>span{text-align:right}
+.zn-name{text-align:left}.zn-px{display:flex;flex-direction:column;align-items:flex-end;line-height:1.3}
+@media (max-width:560px){.zn-head,.zn-row{grid-template-columns:minmax(0,1.3fr) 1.2fr .9fr .9fr 2em}.zn-head>span:nth-child(5),.zn-row>span:nth-child(5){display:none}}
+.zn-chart{width:100%;height:auto;max-height:260px}.zn-area{fill:color-mix(in srgb,var(--up) 14%,transparent)}.zn-line{fill:none;stroke:var(--up);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.zn-dot circle{stroke:#fff;stroke-width:1.5}.zn-heat circle{fill:#e5484d}.zn-value circle{fill:#2fa37a}.zn-dot text{font-size:10px;font-weight:600}.zn-heat text{fill:#e5484d}.zn-value text{fill:#2fa37a}
+.zn-t-value{color:#2fa37a}.zn-t-heat{color:#e5484d}
+
+/* 總經大地圖 */
+.mc-chart{width:100%;height:auto;max-height:300px}.mc-line{fill:none;stroke:var(--text);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.mc-proj{fill:none;stroke:var(--amber);stroke-width:1.8;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}.mc-band{fill:color-mix(in srgb,var(--amber) 12%,transparent)}
+.mc-tag rect{fill:var(--bg,#0b1220);stroke:var(--amber)}.mc-tag text{fill:var(--amber);font-size:11px;font-weight:600}
+.mc-k-band{background:color-mix(in srgb,var(--amber) 25%,transparent)!important;height:8px!important}
+.mc-ai{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0}
+.mc-cards{display:flex;flex-direction:column;gap:10px}.mc-card{display:grid;grid-template-columns:7em 1fr;gap:14px;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.mc-mon{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-right:1px solid var(--line);padding-right:10px}.mc-mon b{font-size:1.4rem}
+.mc-body h4{margin:0 0 6px;font-size:1rem}.mc-body ol{margin:0 0 6px;padding-left:1.2em;line-height:1.7;font-size:.88rem}
+.mc-stat{margin:0 0 6px;font-size:.84rem;color:var(--muted)}.mc-ev{margin:0;padding-left:1em;font-size:.82rem;line-height:1.7}
+@media (max-width:560px){.mc-card{grid-template-columns:1fr}.mc-mon{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);padding:0 0 8px}}
