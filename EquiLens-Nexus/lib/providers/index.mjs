@@ -11,8 +11,10 @@ import twelvedata from './twelvedata.mjs';
 import alphavantage from './alphavantage.mjs';
 import twsemis from './twsemis.mjs';
 import nasdaq from './nasdaq.mjs';
+import finnhub from './finnhub.mjs';
+import fmp from './fmp.mjs';
 
-export const PROVIDERS = { finmind, twse, fugle, twelvedata, alphavantage, twsemis, nasdaq };
+export const PROVIDERS = { finmind, twse, fugle, twelvedata, alphavantage, twsemis, nasdaq, finnhub, fmp };
 // 能力名稱（介面顯示用繁中原文，翻譯在 locales）
 export const CAPABILITIES = {
   universe: '股票清單', calendar: '交易日曆', daily: '日 K 歷史', adjusted: '還原股價', dailyAll: '全市場單日行情', snapshot: '盤中即時報價', intraday: '分 K',

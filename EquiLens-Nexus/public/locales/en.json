@@ -3185,5 +3185,7 @@
  "Nasdaq 公開資料": "Nasdaq public data",
  "{label}：股票清單為空": "{label}: stock list is empty",
  "證交所即時報價": "TWSE real-time quotes",
- "證交所即時報價（MIS）": "TWSE real-time quotes (MIS)"
+ "證交所即時報價（MIS）": "TWSE real-time quotes (MIS)",
+ "Financial Modeling Prep 未接受此金鑰": "Financial Modeling Prep did not accept this key",
+ "Finnhub 未接受此金鑰": "Finnhub did not accept this key"
 }

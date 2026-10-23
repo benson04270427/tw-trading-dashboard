@@ -26,3 +26,14 @@ test('nasdaq: historical, quotes and chart', () => {
   const c = parseChart({ chart: [{ x: Date.parse('2026-10-22T04:00:00Z'), y: 224.45 }, { x: Date.parse('2026-10-22T09:30:00Z'), y: 223.1 }, { x: Date.parse('2026-10-22T15:59:00Z'), y: 208 }] }, '2026-10-22');
   assert.deepEqual(c.map(x => x[0]), ['09:30', '15:59']);
 });
+
+import { parseNews as fhNews, parseMetric } from '../lib/providers/finnhub.mjs';
+import { parseIncome } from '../lib/providers/fmp.mjs';
+test('finnhub and fmp parsers', () => {
+  const n = fhNews([{ datetime: 1792680000, headline: 'Coherent falls', url: 'https://x/a', source: 'Reuters', related: 'COHR' }, { headline: '' }], 'America/New_York', 'COHR');
+  assert.equal(n.length, 1); assert.equal(n[0].stock_id, 'COHR'); assert.match(n[0].date, /^2026-10-2\d \d\d:\d\d:\d\d$/);
+  assert.deepEqual(parseMetric({ metric: { peTTM: 56.3, pbQuarterly: 4.2, currentDividendYieldTTM: 0 } }, 'COHR', '2026-10-22'), [{ date: '2026-10-22', stock_id: 'COHR', PER: 56.3, PBR: 4.2, dividend_yield: 0 }]);
+  assert.deepEqual(parseMetric({}, 'X', 'd'), []);
+  const q = parseIncome([{ date: '2026-06-30', period: 'Q4', fiscalYear: '2026', revenue: 1.6e9, filingDate: '2026-08-15' }, { date: '2025-12-31', period: 'FY', fiscalYear: '2025', revenue: 6e9 }], 'COHR');
+  assert.equal(q[1].revenue_quarter, 4); assert.equal(q[0].revenue_quarter, 4); assert.equal(q[1].create_time, '2026-08-15');
+});
