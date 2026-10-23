@@ -1,5 +1,5 @@
 // 手機版：盤勢分頁的風控水位卡片（完整分析開在底部視窗）與型態分頁的「低估選股」（畫面見 riskvalue-ui.js）
-import { riskHTML, valueHTML } from './riskvalue-ui.js';
+import { riskHTML, valueHTML, moversHTML, picksHTML } from './riskvalue-ui.js';
 let X = null; // { api, toast, draw, S, openSheet, $ }
 const R = { info: null, error: '', sheet: false }, V = { info: null, error: '', strategy: 'value', minTurnover: 1e7, scope: 'ai' };
 export function initRV(ctx) { X = ctx; }
@@ -10,6 +10,13 @@ export function riskCard() {
   if (R.info && !R.info.capable) return '';
   return `<section class="card"><div class="card-h"><h2>風控水位<small>${R.info?.data?.date || ''}</small></h2><button class="more" data-rv="risk-open">完整分析 ›</button></div><div class="card-b rv-wrap">${errLine(R.error)}${riskHTML(R.info, { compact: true })}</div></section>`;
 }
+// 盤勢分頁：每日精選與今日漲跌排行
+const H = { movers: null, picks: null, tab: 'gainers' };
+export function picksCard() { return `<section class="card"><div class="card-h"><h2>每日精選<small>${H.picks?.data?.date || ''}</small></h2></div><div class="card-b rv-wrap">${picksHTML(H.picks)}</div></section>`; }
+export function moversCard() { return H.movers?.available === false ? '' : `<section class="card"><div class="card-h"><h2>今日漲跌排行<small>全市場</small></h2></div><div class="card-b rv-wrap">${moversHTML(H.movers, { tab: H.tab, n: 15 })}</div></section>`; }
+export async function loadHomeRank() { try { [H.movers, H.picks] = await Promise.all([X.api('api/movers'), X.api('api/picks')]); } catch { } if (H.picks?.busy) pollPicks(); }
+let pp = false;
+async function pollPicks() { if (pp) return; pp = true; try { do { await sleep(3000); H.picks = await X.api('api/picks'); if (X.S.tab === 'home') X.draw(); } while (H.picks?.busy); } catch { } finally { pp = false; } }
 export function valueView() { return `${errLine(V.error)}<div class="rv-wrap">${valueHTML(V.info, { limit: 40 })}</div>`; }
 const sheetBody = () => `<div class="rv-wrap">${errLine(R.error)}${riskHTML(R.info)}</div>`;
 function repaintSheet() { if (R.sheet && X.$('#sheet')?.classList.contains('open')) { const b = X.$('#sheet-body'), y = b.scrollTop; b.innerHTML = sheetBody(); b.scrollTop = y; } else R.sheet = false; }
@@ -24,9 +31,12 @@ async function pollValue() { if (vp) return; vp = true; try { do { await sleep(3
 
 document.addEventListener('click', async e => {
   if (!X) return;
-  const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-scope],[data-rv-watch]'); if (!b) return;
+  const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-scope],[data-rv-watch],[data-rv-mtab]'); if (!b) return;
   e.stopPropagation();
   try {
+    if (b.dataset.rvMtab) { H.tab = b.dataset.rvMtab; X.draw(); return; }
+    if (b.dataset.rvWatch && X.S.tab === 'home') { const id = b.dataset.rvWatch, on = !b.classList.contains('on'); await X.api('api/watch', { id, on }); X.S.stocks = null; X.S.summary = null; await loadHomeRank(); X.draw(); X.toast(on ? '已加入自選' : '已移除自選'); return; }
+    if (b.dataset.rv === 'picks-query') { b.disabled = true; H.picks = await X.api('api/picks/query', {}); X.draw(); pollPicks(); return; }
     if (b.dataset.rvScope) { V.scope = b.dataset.rvScope; V.info = await X.api(vq()); X.draw(); return; }
     if (b.dataset.rvStrategy) { V.strategy = b.dataset.rvStrategy; V.info = await X.api(vq()); X.draw(); return; }
     if (b.dataset.rvWatch) { const id = b.dataset.rvWatch, on = !b.classList.contains('on'); await X.api('api/watch', { id, on }); X.S.stocks = null; X.S.summary = null; V.info = await X.api(vq()); X.draw(); X.toast(on ? '已加入自選' : '已移除自選'); return; }

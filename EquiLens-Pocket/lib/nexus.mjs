@@ -93,6 +93,9 @@ export const riskQuery = () => call('risk/query', { body: {} });
 export const riskExplain = () => call('risk/explain', { body: {}, timeout: 180000 });
 export const value = (strategy, minTurnover, scope = 'ai') => call(`value?strategy=${encodeURIComponent(strategy)}&minTurnover=${encodeURIComponent(minTurnover)}&scope=${encodeURIComponent(scope)}`);
 export const valueQuery = () => call('value/query', { body: {} });
+export const movers = () => call('movers');
+export const picks = () => call('picks');
+export const picksQuery = () => call('picks/query', { body: {} });
 export const groupStockAdd = (groupId, stockId) => call('group-stocks', { body: { groupId, stockId } }).finally(invalidate);
 export const watchGroups = groups => call('watch/groups', { body: { groups } }).finally(invalidate);
 // 研究名單以外的自選股（沒有評分）：名稱、最新價與型態訊號

@@ -164,3 +164,28 @@ export function signalHTML(d, { editable = false } = {}) {
   const form = editable ? `<form class="sg-form" data-sg-settings="${esc(d.id)}"><label>總資金<input name="capital" type="number" min="0" step="1000" inputmode="numeric" value="${cur.capital ?? ''}" placeholder="例如 1000000"></label><label>每筆風險 %<input name="riskPct" type="number" min="0.1" max="20" step="0.1" value="${cur.riskPct ?? ''}" placeholder="1"></label><button type="submit">儲存</button><span class="soft" data-sg-msg></span></form>` : '';
   return `<div class="sg">${signalChartSVG(d)}<div class="sg-grid"><div>${core}${track}</div><div>${plan}${foot}</div></div>${form}<p class="ix-foot">ATR 追蹤線（${d.params.stPeriod} 日、${d.params.stMult} 倍）翻轉即為訊號，停損 ${d.params.stopAtr} 倍 ATR、停利 ${d.params.targets.join('／')}R；以日線計算，僅供研究參考，不是買賣建議。</p></div>`;
 }
+
+// ---- 今日漲跌排行、每日精選（首頁；☆ 加入自選） ----
+const star = (id, on) => `<button class="rv-watch ${on ? 'on' : ''}" data-rv-watch="${esc(id)}" aria-pressed="${!!on}" title="${on ? '從自選移除' : '加入自選'}">${on ? '★' : '☆'}</button>`;
+const moneyText = (v, market) => v == null ? '—' : market === 'TW' ? `${fmt(v / 1e8, 1)} 億` : v >= 1e9 ? `$${fmt(v / 1e9, 1)}B` : `$${fmt(v / 1e6, 0)}M`;
+const chg = v => `<b class="num ${v > 0 ? 'up' : v < 0 ? 'down' : 'muted'}">${sign(v, 2)}%</b>`;
+export function moversHTML(d, { tab = 'gainers', n = 20 } = {}) {
+  if (!d) return '<p class="ix-empty">讀取中…</p>';
+  if (!d.available) return '<p class="ix-empty">還沒有收盤熱浪圖。到「資金熱浪」查詢一次，或等每日更新後就會出現。</p>';
+  const list = (tab === 'losers' ? d.losers : d.gainers).slice(0, n);
+  const head = `<div class="mv-head"><div class="segmented rv-strats">${[['gainers', '漲幅'], ['losers', '跌幅']].map(([k, l]) => `<button data-rv-mtab="${k}" class="${tab === k ? 'selected' : ''}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>
+    <span class="soft">${d.source === 'live' ? `盤中 ${esc(String(d.asOf || '').slice(11, 16))}` : `${esc(d.date || '')} 收盤`} · 成交 ≥ ${moneyText(d.minMoney, d.market)}</span></div>`;
+  const rows = list.length ? list.map((x, i) => `<div class="mv-row"><span class="mv-rank num">${i + 1}</span><button class="ix-cw-stock mv-name" data-alert-stock="${esc(x.id)}">${esc(x.name)} <small class="num">${esc(x.id)}</small></button><small class="soft mv-sec">${esc(x.sector || '')}</small>${chg(x.change)}<span class="num mv-px">${fmt(x.close, 2)}</span><span class="num soft mv-amt">${moneyText(x.money, d.market)}</span>${star(x.id, x.watch)}</div>`).join('') : '<p class="ix-empty">沒有符合條件的股票。</p>';
+  return `${head}<div class="mv-list">${rows}</div>`;
+}
+export function picksHTML(info) {
+  if (!info) return '<p class="ix-empty">讀取中…</p>';
+  const d = info.data, btn = `<button class="rv-btn" data-rv="picks-query" ${info.busy ? 'disabled' : ''}>${info.busy ? '<i class="spinner"></i>挑選中…' : '⟳ 重新挑選'}</button>`;
+  const err = info.error ? `<p class="rv-err">${esc(info.error)}</p>` : '';
+  if (!d) return `<div class="rv-empty"><p>${info.busy ? '正在整理籌碼、訊號與新聞…' : '還沒有每日精選。每日更新完成後自動產生，也可以按「重新挑選」。'}</p>${btn}${err}</div>`;
+  const cards = d.picks.length ? d.picks.map((p, i) => `<div class="pk-card"><div class="pk-head"><span class="rv-rank num">${i + 1}</span><button class="ix-cw-stock rv-sname" data-alert-stock="${esc(p.id)}">${esc(p.name)} <small class="num">${esc(p.id)}</small></button>${p.chain ? `<span class="rv-chain">${esc(p.chain)}</span>` : `<small class="soft">${esc(p.sector || '')}</small>`}<span class="pk-px">${chg(p.change)} <span class="num soft">${fmt(p.close, 2)}</span></span><span class="rv-sscore num" title="精選分數">${fmt(p.score)}</span>${star(p.id, p.watch)}</div>
+    <div class="rv-why">${p.reasons.map(r => `<span>✓ ${esc(r)}</span>`).join('')}</div>${p.warnings.length ? `<div class="rv-warn">${p.warnings.map(x => `<span>⚠ ${esc(x)}</span>`).join('')}</div>` : ''}
+    ${p.news.length ? `<ul class="pk-news">${p.news.map(n => `<li>${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}${n.source ? ` <small class="soft">${esc(n.source)}</small>` : ''}</li>`).join('')}</ul>` : ''}</div>`).join('') : '<p class="ix-empty">今天沒有同時符合多項條件的股票。</p>';
+  return `<div class="pk-meta"><span class="soft">${esc(d.date)} 收盤 · 候選 ${fmt(d.candidates)} 檔${d.market === 'TW' ? (d.flows ? ' · 含法人買賣超' : ' · 法人資料未取得') : ''}${info.news ? ' · 含近兩日新聞' : ''}</span>${btn}</div>${err}<div class="pk-list">${cards}</div>
+  <p class="ix-foot">依固定規則加總：法人買超排行${d.market === 'TW' ? '（外資、投信）' : ''}、ATR 追蹤線訊號、當日量價、營收年增、近兩日新聞${d.market === 'TW' ? '與 AI 供應鏈' : ''}；同一供應鏈或產業最多 2 檔。這是研究清單，不是買賣建議。</p>`;
+}

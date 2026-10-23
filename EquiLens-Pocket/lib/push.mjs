@@ -120,10 +120,11 @@ function build(alerts) {
   const sig = alerts.filter(a => a.type === 'signal'), sigOut = sig.length <= 4
     ? sig.map(a => ({ title: `📶 ${a.name} ${a.stockId} ${a.title}`, body: `${a.close} · ${a.detail}`, tag: `signal:${a.stockId}`, url: '/#live' }))
     : [{ title: `📶 自選股新訊號 ${sig.length} 則`, body: sig.slice(0, 6).map(a => `${a.name} ${a.title}`).join('、'), tag: 'signal-batch', url: '/#live' }];
+  const picks = alerts.filter(a => a.type === 'picks').map(a => ({ title: `⭐ ${a.title}`, body: a.detail, tag: `picks:${a.date || ''}`, url: '/#home' }));
   const risk = alerts.filter(a => a.type === 'risk').map(a => ({ title: `🛡️ ${a.title}`, body: a.detail, tag: 'risk', url: '/#home' }));
   const chips = alerts.filter(a => a.type === 'broker' || a.type === 'holders').map(a => ({ title: `${ICON[a.type]} ${a.title}`, body: a.detail, tag: `${a.type}:${a.date || ''}`, url: '/#flows' }));
-  const head = [...report, ...customOut, ...chips, ...risk, ...sigOut];
-  const rest = alerts.filter(a => !['report', 'news', 'custom', 'broker', 'holders', 'risk', 'signal'].includes(a.type));
+  const head = [...report, ...picks, ...customOut, ...chips, ...risk, ...sigOut];
+  const rest = alerts.filter(a => !['report', 'news', 'custom', 'broker', 'holders', 'risk', 'signal', 'picks'].includes(a.type));
   if (rest.length <= 4) return [...head, ...newsOut, ...rest.map(a => !a.stockId ? { title: `${ICON[a.type] || '📡'} ${a.title}`, body: a.detail, tag: a.type, url: '/#live' } : { title: `${ICON[a.type] || '📡'} ${a.name} ${a.stockId} ${a.title}`, body: `${a.close}（${a.change > 0 ? '+' : ''}${a.change ?? '—'}%）· ${a.detail}`, tag: `${a.type}:${a.stockId}`, url: '/#live' })];
   const watch = rest.filter(a => a.watch);
   return [...head, ...newsOut, { title: `📡 盤中雷達：${rest.length} 則異動`, body: (watch.length ? watch : rest).slice(0, 5).map(a => `${a.name}${a.title}`).join('、'), tag: 'radar-batch', url: '/#live' }];

@@ -6,7 +6,7 @@ import { initGroupRank, groupRankPage, enterGroupRank } from './grouprank.js';
 import { initLive, livePage, enterLive, detailExtrasShell, fillDetailExtras, reportPanel, claudeSettings, newsSettings, openChart } from './live.js';
 import { initSetup, setupWizard, systemSettings } from './setup.js';
 import { initChipwatch, chipPage, enterChips } from './chipwatch.js';
-import { initRiskValue, riskPage, valuePage, enterRisk, enterValue } from './riskvalue.js';
+import { initRiskValue, riskPage, valuePage, enterRisk, enterValue, homeRank, enterHome } from './riskvalue.js';
 import { setLanguage } from './i18n.js';
 import * as MK from './market.js';
 
@@ -84,7 +84,7 @@ initChipwatch({ api, toast, page: () => page });
 initRiskValue({ api, toast, page: () => page, reload: () => load(false) });
 initSetup({ api, toast, state: () => state, reload: () => load(), redraw: () => draw(), page: () => page, esc });
 
-function setPage(p) { if (['settings', 'topics'].includes(page)) saveDrafts(); page = p; index = 0; $('.sidebar')?.classList.remove('open'); draw(); window.scrollTo(0, 0); if (p === 'patterns') loadPatterns(); if (p === 'live') enterLive(); if (p === 'grouprank') enterGroupRank(); if (p === 'chips') enterChips(); if (p === 'risk') enterRisk(); if (p === 'value') enterValue(); }
+function setPage(p) { if (['settings', 'topics'].includes(page)) saveDrafts(); page = p; index = 0; $('.sidebar')?.classList.remove('open'); draw(); window.scrollTo(0, 0); if (p === 'patterns') loadPatterns(); if (p === 'home') enterHome(); if (p === 'live') enterLive(); if (p === 'grouprank') enterGroupRank(); if (p === 'chips') enterChips(); if (p === 'risk') enterRisk(); if (p === 'value') enterValue(); }
 
 /* ---------- market clock ---------- */
 function twNow() { return MK.parts(); }
@@ -110,7 +110,7 @@ function draw() {
   <div class="top-tools"><label class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input id="search" type="search" placeholder="搜尋研究名單代碼或名稱" aria-label="搜尋股票代碼或名稱" value="${esc(query)}"><kbd>/</kbd></label><button class="ghost" data-live="pip" aria-label="浮動雷達視窗" title="浮動雷達視窗（永遠置頂）">📡</button><button class="ghost" data-page="settings" aria-label="設定" title="資料與設定">⚙</button></div></header>
   <main class="main" id="main"><div class="pagehead"><div><p class="eyebrow">${info.eyebrow}</p><h1>${info.title}</h1><p class="subtitle">${info.sub}</p></div><div class="actions">${page === 'overview' ? '<button data-action="new-group">＋ 新增族群</button>' : ''}${page === 'overview' || page === 'watchlist' ? `<button data-action="export">↓ 匯出清單</button><button class="primary" data-action="update" ${state.job.running ? 'disabled' : ''}>⟳ 更新${page === 'watchlist' ? '自選' : '資料'}</button>` : ''}</div></div>
   ${jobBanner()}${page !== 'settings' && !state.dataConfigured ? `<div class="notice warn"><span>尚未設定資料來源。目前僅顯示已取得的資料。</span><button data-page="settings">設定資料來源 →</button></div>` : ''}${state.scopeError ? `<div class="notice warn"><span>${esc(state.scopeError)}</span></div>` : ''}
-  <div id="pagecontent">${({ home: () => reportPanel() + briefPage(), heatmap: heatPage, live: livePage, grouprank: groupRankPage, flows: flowPage, chips: chipPage, risk: riskPage, value: valuePage, patterns: patternPage, overview, watchlist: overview, sectors: groupPage, topics, settings, method })[page]()}</div>
+  <div id="pagecontent">${({ home: () => homeRank() + reportPanel() + briefPage(), heatmap: heatPage, live: livePage, grouprank: groupRankPage, flows: flowPage, chips: chipPage, risk: riskPage, value: valuePage, patterns: patternPage, overview, watchlist: overview, sectors: groupPage, topics, settings, method })[page]()}</div>
   <footer class="footer"><span>DATA · <span translate="no">${esc(dataSources())}</span> · 各欄位以原始日期為準 · MODEL v${esc(state.version)} · APP v${esc(state.appVersion || '2.0.0')}</span><span>研究排序工具 · 分數不等於報酬率或合理股價 · 非交易建議</span></footer></main></div></div>`;
   restoreDrafts(); tick();
   if (activeId) { const el = document.getElementById(activeId); if (el && el !== document.body && ['search', 'heat-search', 'pattern-search'].includes(activeId)) { el.focus(); try { el.setSelectionRange(selection, selection); } catch { } } }
@@ -411,6 +411,6 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => { const k = e.target.dataset?.prefSelect; if (k) { setPrefs({ [k]: e.target.value }); toast('下次開啟衡析時生效'); } });
 
-try { applyState(await api('state')); await setLanguage(state.config?.language || 'zh-TW'); draw(); if (page === 'patterns') loadPatterns(); if (page === 'live') enterLive(); if (page === 'grouprank') enterGroupRank(); if (page === 'chips') enterChips(); if (page === 'risk') enterRisk(); if (page === 'value') enterValue(); } catch (e) { $('#app').innerHTML = `<div class="boot"><b>NEXUS OFFLINE</b><p>暫時無法連接本機服務：${esc(e.message)}。請重新啟動衡析 Nexus 後重新整理。</p></div>`; }
+try { applyState(await api('state')); await setLanguage(state.config?.language || 'zh-TW'); draw(); if (page === 'patterns') loadPatterns(); if (page === 'home') enterHome(); if (page === 'live') enterLive(); if (page === 'grouprank') enterGroupRank(); if (page === 'chips') enterChips(); if (page === 'risk') enterRisk(); if (page === 'value') enterValue(); } catch (e) { $('#app').innerHTML = `<div class="boot"><b>NEXUS OFFLINE</b><p>暫時無法連接本機服務：${esc(e.message)}。請重新啟動衡析 Nexus 後重新整理。</p></div>`; }
 let pollBusy = false;
 setInterval(async () => { if (!state || document.hidden || pollBusy) return; pollBusy = true; try { const previous = state.job.running; await load(false); if (previous && !state.job.running && page === 'patterns') await loadPatterns(); if (previous || state.job.running) { if (['settings', 'topics', 'flows', 'heatmap'].includes(page) || document.querySelector('dialog[open]')) return; draw(); if (previous && !state.job.running && $('#detail-dialog').open && selectedId) await openStock(selectedId); } } catch { } finally { pollBusy = false; } }, 5000);

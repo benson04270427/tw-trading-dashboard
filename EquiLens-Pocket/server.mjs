@@ -125,6 +125,8 @@ async function api(req, res, url) {
     if (route === 'report') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.report(date)); }
     if (route === 'price-alerts') return send(req, res, 200, await nexus.priceAlerts());
     if (route === 'risk') return send(req, res, 200, await nexus.risk());
+    if (route === 'movers') return send(req, res, 200, await nexus.movers());
+    if (route === 'picks') return send(req, res, 200, await nexus.picks());
     if (route === 'signal') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.signal(q.get('id'))); }
     if (route === 'verdict') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.verdict(q.get('id'))); }
     if (route === 'value') { const st = q.get('strategy') || 'value', mt = Number(q.get('minTurnover') ?? 1e7), sc = q.get('scope') || 'ai'; if (!['value', 'garp', 'income'].includes(st) || ![0, 5e6, 1e7, 3e7, 1e8].includes(mt) || !['ai', 'tech', 'all'].includes(sc)) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.value(st, mt, sc)); }
@@ -172,6 +174,7 @@ async function api(req, res, url) {
     if (route === 'chipwatch/query') { if (b.date && !validDate(b.date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 202, await nexus.chipwatchQuery(b.date ? { date: b.date } : {})); }
     if (route === 'holders/rank/query') return send(req, res, 200, await nexus.holderRankQuery());
     if (route === 'risk/query') return send(req, res, 202, await nexus.riskQuery());
+    if (route === 'picks/query') return send(req, res, 202, await nexus.picksQuery());
     if (route === 'risk/explain') return send(req, res, 200, await nexus.riskExplain());
     if (route === 'value/query') return send(req, res, 202, await nexus.valueQuery());
     if (route === 'chipwatch/settings') {
