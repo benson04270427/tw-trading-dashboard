@@ -33,6 +33,7 @@ export default {
   caps: { snapshot: 1 },
   snapshotMode: 'symbols',
   snapshotLimit: () => 600,
+  snapshotEvery: n => n <= 120 ? 10e3 : n <= 300 ? 20e3 : 30e3,
   snapshot: async (ids, ctx) => {
     const list = [...new Set(ids.filter(id => /^[0-9A-Z]{4,6}$/.test(id)))], out = [];
     const batches = []; for (let i = 0; i < list.length; i += 40) batches.push(list.slice(i, i + 40));

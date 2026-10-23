@@ -56,6 +56,7 @@ export default {
   caps: { universe: 1, daily: 1, snapshot: 1, intraday: 1 },
   snapshotMode: 'symbols',
   snapshotLimit: () => 600,
+  snapshotEvery: n => n <= 60 ? 20e3 : 60e3,
   universe: async ctx => {
     const data = await get('/screener/stocks?tableonly=true&download=true', ctx), re = ctx.market?.symbolRe || /^[A-Z][A-Z0-9.\-]{0,9}$/;
     const seen = new Map();

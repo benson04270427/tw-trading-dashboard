@@ -150,6 +150,7 @@ const snapIds=()=>[...new Set([...scopeIds(researchScope),...watchlist,...ruleId
 function snapPlan(){
   if(data.snapshotMode()!=='symbols')return{ids:null,every:LIVE_REFRESH_MS};
   const ids=snapIds().slice(0,300),per=data.snapshotLimit()||ids.length||1;
+  const fast=data.pick('snapshot')?.snapshotEvery;if(fast)return{ids,every:Math.max(LIVE_REFRESH_MS,fast(ids.length))}; // 免金鑰逐檔報價（證交所 MIS、Nasdaq）：依檔數決定間隔
   return{ids,every:Math.max(LIVE_REFRESH_MS,Math.ceil(ids.length/per)*60e3)};
 }
 async function liveHeatmap(){
