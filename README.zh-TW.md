@@ -195,7 +195,7 @@ iPhone 需 iOS 16.4 以上，並從主畫面開啟衡析才能收到推播。
 | Finnhub | 美國 | 免費 | 個股新聞、市場新聞、本益比／淨值比／殖利率（免費方案每分鐘約 60 次，限個人使用） |
 | Financial Modeling Prep | 美國 | 免費 | 本益比／淨值比（每天 250 次）；季營收僅少數股票開放給免費方案 |
 | SEC EDGAR（美國證管會） | 美國 | 免（填聯絡 email） | 季營收（10-Q／10-K 的 XBRL 財報數字；外國企業用 20-F 的 IFRS 營收）；SEC 規定請求附聯絡 email，所以金鑰欄位填自己的 email，只送到 sec.gov |
-| Nasdaq 公開資料 | 美國 | 免 | 股票清單（含產業）、日 K、批次報價、當日走勢（nasdaq.com 網頁使用的公開 API） |
+| Nasdaq 公開資料 | 美國 | 免 | 股票清單（含產業）、日 K、批次報價、當日走勢、交易日曆、全市場收盤行情（熱浪圖，約 7,000 檔）；盤中熱浪涵蓋市值前 500 大（nasdaq.com 網頁使用的公開 API） |
 | [富果 Fugle](https://developer.fugle.tw) | 台股 | 免費／付費 | 日 K（含還原）、分 K；盤中雷達、自訂提醒與當沖監控用的 WebSocket 即時推播（訂閱數：基本 5、開發者 300、進階 2,000） |
 | [Twelve Data](https://twelvedata.com) | 12 個市場 | 免費／付費 | 股票清單、日 K、即時報價、分 K |
 | [Alpha Vantage](https://www.alphavantage.co) | 美、英、加、德、印 | 免費／付費 | 日 K、報價、新聞情緒、本益比、季營收 |

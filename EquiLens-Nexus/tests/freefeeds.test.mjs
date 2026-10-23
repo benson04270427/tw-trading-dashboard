@@ -59,3 +59,20 @@ test('SEC EDGAR：6 月結帳的公司，換標籤後的季度與年報推得的
     RevenueFromContractWithCustomerIncludingAssessedTax: { units: { USD: [v('2025-06-29', '2025-09-27', 534), v('2025-09-28', '2025-12-27', 665), v('2025-06-29', '2026-03-28', 2007), v('2025-12-28', '2026-03-28', 808), v('2025-06-29', '2026-06-27', 3014)] } } } } };
   assert.deepEqual(parseFacts(facts, 'LITE').map(r => [r.revenue_year, r.revenue_quarter, r.revenue]), [[2025, 1, 425], [2025, 3, 534], [2025, 4, 665], [2026, 1, 808], [2026, 2, 1007]]);
 });
+
+import { nyseCalendar, nyseHolidays, screenerSession, screenerRows, SECTOR_ZH } from '../lib/providers/nasdaq.mjs';
+test('Nasdaq：紐約證交所休市日與交易日曆', () => {
+  assert.deepEqual([...nyseHolidays(2027)].sort(), ['2027-01-01', '2027-01-18', '2027-02-15', '2027-03-26', '2027-05-31', '2027-06-18', '2027-07-05', '2027-09-06', '2027-11-25', '2027-12-24']);
+  assert.deepEqual(nyseCalendar('2026-07-01', '2026-07-07'), ['2026-07-01', '2026-07-02', '2026-07-06', '2026-07-07']);
+});
+test('Nasdaq 篩選器：判斷資料日期、轉成熱浪圖行情', () => {
+  const rows = [{ symbol: 'AAPL', lastsale: '$348.22', netchange: '4.23', volume: '46899225', marketCap: '1', sector: 'Technology' }, { symbol: 'MSFT', lastsale: '$500.00', netchange: '-1', volume: '100' }, { symbol: 'BRK/B', lastsale: '$1', netchange: '0', volume: '5' }];
+  const cal = ['2026-10-21', '2026-10-22', '2026-10-23'];
+  const live = [{ symbol: 'AAPL', lastSalePrice: '$347.26', previousClosePrice: '$348.22', lastTradeTimestampDateTime: '2026-10-23T12:11:55-04:00' }, { symbol: 'MSFT', lastSalePrice: '$498', previousClosePrice: '$500.00', lastTradeTimestampDateTime: '2026-10-23T12:11:55-04:00' }];
+  assert.equal(screenerSession(rows, live, cal, '2026-10-23'), '2026-10-22'); // 盤中：篩選器是昨收
+  const closed = [{ symbol: 'AAPL', lastSalePrice: '$348.22', previousClosePrice: '$344', lastTradeTimestampDateTime: '2026-10-22T16:00:00-04:00' }];
+  assert.equal(screenerSession(rows, closed, cal, '2026-10-23'), '2026-10-22'); // 盤前：最新成交即昨收
+  const r = screenerRows(rows, '2026-10-22');
+  assert.equal(r.length, 3); assert.equal(r[0].Trading_money, 46899225 * 348.22); assert.equal(r[2].stock_id, 'BRK.B');
+  assert.equal(SECTOR_ZH.Technology, '科技');
+});

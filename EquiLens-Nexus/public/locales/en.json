@@ -3325,5 +3325,15 @@
  "連接器與線材": "Connectors & cables",
  "電子科技": "Electronics & tech",
  "電源與電力設備": "Power & electrical equipment",
- "以本益比、淨值比、殖利率、ROE 與月營收成長，在 AI 供應鏈（可切換電子科技或全市場）找出比同業便宜、但獲利與營收沒有轉壞的公司。": "P/E, P/B, yield, ROE and monthly revenue growth across the AI supply chain (or electronics, or the whole market) to find companies cheaper than peers without deteriorating profits or revenue."
+ "以本益比、淨值比、殖利率、ROE 與月營收成長，在 AI 供應鏈（可切換電子科技或全市場）找出比同業便宜、但獲利與營收沒有轉壞的公司。": "P/E, P/B, yield, ROE and monthly revenue growth across the AI supply chain (or electronics, or the whole market) to find companies cheaper than peers without deteriorating profits or revenue.",
+ "不動產": "Real Estate",
+ "全市場收盤行情（熱浪圖）": "Whole-market close (heatmap)",
+ "公用事業": "Utilities",
+ "原物料": "Basic Materials",
+ "工業": "Industrials",
+ "必需消費": "Consumer Staples",
+ "科技": "Technology",
+ "通訊": "Telecommunications",
+ "醫療保健": "Health Care",
+ "非必需消費": "Consumer Discretionary"
 }

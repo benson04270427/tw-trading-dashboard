@@ -1162,6 +1162,8 @@ async function runHeatmap(date,options={}){
   try{
     let result,min=100;
     if(data.has('dailyAll')){await ensureUniverse(options);result=await queryHeatmap(date,{universe,sectorOf:heatSectorOf(),...options});}
+    // 只有最新收盤的全市場行情（例如美股 Nasdaq 篩選器）：前一交易日由本機紀錄比較
+    else if(data.has('heatAll')){await ensureUniverse(options);result=await queryHeatmap(date,{universe,sectorOf:heatSectorOf(),fetchCalendar:()=>data.calendar(null,options),fetchDaily:d=>data.heatAll(d,options),...options});}
     else{
       const list=resolveScope(researchScope,universe);if(!list.length)throw new UserError('請先建立研究族群並更新資料');
       result=await queryHeatmap(date,{universe:list,fetchCalendar:()=>tradingDates(),fetchDaily:async d=>localDailyAll(d),sectorOf:groupSectorOf(),...options});
@@ -1352,7 +1354,7 @@ const server = http.createServer(async (req,res) => {
       if (req.method !== 'POST' || req.headers['x-csrf-token'] !== csrf || (req.headers.origin && ![ORIGIN,`http://localhost:${PORT}`,...(isRemote?[`https://${req.headers.host}`]:[])].includes(req.headers.origin))) return json(res,403,{ error:t('請重新整理本機頁面後再試') });
     }
     if((flowBusy||heatBusy)&&req.method==='POST'&&['/api/update','/api/pattern-update','/api/news','/api/token','/api/provider-key','/api/config'].includes(route))return json(res,409,{error:t('即時查詢進行中，請稍候')});
-    if(route==='/api/heatmap'&&req.method==='GET'){const dates=heatFiles();let date=url.searchParams.get('date');if(!date||date==='latest')date=dates.at(-1)||null;else if(!validHeatDate(date))throw new UserError('請選擇有效日期');return json(res,200,{data:date?read('heatmap-'+date+'.json',null):null,dates:dates.slice(-60),scope:data.has('dailyAll')?'market':'research'});}
+    if(route==='/api/heatmap'&&req.method==='GET'){const dates=heatFiles();let date=url.searchParams.get('date');if(!date||date==='latest')date=dates.at(-1)||null;else if(!validHeatDate(date))throw new UserError('請選擇有效日期');return json(res,200,{data:date?read('heatmap-'+date+'.json',null):null,dates:dates.slice(-60),scope:data.has('dailyAll')||data.has('heatAll')?'market':'research'});}
     if(route==='/api/heatmap/live'&&req.method==='GET'){
       if(!liveWindow())return json(res,200,{live:false,data:liveHeat?.data?.date===today()?liveHeat.data:null,refreshMs:snapPlan().every});
       if(!data.has('snapshot'))throw new UserError('目前的資料源不支援盤中即時報價');
@@ -1739,9 +1741,9 @@ setInterval(() => {
   // 熱浪圖：有全市場單日行情時先查；沒有時等研究名單更新完，再用本機日成交組成
   const heat=async()=>{if(!heatFiles().includes(date)){try{await runHeatmap(date);}catch(e){console.error(t('熱浪圖自動更新失敗：')+e.message);}}};
   void (async()=>{
-    if(data.has('dailyAll'))await heat();
+    if(data.has('dailyAll')||data.has('heatAll'))await heat();
     await refresh(settings.autoScope,[]);const firstOk=!job.errors.length;
-    if(!data.has('dailyAll'))await heat();
+    if(!data.has('dailyAll')&&!data.has('heatAll'))await heat();
     if(controller?.signal.aborted){settings.lastAutoDate=date;saveSettings();return;}
     if(data.has('dailyAll'))await refreshPatternMarket();
     if(!firstOk){job.errors.push({message:t('族群研究更新未全部成功，稍後自動重試')});job.message+=t('；族群研究仍有更新失敗項目');write('last-job.json',job);}
