@@ -69,7 +69,7 @@ some markets, `'bulk'` (institutional) means research updates use whole-market d
 provider per capability (preferred source first, then the enabled order), injects the key, interval and market into
 `ctx`, and exposes `data.<capability>()` to the rest of the app. `capabilityMap()` tells the UI which features exist.
 
-Keyless providers added in this fork: `twsemis` (TWSE MIS real-time quotes, Taiwan, symbols-mode `snapshot`, 40 symbols per request plus TAIEX/TPEx as `001`/`101`) and `nasdaq` (nasdaq.com public API, US: `universe` with sectors, `daily`, symbols-mode `snapshot` 20 per request, `intraday` from the day chart).
+Keyless providers added in this fork: `twsemis` (TWSE MIS real-time quotes, Taiwan, symbols-mode `snapshot`, 40 symbols per request plus TAIEX/TPEx as `001`/`101`) and `nasdaq` (nasdaq.com public API, US: `universe` with sectors, `daily`, symbols-mode `snapshot` 20 per request, `intraday` from the day chart). Key-based US providers: `finnhub` (news, market news, valuation), `fmp` (valuation; quarterly revenue on paid plans) and `sec` (SEC EDGAR companyfacts, quarterly revenue from calendar-aligned `CY####Q#` frames with Q4 derived from the annual value, IFRS `Revenue` for 20-F filers; its "key" is the user's contact email, sent only as the SEC-required User-Agent).
 
 Capabilities: `universe, calendar, daily, adjusted, dailyAll, snapshot, stream, dayTrade, intraday, news, marketNews,
 valuation, revenue, institutional, institutionalAll, brokers, holders, flows, futures, margin`.

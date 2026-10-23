@@ -21,6 +21,11 @@ const PROVIDER_NOTES = {
   fugle: '富果行情 API：台股日 K（含還原股價）、分 K，以及盤中雷達與當沖監控用的 WebSocket 即時推播。訂閱數（1 檔 × 1 個頻道）：基本 5、開發者 300、進階 2,000；當沖完整模式每檔訂閱逐筆成交、分 K、五檔 3 個頻道，訂閱不足時改用聚合行情（每檔 1 個，自選股優先）。付費方案另有全市場即時快照。啟用後熱浪圖、時光機等其他資料仍依原本的資料源。',
   twelvedata: '涵蓋全球多數市場：股票清單、日 K、即時報價、分 K（免費方案每分鐘 8 次、每日 800 次）。',
   alphavantage: '以美股為主（另支援英、加、德、印）：日 K、報價、新聞情緒、本益比、季營收（免費方案每日 25 次）。',
+  twsemis: '證交所基本市況報導的即時報價，免金鑰：研究名單、自選與提醒股票的盤中報價（約 5 秒更新）與加權／櫃買指數。只能逐檔查詢，不含全市場即時資料。',
+  nasdaq: 'nasdaq.com 網頁使用的公開資料，免金鑰：美股股票清單（含產業）、日 K、批次報價、當日走勢。',
+  finnhub: '美股個股新聞、市場新聞、本益比／淨值比／殖利率；免費金鑰每分鐘約 60 次，限個人使用。',
+  fmp: 'Financial Modeling Prep：美股本益比／淨值比；免費方案每天 250 次，季營收只開放少數股票。',
+  sec: '美國證管會官方財報（XBRL）：美股季營收，免費、免註冊。SEC 規定請求要附聯絡 email，金鑰欄位請填自己的 email（只送到 sec.gov）。',
 };
 const LLM_NOTES = {
   anthropic: 'Claude（Anthropic）：預設 Claude Opus 5.5。',
@@ -42,7 +47,7 @@ function providerCard(p, cfg) {
   const status = keyless ? '<span class="tag cyan">免金鑰</span>' : p.configured ? `<span class="tag cyan">已設定</span>${p.plan?.plan ? ` <span class="tag">${esc(p.plan.plan)}</span>` : ''}` : '<span class="tag amber">未設定金鑰</span>';
   return `<article class="setup-provider ${p.enabled ? 'on' : ''}"><div class="sp-head"><label class="checkbox" style="flex-direction:row"><input type="checkbox" data-setup-enable="${p.id}" ${p.enabled ? 'checked' : ''}><b translate="no">${esc(p.name)}</b></label>${status}<a class="sp-link" href="${esc(p.site)}" target="_blank" rel="noopener noreferrer">官網 ↗</a></div>
   <p class="fine">${esc(PROVIDER_NOTES[p.id] || '')}</p><div class="sp-caps">${capChips(p, labels)}</div>
-  ${keyless ? '' : `<form class="sp-key" data-setup-key="${p.id}"><input name="key" type="password" autocomplete="off" placeholder="${esc(p.configured ? '輸入新金鑰以更換' : '貼上 API 金鑰')}" required><button class="primary" type="submit">驗證並儲存</button>${p.configured ? `<button type="button" data-setup-recheck="${p.id}" title="重新讀取方案等級（例如升級或續訂後）">重新驗證</button><button type="button" data-setup-unkey="${p.id}">移除金鑰</button>` : ''}</form>`}</article>`;
+  ${keyless ? '' : `<form class="sp-key" data-setup-key="${p.id}"><input name="key" type="${p.id === 'sec' ? 'email' : 'password'}" autocomplete="off" placeholder="${esc(p.id === 'sec' ? (p.configured ? '輸入新的聯絡 email 以更換' : '填入聯絡 email') : p.configured ? '輸入新金鑰以更換' : '貼上 API 金鑰')}" required><button class="primary" type="submit">驗證並儲存</button>${p.configured ? `<button type="button" data-setup-recheck="${p.id}" title="重新讀取方案等級（例如升級或續訂後）">重新驗證</button><button type="button" data-setup-unkey="${p.id}">移除金鑰</button>` : ''}</form>`}</article>`;
 }
 function providerList(cfg) {
   const list = cfg.providers.filter(p => p.supportsMarket);

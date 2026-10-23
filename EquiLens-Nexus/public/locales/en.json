@@ -3187,5 +3187,14 @@
  "證交所即時報價": "TWSE real-time quotes",
  "證交所即時報價（MIS）": "TWSE real-time quotes (MIS)",
  "Financial Modeling Prep 未接受此金鑰": "Financial Modeling Prep did not accept this key",
- "Finnhub 未接受此金鑰": "Finnhub did not accept this key"
+ "Finnhub 未接受此金鑰": "Finnhub did not accept this key",
+ "SEC EDGAR（美國證管會）": "SEC EDGAR (U.S. Securities and Exchange Commission)",
+ "{label}：請在金鑰欄位填入聯絡 email": "{label}: enter a contact email in the key field",
+ "Financial Modeling Prep：美股本益比／淨值比；免費方案每天 250 次，季營收只開放少數股票。": "Financial Modeling Prep: US P/E and P/B; the free plan allows 250 requests a day and quarterly revenue for only a few stocks.",
+ "nasdaq.com 網頁使用的公開資料，免金鑰：美股股票清單（含產業）、日 K、批次報價、當日走勢。": "Public data used by the nasdaq.com website, no key: US stock list (with sectors), daily bars, batch quotes, intraday chart.",
+ "填入聯絡 email": "Enter a contact email",
+ "美國證管會官方財報（XBRL）：美股季營收，免費、免註冊。SEC 規定請求要附聯絡 email，金鑰欄位請填自己的 email（只送到 sec.gov）。": "Official SEC filings (XBRL): US quarterly revenue, free with no sign-up. The SEC requires a contact email with each request, so enter your own email in the key field (it is sent only to sec.gov).",
+ "美股個股新聞、市場新聞、本益比／淨值比／殖利率；免費金鑰每分鐘約 60 次，限個人使用。": "US company news, market news, P/E, P/B and dividend yield; the free key allows about 60 requests a minute for personal use.",
+ "證交所基本市況報導的即時報價，免金鑰：研究名單、自選與提醒股票的盤中報價（約 5 秒更新）與加權／櫃買指數。只能逐檔查詢，不含全市場即時資料。": "Real-time quotes from TWSE's market information system, no key: intraday quotes (about every 5 seconds) for research, watchlist and alert stocks plus the TAIEX and TPEx indexes. Per-symbol queries only, no whole-market real-time data.",
+ "輸入新的聯絡 email 以更換": "Enter a new contact email to replace it"
 }

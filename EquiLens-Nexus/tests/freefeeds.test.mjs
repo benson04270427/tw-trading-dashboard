@@ -37,3 +37,18 @@ test('finnhub and fmp parsers', () => {
   const q = parseIncome([{ date: '2026-06-30', period: 'Q4', fiscalYear: '2026', revenue: 1.6e9, filingDate: '2026-08-15' }, { date: '2025-12-31', period: 'FY', fiscalYear: '2025', revenue: 6e9 }], 'COHR');
   assert.equal(q[1].revenue_quarter, 4); assert.equal(q[0].revenue_quarter, 4); assert.equal(q[1].create_time, '2026-08-15');
 });
+
+import { parseFacts } from '../lib/providers/sec.mjs';
+test('SEC EDGAR companyfacts → 季營收（日曆季 frame，第 4 季由年度扣前三季）', () => {
+  const v = (start, end, val, frame) => ({ start, end, val, frame, filed: end });
+  const facts = { facts: { 'us-gaap': {
+    Revenues: { units: { USD: [v('2022-01-01', '2022-03-31', 1, 'CY2022Q1')] } },
+    RevenueFromContractWithCustomerExcludingAssessedTax: { units: { USD: [
+      v('2024-01-01', '2024-03-31', 100, 'CY2024Q1'), v('2024-04-01', '2024-06-30', 110, 'CY2024Q2'), v('2024-07-01', '2024-09-30', 120, 'CY2024Q3'),
+      v('2024-01-01', '2024-12-31', 460, 'CY2024'), v('2024-01-01', '2024-06-30', 210), v('2025-01-01', '2025-03-31', 140, 'CY2025Q1')] } } } } };
+  const rows = parseFacts(facts, 'COHR');
+  assert.deepEqual(rows.map(r => [r.revenue_year, r.revenue_quarter, r.revenue]), [[2024, 1, 100], [2024, 2, 110], [2024, 3, 120], [2024, 4, 130], [2025, 1, 140]]);
+  assert.equal(rows[0].stock_id, 'COHR');
+  assert.deepEqual(parseFacts({ facts: { 'ifrs-full': { Revenue: { units: { USD: [v('2025-04-01', '2025-06-30', 50, 'CY2025Q2')] } } } } }, 'NBIS').map(r => r.revenue), [50]);
+  assert.deepEqual(parseFacts({}, 'X'), []);
+});
