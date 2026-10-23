@@ -93,18 +93,32 @@ test('value screen: merge open-data rows', () => {
 test('value screen: strategies filter and rank', () => {
   const rows = mergeInputs(screenRaw());
   for (const k of Object.keys(STRATEGIES)) {
-    const r = screen(rows, { strategy: k });
+    const r = screen(rows, { strategy: k, scope: 'all' });
     assert.ok(r.rows.every((x, i, a) => i === 0 || a[i - 1].score >= x.score), k);
     assert.ok(!r.rows.some(x => x.id === '2000'), 'illiquid excluded'); // 成交金額不足
     assert.ok(!r.rows.some(x => x.id === '2039'), 'loss-making excluded');
     assert.ok(r.eligible === 38);
   }
-  const v = screen(rows, { strategy: 'value' });
+  const v = screen(rows, { strategy: 'value', scope: 'all' });
   assert.ok(v.rows.every(x => x.pe <= 25 && x.roe >= 8));
   assert.equal(v.rows[0].peerScope, 'sector');
-  const g = screen(rows, { strategy: 'garp' });
+  const g = screen(rows, { strategy: 'garp', scope: 'all' });
   assert.ok(g.rows.every(x => x.revCumYoY >= 15 && x.peg <= 1.2));
-  const inc = screen(rows, { strategy: 'income' });
+  const inc = screen(rows, { strategy: 'income', scope: 'all' });
   assert.ok(inc.rows.every(x => x.yield >= 5));
   assert.ok(inc.rows.every(x => Array.isArray(x.reasons) && Array.isArray(x.warnings)));
+});
+
+import { AI_INDEX, scopeOf } from '../lib/aichain.mjs';
+test('低估選股範圍：AI 供應鏈、電子科技、全市場', async () => {
+  const { screen } = await import('../lib/valuescreen.mjs');
+  const mk = (id, sector, pe) => ({ id, name: id, sector, pe, pb: 1.5, yield: 3, revYoY: 5, revCumYoY: 5, turnover: 5e7, close: 100 });
+  const rows = [...Array.from({ length: 8 }, (_, i) => mk(String(9100 + i), '食品工業', 8 + i)), mk('2330', '半導體業', 12), mk('3017', '電腦及週邊設備業', 14), mk('6111', '半導體業', 10), mk('1234', '食品工業', 9)];
+  const ids = sc => screen(rows, { strategy: 'value', scope: sc, extraIds: ['1234'] }).rows.map(r => r.id).sort();
+  assert.deepEqual(ids('ai'), ['1234', '2330', '3017']);
+  assert.ok(ids('tech').every(id => ['2330', '3017', '6111'].includes(id)) && ids('tech').includes('6111'));
+  assert.ok(ids('all').length > ids('ai').length);
+  const r = screen(rows, { scope: 'ai', extraIds: ['1234'] }).rows;
+  assert.equal(r.find(x => x.id === '2330').chain, '晶圓代工與 IC 設計'); assert.equal(r.find(x => x.id === '1234').chain, '研究族群');
+  assert.equal(AI_INDEX.get('3017'), '散熱'); assert.equal(scopeOf({ id: '9999', sector: '光電業' }, 'tech'), true);
 });

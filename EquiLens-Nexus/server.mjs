@@ -33,6 +33,7 @@ import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs } from './l
 import { buildRisk, fetchRiskInputs, riskContext } from './lib/riskgauge.mjs';
 import { buildRiskUS, fetchRiskInputsUS } from './lib/riskgauge-us.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
+import { SCOPES } from './lib/aichain.mjs';
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
 import { buildVerdict } from './lib/verdict.mjs';
@@ -997,10 +998,10 @@ async function explainRisk(){
 // 低估選股：證交所／櫃買開放資料 8 個請求，平日 18:40 後更新一次（本益比與收盤行情在盤後更新，月營收每月 10 日前後）
 let screenJob={busy:false,step:0,total:7,error:'',ran:''};
 function screenInfo(q={}){
-  const store=read('value/inputs.json',null),strategy=STRATEGIES[q.strategy]?q.strategy:SCREEN_DEFAULTS.strategy,minTurnover=[0,5e6,1e7,3e7,1e8].includes(Number(q.minTurnover))?Number(q.minTurnover):SCREEN_DEFAULTS.minTurnover;
-  const result=store?.rows?.length?screen(store.rows,{strategy,minTurnover}):null,watch=new Set(watchlist);
+  const store=read('value/inputs.json',null),scope=['ai','tech','all'].includes(q.scope)?q.scope:SCREEN_DEFAULTS.scope,strategy=STRATEGIES[q.strategy]?q.strategy:SCREEN_DEFAULTS.strategy,minTurnover=[0,5e6,1e7,3e7,1e8].includes(Number(q.minTurnover))?Number(q.minTurnover):SCREEN_DEFAULTS.minTurnover;
+  const result=store?.rows?.length?screen(store.rows,{strategy,minTurnover,scope,extraIds:scopeIds(researchScope)}):null,watch=new Set(watchlist);
   if(result)result.rows=result.rows.map(r=>({...r,watch:watch.has(r.id)}));
-  return{capable:screenCapable(),strategies:Object.fromEntries(Object.entries(STRATEGIES).map(([k,v])=>[k,{name:v.name,desc:v.desc,rules:v.rules,weights:v.weights}])),strategy,minTurnover,updatedAt:store?.at||null,valDate:store?.valDate||null,revMonth:store?.revMonth||null,sourceErrors:store?.errors||{},result,busy:screenJob.busy,step:screenJob.step,total:screenJob.total,error:screenJob.error};
+  return{capable:screenCapable(),strategies:Object.fromEntries(Object.entries(STRATEGIES).map(([k,v])=>[k,{name:v.name,desc:v.desc,rules:v.rules,weights:v.weights}])),strategy,minTurnover,scope,scopes:SCOPES,updatedAt:store?.at||null,valDate:store?.valDate||null,revMonth:store?.revMonth||null,sourceErrors:store?.errors||{},result,busy:screenJob.busy,step:screenJob.step,total:screenJob.total,error:screenJob.error};
 }
 async function runScreen(){
   if(screenJob.busy||!screenCapable())return;

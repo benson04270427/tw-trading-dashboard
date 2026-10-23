@@ -1,6 +1,7 @@
 // 低估選股（台股，全市場）：以本益比、股價淨值比、殖利率、估算 ROE 與月營收成長，找出相對同業便宜、
 // 但獲利與營收沒有轉壞的公司。純計算；資料由 providers/twse.mjs 的 screenInputs 取得（證交所與櫃買開放資料，免金鑰）。
-export const SCREEN_VERSION = '1.0';
+import { AI_INDEX, scopeOf } from './aichain.mjs';
+export const SCREEN_VERSION = '1.1';
 const num = v => { if (v == null) return null; const s = String(v).replace(/,/g, '').trim(); if (!s || s === '-' || s === '--' || s === 'N/A') return null; const n = Number(s); return Number.isFinite(n) ? n : null; };
 const r1 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 10) / 10;
 const r2 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100;
@@ -17,7 +18,8 @@ export const STRATEGIES = {
   garp: { name: '成長合理價', desc: '營收成長快、本益比相對成長率不貴（PEG ≤ 1.2）', weights: { cheap: 35, quality: 20, growth: 45, income: 0 }, rules: { minCumYoY: 15, maxPEG: 1.2, minROE: 10 } },
   income: { name: '高殖利率', desc: '殖利率 5% 以上、獲利能力穩定、營收沒有明顯衰退', weights: { cheap: 15, quality: 25, growth: 10, income: 50 }, rules: { minYield: 5, minROE: 8, minCumYoY: -10 } },
 };
-export const DEFAULTS = { strategy: 'value', minTurnover: 1e7, limit: 60 };
+// scope：ai（AI 與周邊供應鏈，預設）、tech（電子科技類產業）、all（全市場）；同業比較仍以全市場的同產業為基準
+export const DEFAULTS = { strategy: 'value', minTurnover: 1e7, limit: 60, scope: 'ai' };
 
 // ---- 開放資料 → 每檔一列 ----
 export function mergeInputs(raw) {
@@ -63,8 +65,9 @@ export function screen(rows, opts = {}) {
     return { ...r, score, scores: Object.fromEntries(Object.entries(s).map(([k, v]) => [k, r1(v)])), pePct: r1(pePct), peerPE: p?.medPE ?? r1(median(all.pe)), peerPB: p?.medPB ?? r2(median(all.pb)), peerN: p?.n ?? base.length, peerScope: p ? 'sector' : 'market' };
   });
   const R = st.rules, pass = r => (R.maxPE == null || r.pe <= R.maxPE) && (R.minROE == null || (r.roe ?? -1e9) >= R.minROE) && (R.minCumYoY == null || (r.revCumYoY ?? -1e9) >= R.minCumYoY) && (R.maxPEG == null || (r.peg != null && r.peg <= R.maxPEG)) && (R.minYield == null || (r.yield ?? 0) >= R.minYield);
-  const picked = scored.filter(r => r.score != null && pass(r)).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-  return { strategy: o.strategy, name: st.name, desc: st.desc, rules: R, weights: st.weights, universe: rows.length, eligible: base.length, matched: picked.length,
+  const extra = new Set(o.extraIds || []), inScope = scored.filter(r => scopeOf(r, o.scope, extra));
+  const picked = inScope.filter(r => r.score != null && pass(r)).map(r => ({ ...r, chain: AI_INDEX.get(r.id) || (extra.has(r.id) ? '研究族群' : null) })).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+  return { strategy: o.strategy, scope: o.scope, scoped: inScope.length, name: st.name, desc: st.desc, rules: R, weights: st.weights, universe: rows.length, eligible: base.length, matched: picked.length,
     rows: picked.slice(0, o.limit).map(r => ({ ...r, reasons: reasons(r), warnings: warnings(r) })) };
 }
 export function reasons(r) {

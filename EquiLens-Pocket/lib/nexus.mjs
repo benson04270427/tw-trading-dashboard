@@ -91,7 +91,7 @@ export const verdict = id => call('verdict?id=' + encodeURIComponent(id), { time
 export const signal = id => call('signal?id=' + encodeURIComponent(id), { timeout: 60000 });
 export const riskQuery = () => call('risk/query', { body: {} });
 export const riskExplain = () => call('risk/explain', { body: {}, timeout: 180000 });
-export const value = (strategy, minTurnover) => call(`value?strategy=${encodeURIComponent(strategy)}&minTurnover=${encodeURIComponent(minTurnover)}`);
+export const value = (strategy, minTurnover, scope = 'ai') => call(`value?strategy=${encodeURIComponent(strategy)}&minTurnover=${encodeURIComponent(minTurnover)}&scope=${encodeURIComponent(scope)}`);
 export const valueQuery = () => call('value/query', { body: {} });
 export const groupStockAdd = (groupId, stockId) => call('group-stocks', { body: { groupId, stockId } }).finally(invalidate);
 export const watchGroups = groups => call('watch/groups', { body: { groups } }).finally(invalidate);

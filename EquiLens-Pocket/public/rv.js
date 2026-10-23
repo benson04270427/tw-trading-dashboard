@@ -1,7 +1,7 @@
 // 手機版：盤勢分頁的風控水位卡片（完整分析開在底部視窗）與型態分頁的「低估選股」（畫面見 riskvalue-ui.js）
 import { riskHTML, valueHTML } from './riskvalue-ui.js';
 let X = null; // { api, toast, draw, S, openSheet, $ }
-const R = { info: null, error: '', sheet: false }, V = { info: null, error: '', strategy: 'value', minTurnover: 1e7 };
+const R = { info: null, error: '', sheet: false }, V = { info: null, error: '', strategy: 'value', minTurnover: 1e7, scope: 'ai' };
 export function initRV(ctx) { X = ctx; }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const errLine = e => e ? `<div class="notice warn">${String(e).replace(/[<>&]/g, '')}</div>` : '';
@@ -18,15 +18,16 @@ const redraw = () => { if (R.sheet) repaintSheet(); X.draw(); };
 export async function loadRisk() { try { R.info = await X.api('api/risk'); R.error = ''; } catch (e) { if (!e.silent) R.error = e.message; } if (R.info?.busy) pollRisk(); }
 let rp = false, vp = false;
 async function pollRisk() { if (rp) return; rp = true; try { do { await sleep(3000); R.info = await X.api('api/risk'); if (X.S.tab === 'home') redraw(); } while (R.info?.busy); } catch (e) { R.error = e.message; } finally { rp = false; if (X.S.tab === 'home') redraw(); } }
-const vq = () => `api/value?strategy=${V.strategy}&minTurnover=${V.minTurnover}`;
-export async function loadValue() { try { V.info = await X.api(vq()); V.strategy = V.info.strategy; V.minTurnover = V.info.minTurnover; V.error = ''; } catch (e) { if (!e.silent) V.error = e.message; } if (V.info?.busy) pollValue(); }
+const vq = () => `api/value?strategy=${V.strategy}&minTurnover=${V.minTurnover}&scope=${V.scope}`;
+export async function loadValue() { try { V.info = await X.api(vq()); V.strategy = V.info.strategy; V.minTurnover = V.info.minTurnover; V.scope = V.info.scope || V.scope; V.error = ''; } catch (e) { if (!e.silent) V.error = e.message; } if (V.info?.busy) pollValue(); }
 async function pollValue() { if (vp) return; vp = true; try { do { await sleep(3000); V.info = await X.api(vq()); if (X.S.tab === 'patterns') X.draw(); } while (V.info?.busy); } catch (e) { V.error = e.message; } finally { vp = false; if (X.S.tab === 'patterns') X.draw(); } }
 
 document.addEventListener('click', async e => {
   if (!X) return;
-  const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-watch]'); if (!b) return;
+  const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-scope],[data-rv-watch]'); if (!b) return;
   e.stopPropagation();
   try {
+    if (b.dataset.rvScope) { V.scope = b.dataset.rvScope; V.info = await X.api(vq()); X.draw(); return; }
     if (b.dataset.rvStrategy) { V.strategy = b.dataset.rvStrategy; V.info = await X.api(vq()); X.draw(); return; }
     if (b.dataset.rvWatch) { const id = b.dataset.rvWatch, on = !b.classList.contains('on'); await X.api('api/watch', { id, on }); X.S.stocks = null; X.S.summary = null; V.info = await X.api(vq()); X.draw(); X.toast(on ? '已加入自選' : '已移除自選'); return; }
     const a = b.dataset.rv;

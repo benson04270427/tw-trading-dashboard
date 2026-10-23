@@ -568,3 +568,6 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 .sg-bar i{display:block;height:100%;background:#3fd47a}
 .sg-form{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;padding-top:6px;border-top:1px dashed var(--line);font-size:.84rem}
 .sg-form label{display:flex;flex-direction:column;gap:3px;color:var(--muted)}.sg-form input{width:9em}
+
+.rv-scopes{margin-bottom:6px;align-items:center}.rv-scopes>.soft{font-size:.8rem;margin-right:4px}
+.rv-chain{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid color-mix(in srgb,var(--amber) 50%,transparent);color:var(--amber);font-size:.72rem;line-height:1.5}

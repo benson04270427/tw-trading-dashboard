@@ -64,7 +64,7 @@ const STRAT_ORDER = ['value', 'garp', 'income'];
 const TURNOVER = [[0, '不限'], [5e6, '500 萬'], [1e7, '1,000 萬'], [3e7, '3,000 萬'], [1e8, '1 億']];
 function stockCard(r, i) {
   const m = (label, v, extra = '') => `<span><small>${label}</small><b class="num">${v}</b>${extra ? `<small class="soft">${extra}</small>` : ''}</span>`;
-  return `<div class="rv-stock"><div class="rv-shead"><span class="rv-rank num">${i + 1}</span><button class="ix-cw-stock rv-sname" data-alert-stock="${esc(r.id)}">${esc(r.name)} <small class="num">${esc(r.id)}</small></button><small class="soft">${esc(r.sector || '')}</small>
+  return `<div class="rv-stock"><div class="rv-shead"><span class="rv-rank num">${i + 1}</span><button class="ix-cw-stock rv-sname" data-alert-stock="${esc(r.id)}">${esc(r.name)} <small class="num">${esc(r.id)}</small></button><small class="soft">${r.chain ? `<span class="rv-chain">${esc(r.chain)}</span> ` : ''}${esc(r.sector || '')}</small>
     <span class="rv-sscore num">${fmt(r.score)}</span><button class="rv-watch ${r.watch ? 'on' : ''}" data-rv-watch="${esc(r.id)}" aria-pressed="${!!r.watch}" title="${r.watch ? '從自選移除' : '加入自選'}">${r.watch ? '★' : '☆'}</button></div>
     <div class="rv-metrics">${m('本益比', fmt(r.pe, 1), `同業 ${fmt(r.peerPE, 1)}`)}${m('淨值比', fmt(r.pb, 2))}${m('殖利率', fmt(r.yield, 2) + '%')}${m('ROE', fmt(r.roe, 1) + '%')}${m('營收年增', sign(r.revCumYoY) + '%', '今年累計')}${m('收盤', fmt(r.close, 2))}</div>
     ${r.reasons.length ? `<div class="rv-why">${r.reasons.map(x => `<span>✓ ${esc(x)}</span>`).join('')}</div>` : ''}${r.warnings.length ? `<div class="rv-warn">${r.warnings.map(x => `<span>⚠ ${esc(x)}</span>`).join('')}</div>` : ''}</div>`;
@@ -73,15 +73,16 @@ export function valueHTML(info, { limit = 30 } = {}) {
   if (!info) return '<p class="ix-empty">讀取中…</p>';
   if (!info.capable) return '<p class="ix-empty">低估選股目前只支援台股。</p>';
   const st = info.strategies[info.strategy], r = info.result;
-  const tabs = `<div class="rv-strats">${STRAT_ORDER.map(k => `<button data-rv-strategy="${k}" class="${info.strategy === k ? 'selected' : ''}" aria-pressed="${info.strategy === k}">${esc(info.strategies[k].name)}</button>`).join('')}</div>`;
+  const scopes = info.scopes ? `<div class="rv-strats rv-scopes"><span class="soft">範圍</span>${Object.entries(info.scopes).map(([k, l]) => `<button data-rv-scope="${k}" class="${info.scope === k ? 'selected' : ''}" aria-pressed="${info.scope === k}">${esc(l)}</button>`).join('')}</div>` : '';
+  const tabs = `${scopes}<div class="rv-strats">${STRAT_ORDER.map(k => `<button data-rv-strategy="${k}" class="${info.strategy === k ? 'selected' : ''}" aria-pressed="${info.strategy === k}">${esc(info.strategies[k].name)}</button>`).join('')}</div>`;
   const ctl = `<div class="rv-ctl"><label>成交金額 ≥ <select id="rv-turnover">${TURNOVER.map(([v, l]) => `<option value="${v}" ${info.minTurnover === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <button class="rv-btn" data-rv="value-query" ${info.busy ? 'disabled' : ''}>${info.busy ? `<i class="spinner"></i>更新中 ${info.step + 1}/${info.total}` : '⟳ 更新資料'}</button></div>`;
-  const meta = `<p class="rv-desc">${esc(st.desc)}</p><div class="ix-bmeta">${info.valDate ? `<span>本益比 <b>${esc(info.valDate)}</b></span>` : ''}${info.revMonth ? `<span>月營收 <b>${esc(info.revMonth)}</b></span>` : ''}${r ? `<span>可比較 ${fmt(r.eligible)} 檔 · 符合 <b>${fmt(r.matched)}</b> 檔</span>` : ''}</div>`;
+  const meta = `<p class="rv-desc">${esc(st.desc)}</p><div class="ix-bmeta">${info.valDate ? `<span>本益比 <b>${esc(info.valDate)}</b></span>` : ''}${info.revMonth ? `<span>月營收 <b>${esc(info.revMonth)}</b></span>` : ''}${r ? `<span>${r.scope && r.scope !== 'all' ? `範圍內 ${fmt(r.scoped)} 檔` : `可比較 ${fmt(r.eligible)} 檔`} · 符合 <b>${fmt(r.matched)}</b> 檔</span>` : ''}</div>`;
   const err = info.error ? `<p class="rv-err">${esc(info.error)}</p>` : '';
   const body = !r ? `<div class="rv-empty"><p>${info.busy ? '正在取得全市場本益比、月營收與收盤行情（約 30 秒）…' : '尚無選股資料，按「更新資料」取得。'}</p></div>`
     : r.rows.length ? `<div class="rv-list">${r.rows.slice(0, limit).map(stockCard).join('')}</div>` : '<p class="ix-empty">沒有符合條件的股票，試著放寬成交金額門檻。</p>';
   return `${tabs}${ctl}${err}${meta}${body}
-    <p class="ix-foot">本益比與淨值比和同產業比較（同業少於 6 檔時與全市場比較），ROE＝淨值比 ÷ 本益比（估算），營收成長、ROE 與殖利率和全市場比較。分數 0～100，依策略權重加總。資料：證交所與櫃買中心開放資料（免金鑰），平日 18:40 後更新。低本益比可能來自一次性獲利或產業循環高點，請搭配財報與產業狀況判斷；這不是買賣建議。</p>`;
+    <p class="ix-foot">「AI 供應鏈」是人工整理的 AI 伺服器與資料中心相關公司，加上你的研究族群；「電子科技」是證交所／櫃買的電子類產業。本益比與淨值比和全市場的同產業比較（同業少於 6 檔時與全市場比較），ROE＝淨值比 ÷ 本益比（估算），營收成長、ROE 與殖利率和全市場比較。分數 0～100，依策略權重加總。資料：證交所與櫃買中心開放資料（免金鑰），平日 18:40 後更新。低本益比可能來自一次性獲利或產業循環高點，請搭配財報與產業狀況判斷；這不是買賣建議。</p>`;
 }
 
 // 個股判讀卡：綜合判讀、撐壓位、三大法人近 20 日、融資（股票視窗頂端）

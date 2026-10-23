@@ -25,7 +25,7 @@ const PAGES = {
   grouprank: { title: '族群排名', eyebrow: 'Sector Strength Ranking', sub: '研究總覽各族群的盤中漲幅排名：排除低量個股並以 √成交金額加權，避免冷門股或單一權值股造成失真；隔日標示名次變動。' },
   live: { title: '盤中雷達', eyebrow: 'Intraday Radar · Live Board', sub: '盤中定時掃描即時行情：族群與自選股即時走勢、爆量與急拉急殺、漲跌停與型態進場提醒，手機同步推播。' },
   risk: { title: '風控水位', eyebrow: 'Risk Gauge · Exposure', sub: '市場情緒、資金與信用、利率匯率與大盤趨勢，各與過去一年比較後換算成風險分數與建議持股水位（台股與美股各有一套指標）。' },
-  value: { title: '低估選股', eyebrow: 'Value Screener · Whole Market', sub: '全市場本益比、淨值比、殖利率、ROE 與月營收成長，找出比同業便宜、但獲利與營收沒有轉壞的公司。' },
+  value: { title: '低估選股', eyebrow: 'Value Screener · AI Supply Chain', sub: '以本益比、淨值比、殖利率、ROE 與月營收成長，在 AI 供應鏈（可切換電子科技或全市場）找出比同業便宜、但獲利與營收沒有轉壞的公司。' },
   overview: { title: '研究總覽', eyebrow: 'Research Matrix', sub: '從趨勢到證據，找到值得深入研究的公司。' },
   sectors: { title: '市場族群', eyebrow: 'Custom Groups', sub: '依你的族群分類研究，保留檔案順序與跨族群歸屬。' },
   patterns: { title: '型態選股', eyebrow: 'Pattern Scanner · 90 Sessions', sub: '90 個交易日，看見價格結構、確認訊號與風險邊界。' },
