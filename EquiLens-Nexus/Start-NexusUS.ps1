@@ -1,4 +1,4 @@
-# 衡析美股：第二個 Nexus（埠 4331、資料在 .local-us），與台股版（埠 4330、.local）同時執行、互不影響。
+﻿# 衡析美股：第二個 Nexus（埠 4331、資料在 .local-us），與台股版（埠 4330、.local）同時執行、互不影響。
 # 第一次啟動時寫入 market=US 的設定，開啟網頁後在設定精靈貼上美股資料源金鑰（例如 Twelve Data）。
 param([switch]$NoBrowser)
 $ErrorActionPreference = 'Stop'
