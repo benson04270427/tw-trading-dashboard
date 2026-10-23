@@ -224,7 +224,7 @@ export function zonesHTML(info, { tab = 'value', limit = 80 } = {}) {
   const tabs = `<div class="rv-strats">${['value', 'heat'].map(k => `<button data-rv-zone="${k}" class="${tab === k ? 'selected' : ''}" aria-pressed="${tab === k}">${esc(N[k])}${d ? ` <small class="num">${d.zones[k].length}</small>` : ''}</button>`).join('')}</div>`;
   const btn = `<button class="rv-btn" data-rv="zones-query" ${info.busy ? 'disabled' : ''}>${info.busy ? `<i class="spinner"></i>計算中${info.total ? ` ${info.step}/${info.total}` : ''}` : '⟳ 重新計算'}</button>`;
   const err = info.error ? `<p class="rv-err">${esc(info.error)}</p>` : '';
-  const desc = { value: us ? '有獲利、近四季營收年增 ≥ 10%，本益比在同產業候選中偏低，股價距 52 週高點回檔 10% 以上。' : '有獲利、單月營收年增 ≥ 15% 且月增 > 0，本益比在同產業的較低一半，且 PEG ≤ 1。範圍：AI 供應鏈、研究名單與自選。', heat: us ? '當日上漲 ≥ 3%（或 ≥ 2% 且成交金額增加 ≥ 50%），股價在 52 週高點 5% 以內，營收仍在成長。' : '當日上漲 ≥ 3%、成交金額較前一日增加 ≥ 30%（或漲停），營收年增 > 0。範圍：AI 供應鏈、研究名單與自選。' }[tab];
+  const desc = { value: us ? '有獲利、近四季營收年增 ≥ 15%，本益比在同產業候選中的較低三分之一，股價距 52 週高點回檔 10%～35%。' : '有獲利、單月營收年增 ≥ 15% 且月增 > 0，本益比在同產業的較低一半，且 PEG ≤ 1。範圍：AI 供應鏈、研究名單與自選。', heat: us ? '當日上漲 ≥ 3%（或 ≥ 2% 且成交金額增加 ≥ 50%），股價在 52 週高點 5% 以內，營收仍在成長。' : '當日上漲 ≥ 3%、成交金額較前一日增加 ≥ 30%（或漲停），營收年增 > 0。範圍：AI 供應鏈、研究名單與自選。' }[tab];
   const meta = `<div class="pk-meta"><span class="soft">${d ? `${esc(d.date)} 收盤 · 已累積 ${info.days} 天紀錄` : '尚未計算'}</span>${btn}</div><p class="rv-desc">${esc(desc)}</p>`;
   if (!d) return `${tabs}${meta}${err}<div class="rv-empty"><p>${info.busy ? '計算中…' : '每日研究資料更新後自動計算，也可以按「重新計算」。'}</p></div>`;
   const list = d.zones[tab].slice(0, limit);

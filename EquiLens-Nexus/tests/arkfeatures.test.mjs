@@ -29,8 +29,8 @@ test('策略選股：台股價值區與升溫區、美股、入選紀錄', () =>
   assert.deepEqual(z.value.map(r => r.id), ['2330']); // 2454 本益比偏高、3017 營收年增不足、6669 月減
   assert.equal(z.value[0].chain, '晶圓代工與 IC 設計'); assert.equal(z.value[0].revMoM, 5);
   assert.deepEqual(z.heat.map(r => r.id), ['2454', '2330']);
-  const fund = new Map([['AAA', { pe: 15, revGrowth: 20, high52: 120 }], ['BBB', { pe: 40, revGrowth: 30, high52: 101 }], ['CCC', { pe: 25, revGrowth: 5, high52: 100 }], ['DDD', { pe: 30, revGrowth: 12, high52: 100 }], ['EEE', { pe: 35, revGrowth: 12, high52: 100 }]]);
-  const uh = [{ id: 'AAA', close: 100, change: 1, sector: '科技' }, { id: 'BBB', close: 100, change: 3.5, sector: '科技' }, { id: 'CCC', close: 80, change: 0, sector: '科技' }, { id: 'DDD', close: 99, change: 0, sector: '科技' }, { id: 'EEE', close: 99, change: 0, sector: '科技' }];
+  const fund = new Map([['AAA', { pe: 10, revGrowth: 20, high52: 120 }], ['ADR', { pe: 5, revGrowth: 50, high52: 900 }], ['BBB', { pe: 40, revGrowth: 30, high52: 101 }], ['CCC', { pe: 25, revGrowth: 5, high52: 100 }], ['DDD', { pe: 30, revGrowth: 12, high52: 100 }], ['EEE', { pe: 35, revGrowth: 12, high52: 100 }]]);
+  const uh = [{ id: 'AAA', close: 100, change: 1, sector: '科技' }, { id: 'ADR', close: 100, change: 0, sector: '科技' }, { id: 'BBB', close: 100, change: 3.5, sector: '科技' }, { id: 'CCC', close: 80, change: 0, sector: '科技' }, { id: 'DDD', close: 99, change: 0, sector: '科技' }, { id: 'EEE', close: 99, change: 0, sector: '科技' }];
   const u = zonesUS({ heat: uh, fund });
   assert.deepEqual(u.value.map(r => r.id), ['AAA']); assert.equal(u.value[0].offHigh, -16.7);
   assert.deepEqual(u.heat.map(r => r.id), ['BBB']);

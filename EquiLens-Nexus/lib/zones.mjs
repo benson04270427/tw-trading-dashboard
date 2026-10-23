@@ -5,7 +5,7 @@
 //   產業價值區：有獲利、單月營收年增 ≥ 15% 且月增 > 0，本益比在同產業的較低一半（百分位 ≤ 50），且 PEG ≤ 1（今年累計營收年增計算）
 //   產業升溫區：當日上漲 ≥ 3%（含漲停）、成交金額較前一日增加 ≥ 30% 或漲停，營收年增 > 0（有資料時）
 // 美股（範圍：當日成交金額前 300 名＋研究名單＋自選；基本面來自 Finnhub）
-//   美股價值區：有獲利、營收年增（近四季）≥ 10%，本益比在同產業候選中偏低（百分位 ≤ 50），股價距 52 週高點回檔 ≥ 10%
+//   美股價值區：有獲利、營收年增（近四季）≥ 15%，本益比在同產業候選中的較低三分之一（百分位 ≤ 35），股價距 52 週高點回檔 10%～35%
 //   美股升溫區：當日上漲 ≥ 3%（或上漲 ≥ 2% 且成交金額增加 ≥ 50%），股價在 52 週高點 5% 以內，營收年增 > 0
 export const ZONES_VERSION = '1.0';
 const r1 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 10) / 10;
@@ -34,10 +34,12 @@ export function zonesTW({ value = [], heat = [], scope = new Set(), chain = new 
 }
 // 美股：heat＝熱浪圖每檔，fund＝Map(id → { pe, revGrowth, high52, low52 })
 export function zonesUS({ heat = [], fund = new Map(), scope = null }) {
-  const rows = heat.filter(h => fund.has(h.id) && (!scope || scope.has(h.id))).map(h => ({ ...h, ...fund.get(h.id) }));
+  // 52 週高低與股價明顯不在同一幣別或單位時（例如部分外國存託憑證），不使用 52 週資料
+  const ok52 = r => r.high52 > 0 && r.close > 0 && r.high52 >= r.close * 0.9 && r.high52 <= r.close * 2.5 && (!(r.low52 > 0) || r.low52 <= r.close * 1.1);
+  const rows = heat.filter(h => fund.has(h.id) && (!scope || scope.has(h.id))).map(h => { const r = { ...h, ...fund.get(h.id) }; if (!ok52(r)) { r.high52 = null; r.low52 = null; } return r; });
   const pe = peerPct(rows.filter(r => r.pe > 0), 'pe', 5);
   const row = (r, extra = {}) => ({ id: r.id, name: r.name || r.id, sector: r.sector || '', chain: null, close: r.close ?? null, change: r.change ?? null, money: r.money ?? null, revYoY: r1(r.revGrowth), pe: r1(r.pe), offHigh: r.high52 > 0 && r.close ? r1((r.close / r.high52 - 1) * 100) : null, ...extra });
-  const valueZone = rows.filter(r => r.pe > 0 && r.revGrowth >= 10 && r.high52 > 0 && r.close <= r.high52 * 0.9).map(r => ({ r, p: pe(r) })).filter(x => x.p != null && x.p <= 50).map(x => row(x.r, { pePct: r1(x.p) }));
+  const valueZone = rows.filter(r => r.pe > 0 && r.revGrowth >= 15 && r.high52 > 0 && r.close <= r.high52 * 0.9 && r.close >= r.high52 * 0.65).map(r => ({ r, p: pe(r) })).filter(x => x.p != null && x.p <= 35).map(x => row(x.r, { pePct: r1(x.p) }));
   const heatZone = rows.filter(r => (r.change >= 3 || (r.change >= 2 && (r.moneyChange ?? 0) >= 50)) && r.high52 > 0 && r.close >= r.high52 * 0.95 && (r.revGrowth == null || r.revGrowth > 0)).map(r => row(r, { moneyChange: r.moneyChange ?? null }));
   const sort = (a, b) => (b.change ?? -99) - (a.change ?? -99) || a.id.localeCompare(b.id);
   return { value: valueZone.sort(sort), heat: heatZone.sort(sort) };

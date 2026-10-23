@@ -3516,5 +3516,6 @@
  "🧭 入選策略紀錄": "🧭 Strategy entries",
  "（較舊）": " (older)",
  "平均／最高／最低取近 120 天內每個來源最新的目標價；台股以 FactSet 共識目標價為主，另含部分外資券商（未具名）。": "Average/high/low use each source's latest target from the last 120 days; Taiwan targets are mainly FactSet consensus plus some unnamed foreign brokers.",
- "有獲利、單月營收年增 ≥ 15% 且月增 > 0，本益比在同產業的較低一半，且 PEG ≤ 1。範圍：AI 供應鏈、研究名單與自選。": "Profitable, monthly revenue up ≥15% YoY and up MoM, P/E in the lower half of its industry, and PEG ≤ 1. Scope: AI supply chain, research list and watchlist."
+ "有獲利、單月營收年增 ≥ 15% 且月增 > 0，本益比在同產業的較低一半，且 PEG ≤ 1。範圍：AI 供應鏈、研究名單與自選。": "Profitable, monthly revenue up ≥15% YoY and up MoM, P/E in the lower half of its industry, and PEG ≤ 1. Scope: AI supply chain, research list and watchlist.",
+ "有獲利、近四季營收年增 ≥ 15%，本益比在同產業候選中的較低三分之一，股價距 52 週高點回檔 10%～35%。": "Profitable, trailing-four-quarter revenue up ≥15% YoY, P/E in the lowest third of industry peers, price 10%–35% below the 52-week high."
 }
