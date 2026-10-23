@@ -1099,15 +1099,18 @@ async function runPicks({push=true}={}){
     const scored=list.map(x=>{const s=st.get(x.id),f={...x,chain:chain.get(x.id)||null,flow:flows.get(x.id)||null,chips5:s?.chips?.net5??null,revYoY:s?.revenue?.yoy??null,signal:signalOf(raw[x.id]?.price,M())};return{...f,...scoreStock(f,{market:mk})};});
     const top=k=>[...scored].sort((a,b)=>b.score-a.score).slice(0,k);
     // 分數前 20 名中沒有本機日 K 的股票，取近 200 天日 K（台股 FinMind、美股 Nasdaq，每檔 1 個請求）計算訊號與 60 日新高
+    // 某個資料源失敗或逾時一次後，本次其餘股票就不再查詢（避免額度用完時逐檔等待）
+    let dailyDown=false,newsDown=false;
     for(const f of top(20)){
       let rows=raw[f.id]?.price;
-      if(!rows?.length){try{rows=tw&&data.finmind()?await finmindRequest('TaiwanStockPrice',{data_id:f.id,start_date:minusDays(date,200),end_date:date},{...fmOpt(),signal:AbortSignal.timeout(15e3)}):(await data.daily(f.id,minusDays(date,200),date,{signal:AbortSignal.timeout(15e3)})).price;}catch{rows=[];}}
+      if(!rows?.length&&!dailyDown){try{rows=tw&&data.finmind()?await finmindRequest('TaiwanStockPrice',{data_id:f.id,start_date:minusDays(date,200),end_date:date},{...fmOpt(),signal:AbortSignal.timeout(15e3)}):(await data.daily(f.id,minusDays(date,200),date,{signal:AbortSignal.timeout(15e3)})).price;}catch{rows=[];dailyDown=true;}}
       if(rows?.length){f.signal=signalOf(rows,M());f.high60=newHigh(rows);Object.assign(f,scoreStock(f,{market:mk}));}
     }
     // 分數前 12 名取近兩日新聞（每檔 2 個請求），只保留標題提到這檔股票的新聞
     if(data.has('news'))for(const f of top(12)){
+      if(newsDown)break;
       try{const o={signal:AbortSignal.timeout(15e3)},n=relevantNews([...await data.news(f.id,date,o),...await data.news(f.id,minusDays(date,1),o)],f.id,f.name);
-        if(n.length){f.news=n.slice(0,3);Object.assign(f,scoreStock(f,{market:mk}));}}catch{}
+        if(n.length){f.news=n.slice(0,3);Object.assign(f,scoreStock(f,{market:mk}));}}catch{newsDown=true;}
     }
     const picks=choose(scored,5,tw?2:3).map(f=>({id:f.id,name:f.name,sector:f.sector,chain:f.chain,close:f.close,change:f.change,money:f.money,score:f.score,reasons:f.reasons,warnings:f.warnings,news:f.news||[]}));
     const prev=read('picks/latest.json',null),doc={version:PICKS_VERSION,market:mk,date,generatedAt:new Date().toISOString(),candidates:list.length,flows:flows.size>0,picks};
