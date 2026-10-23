@@ -16,17 +16,17 @@ export function gaugeSVG(risk) {
 }
 
 // 近 N 日風險分數（左軸 0～100）與加權指數（右側，依區間縮放）
-export function riskHistorySVG(history = []) {
+export function riskHistorySVG(history = [], indexName = '加權指數') {
   const h = history.filter(x => x[1] != null); if (h.length < 2) return '';
   const W = 600, H = 150, P = 6, x = i => P + i * (W - 2 * P) / (h.length - 1), y = v => P + (100 - v) * (H - 2 * P) / 100;
   const ix = h.map(r => r[3]).filter(v => v != null), lo = Math.min(...ix), hi = Math.max(...ix), iy = v => P + (hi === lo ? 0.5 : (hi - v) / (hi - lo)) * (H - 2 * P);
   const line = (f, sel) => h.map((r, i) => sel(r) == null ? '' : `${i && sel(h[i - 1]) != null ? 'L' : 'M'}${x(i).toFixed(1)} ${f(sel(r)).toFixed(1)}`).join('');
   const bands = [[75, 100, 'high'], [60, 75, 'highish'], [40, 60, 'mid'], [25, 40, 'lowish'], [0, 25, 'low']].map(([a, b, k]) => `<rect class="rv-band rv-${k}" x="0" y="${y(b)}" width="${W}" height="${y(a) - y(b)}"/>`).join('');
   return `<svg class="rv-hist" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="風險分數走勢">${bands}<path class="rv-ixline" d="${line(iy, r => r[3])}"/><path class="rv-rline" d="${line(y, r => r[1])}"/></svg>
-  <div class="rv-hist-axis"><span>${esc(h[0][0])}</span><span><i class="rv-key rv-rkey"></i>風險分數 <i class="rv-key rv-ikey"></i>加權指數</span><span>${esc(h.at(-1)[0])}</span></div>`;
+  <div class="rv-hist-axis"><span>${esc(h[0][0])}</span><span><i class="rv-key rv-rkey"></i>風險分數 <i class="rv-key rv-ikey"></i>${esc(indexName)}</span><span>${esc(h.at(-1)[0])}</span></div>`;
 }
 
-const factorValue = f => f.value == null ? '—' : f.key === 'foreignFut' ? sign(f.value, 0) + ' 口' : f.key === 'foreignSpot' ? sign(f.value, 0) + ' 億' : f.key === 'retail' ? sign(f.value, 2) + '%' : sign(f.value, 2) + '%';
+const factorValue = f => f.value == null ? '—' : f.unit === 'bp' ? sign(f.value, 0) + ' bp' : f.show === 'plain' ? fmt(f.value, 2) + (f.unit || '') : f.key === 'foreignFut' ? sign(f.value, 0) + ' 口' : f.key === 'foreignSpot' ? sign(f.value, 0) + ' 億' : f.key === 'retail' ? sign(f.value, 2) + '%' : sign(f.value, 2) + '%';
 function factorRow(f) {
   const t = toneOf(f.risk), w = f.risk == null ? 0 : Math.max(3, f.risk);
   return `<div class="rv-factor"><div class="rv-fhead"><b>${esc(f.name)}</b><span class="rv-fval num">${factorValue(f)}</span></div>
@@ -37,7 +37,7 @@ function factorRow(f) {
 
 export function riskHTML(info, { compact = false } = {}) {
   if (!info) return '<p class="ix-empty">讀取中…</p>';
-  if (!info.capable) return '<p class="ix-empty">風控水位目前只支援台股。</p>';
+  if (!info.capable) return '<p class="ix-empty">風控水位目前只支援台股與美股。</p>';
   const d = info.data, busy = info.busy ? `<span class="rv-busy"><i class="spinner"></i>更新中 ${info.step + 1}/${info.total}</span>` : '';
   const btn = `<button class="rv-btn" data-rv="risk-query" ${info.busy ? 'disabled' : ''}>⟳ 更新</button>`;
   const err = info.error ? `<p class="rv-err">${esc(info.error)}</p>` : '';
@@ -55,9 +55,9 @@ export function riskHTML(info, { compact = false } = {}) {
   const ai = `<div class="rv-ai"><div class="rv-ai-head"><b>AI 解讀</b>${info.llm ? `<button class="rv-btn" data-rv="risk-explain" ${info.explainBusy ? 'disabled' : ''}>${info.explainBusy ? '<i class="spinner"></i>產生中…' : ex ? '重新產生' : '產生解讀'}</button>` : '<span class="soft">需先在電腦版「資料與設定」設定推理模型</span>'}</div>
     ${ex ? `<p class="rv-ai-title">${esc(ex.headline)}</p><ul>${ex.points.map(p => `<li>${esc(p)}</li>`).join('')}</ul>${ex.watch.length ? `<p class="rv-ai-sub">下週觀察</p><ul>${ex.watch.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}${ex.stance ? `<p class="rv-ai-stance">${esc(ex.stance)}</p>` : ''}<p class="soft rv-small">${esc(ex.model || '')} · ${esc(String(ex.createdAt || '').slice(0, 16).replace('T', ' '))}</p>` : info.llm ? '<p class="soft rv-small">讓 AI 根據下方指標寫出風險來源、相互印證的訊號與下週觀察重點。</p>' : ''}</div>`;
   return `${head}${tags}<div class="rv-actions">${btn}${busy}</div>${err}${ai}
-    <div class="rv-sect"><h4>近 ${d.history.length} 個交易日</h4>${riskHistorySVG(d.history)}</div>
+    <div class="rv-sect"><h4>近 ${d.history.length} 個交易日</h4>${riskHistorySVG(d.history, d.indexName || '加權指數')}</div>
     <div class="rv-factors">${groups}</div>
-    <p class="ix-foot">風險分數＝各指標與自己過去一年相比的位置（百分位）加權平均，0 最安全、100 最危險；建議持股＝100 − 分數，取 10% 為單位，介於 20%～90%。平日 15:40 與 21:40 自動更新（融資約晚上公布），等級改變時推播。這是依公開資料計算的參考指標，不是買賣建議。</p>`;
+    <p class="ix-foot">風險分數＝各指標與自己過去一年相比的位置（百分位）加權平均，0 最安全、100 最危險；建議持股＝100 − 分數，取 10% 為單位，介於 20%～90%。${d.market === 'US' ? '資料來自 FRED、Cboe 與 Nasdaq（免金鑰），每天台北時間 08:40 與 20:40 自動更新' : '平日 15:40 與 21:40 自動更新（融資約晚上公布）'}，等級改變時推播。這是依公開資料計算的參考指標，不是買賣建議。</p>`;
 }
 
 const STRAT_ORDER = ['value', 'garp', 'income'];

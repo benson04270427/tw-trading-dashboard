@@ -24,9 +24,9 @@ export const level = risk => { const l = LEVELS.find(([max]) => risk < max) || L
 export const exposure = risk => risk == null ? null : clamp(Math.round((100 - risk) / 10) * 10, 20, 90);
 
 // 依日期排序的序列：[[date, value], ...]
-const series = map => [...map].filter(([, v]) => v != null && Number.isFinite(v)).sort((a, b) => a[0].localeCompare(b[0]));
+export const series = map => [...map].filter(([, v]) => v != null && Number.isFinite(v)).sort((a, b) => a[0].localeCompare(b[0]));
 // 某日（含）以前最近一筆，最多往前找 maxGap 筆交易日資料
-function at(list, date) { let lo = 0, hi = list.length - 1, found = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (list[m][0] <= date) { found = m; lo = m + 1; } else hi = m - 1; } return found; }
+export function at(list, date) { let lo = 0, hi = list.length - 1, found = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (list[m][0] <= date) { found = m; lo = m + 1; } else hi = m - 1; } return found; }
 // 百分位：value 在 window 中小於它的比例（同值算一半），0～100
 export function percentile(window, value) {
   if (!window.length || value == null) return null;
@@ -67,8 +67,8 @@ export function fxSeries(rows = []) {
   return change(series(m), 20);
 }
 export function indexSeries(rows = []) { const m = new Map(); for (const r of rows) { const c = num(r.close); if (c > 0) m.set(r.date, c); } return series(m); }
-function rolling(list, n, fn) { const out = []; for (let i = n - 1; i < list.length; i++) out.push([list[i][0], r2(fn(list.slice(i - n + 1, i + 1).map(x => x[1])))]); return out; }
-function change(list, n) { const out = []; for (let i = n; i < list.length; i++) out.push([list[i][0], r2((list[i][1] / list[i - n][1] - 1) * 100)]); return out; }
+export function rolling(list, n, fn) { const out = []; for (let i = n - 1; i < list.length; i++) out.push([list[i][0], r2(fn(list.slice(i - n + 1, i + 1).map(x => x[1])))]); return out; }
+export function change(list, n) { const out = []; for (let i = n; i < list.length; i++) out.push([list[i][0], r2((list[i][1] / list[i - n][1] - 1) * 100)]); return out; }
 // 大盤趨勢：與 60 日均線的乖離（%）與 20／60 日均線排列
 export function trendSeries(index) {
   const out = [], closes = index.map(x => x[1]);
@@ -89,11 +89,11 @@ function factorAt(f, list, date, { lookback = 250, minHistory = 40 } = {}) {
   const p = percentile(window, value);
   return { value, asOf, pct: r1(p), risk: r1(f.dir > 0 ? p : 100 - p) };
 }
-export function scoreAt(seriesMap, date, opt) {
-  const factors = FACTORS.map(f => ({ ...f, ...(factorAt(f, seriesMap[f.key] || [], date, opt) || { value: null, risk: null }) }));
+export function scoreAt(seriesMap, date, opt, defs = FACTORS) {
+  const factors = defs.map(f => ({ ...f, ...(factorAt(f, seriesMap[f.key] || [], date, opt) || { value: null, risk: null }) }));
   const used = factors.filter(f => f.risk != null), w = used.reduce((a, f) => a + f.weight, 0);
   const risk = w ? r1(used.reduce((a, f) => a + f.risk * f.weight, 0) / w) : null;
-  return { date, risk, exposure: exposure(risk), ...(risk == null ? { label: null, tone: null } : level(risk)), coverage: Math.round(w / FACTORS.reduce((a, f) => a + f.weight, 0) * 100), factors };
+  return { date, risk, exposure: exposure(risk), ...(risk == null ? { label: null, tone: null } : level(risk)), coverage: Math.round(w / defs.reduce((a, f) => a + f.weight, 0) * 100), factors };
 }
 // 完整結果：最新評分、近 days 個交易日的風險與指數走勢、與前一日／前一週比較
 export function buildRisk(raw, { days = 120, now = new Date().toISOString() } = {}) {
@@ -101,11 +101,15 @@ export function buildRisk(raw, { days = 120, now = new Date().toISOString() } = 
   const s = { retail: retailSeries(raw.mtxInst, raw.mtxDaily), margin: marginSeries(raw.margin), foreignFut: foreignFutSeries(raw.txInst), foreignSpot: foreignSpotSeries(raw.spot), fx: fxSeries(raw.fx), trend: trendSeries(index) };
   // 以各指標最新日期中最晚者為評分日（期貨與匯率比融資早公布）
   const dates = [...new Set([...index.map(x => x[0]), ...s.retail.map(x => x[0])])].sort();
-  if (!dates.length) return { version: RISK_VERSION, available: false, updatedAt: now, errors: raw.errors || {} };
-  const latest = dates.at(-1), current = scoreAt(s, latest);
-  const hist = dates.slice(-days).map(d => { const x = scoreAt(s, d), ix = index[at(index, d)]; return [d, x.risk, x.exposure, ix ? ix[1] : null]; });
+  return assemble(s, dates, index, raw, { days, now, defs: FACTORS, market: 'TW', indexName: '加權指數' });
+}
+// 共用：依評分日組成最新評分、近 days 日走勢與一日／一週變化（台股與美股共用）
+export function assemble(s, dates, index, raw, { days = 120, now = new Date().toISOString(), defs = FACTORS, market = 'TW', indexName = '' } = {}) {
+  if (!dates.length) return { version: RISK_VERSION, market, indexName, available: false, updatedAt: now, errors: raw.errors || {} };
+  const latest = dates.at(-1), current = scoreAt(s, latest, undefined, defs);
+  const hist = dates.slice(-days).map(d => { const x = scoreAt(s, d, undefined, defs), ix = index[at(index, d)]; return [d, x.risk, x.exposure, ix ? ix[1] : null]; });
   const prev = hist.length > 1 ? hist.at(-2)[1] : null, week = hist.length > 5 ? hist.at(-6)[1] : null;
-  return { version: RISK_VERSION, available: current.risk != null, updatedAt: now, ...current, change1: prev == null || current.risk == null ? null : r1(current.risk - prev), change5: week == null || current.risk == null ? null : r1(current.risk - week),
+  return { version: RISK_VERSION, market, indexName, available: current.risk != null, updatedAt: now, ...current, change1: prev == null || current.risk == null ? null : r1(current.risk - prev), change5: week == null || current.risk == null ? null : r1(current.risk - week),
     history: hist, summary: summarize(current), errors: raw.errors || {} };
 }
 // 文字說明：風險最高與最低的兩個指標

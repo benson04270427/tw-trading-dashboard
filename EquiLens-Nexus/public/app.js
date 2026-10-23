@@ -24,7 +24,7 @@ const PAGES = {
   heatmap: { title: '資金熱浪', eyebrow: 'Market Pulse · Sector Heatmap', sub: '當日資金流向：面積為成交金額、顏色為漲跌幅，依產業別切分板塊（資料源沒有全市場行情時以研究族群為範圍）。' },
   grouprank: { title: '族群排名', eyebrow: 'Sector Strength Ranking', sub: '研究總覽各族群的盤中漲幅排名：排除低量個股並以 √成交金額加權，避免冷門股或單一權值股造成失真；隔日標示名次變動。' },
   live: { title: '盤中雷達', eyebrow: 'Intraday Radar · Live Board', sub: '盤中定時掃描即時行情：族群與自選股即時走勢、爆量與急拉急殺、漲跌停與型態進場提醒，手機同步推播。' },
-  risk: { title: '風控水位', eyebrow: 'Risk Gauge · Exposure', sub: '散戶情緒、外資資金流向、融資、匯率與大盤趨勢，與過去一年比較後換算成風險分數與建議持股水位。' },
+  risk: { title: '風控水位', eyebrow: 'Risk Gauge · Exposure', sub: '市場情緒、資金與信用、利率匯率與大盤趨勢，各與過去一年比較後換算成風險分數與建議持股水位（台股與美股各有一套指標）。' },
   value: { title: '低估選股', eyebrow: 'Value Screener · Whole Market', sub: '全市場本益比、淨值比、殖利率、ROE 與月營收成長，找出比同業便宜、但獲利與營收沒有轉壞的公司。' },
   overview: { title: '研究總覽', eyebrow: 'Research Matrix', sub: '從趨勢到證據，找到值得深入研究的公司。' },
   sectors: { title: '市場族群', eyebrow: 'Custom Groups', sub: '依你的族群分類研究，保留檔案順序與跨族群歸屬。' },
@@ -54,7 +54,7 @@ const ICONS = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
 };
 // 只有部分市場或資料源才有的頁面（法人／期貨籌碼目前只有台股 FinMind）
-const navAllowed = k => (k !== 'flows' || !!state?.capabilities?.flows) && (k !== 'chips' || !!state?.capabilities?.brokers) && (!['risk', 'value'].includes(k) || (state?.marketProfile?.id || state?.config?.market) === 'TW');
+const navAllowed = k => (k !== 'flows' || !!state?.capabilities?.flows) && (k !== 'chips' || !!state?.capabilities?.brokers) && (k !== 'value' || (state?.marketProfile?.id || state?.config?.market) === 'TW') && (k !== 'risk' || ['TW', 'US'].includes(state?.marketProfile?.id || state?.config?.market));
 const PROVIDER_NAMES = { finmind: 'FinMind', twse: 'TWSE / TPEx', fugle: 'Fugle', twelvedata: 'Twelve Data', alphavantage: 'Alpha Vantage' };
 const dataSources = () => [...new Set(Object.values(state.capabilities || {}).filter(Boolean))].map(id => PROVIDER_NAMES[id] || id).join(' / ') || '—';
 const NAV = [['TODAY', ['home']], ['MARKET', ['heatmap', 'live', 'grouprank', 'risk']], ['RESEARCH', ['overview', 'sectors', 'patterns', 'value', 'flows', 'chips', 'topics', 'watchlist']], ['SYSTEM', ['method', 'settings']]];
