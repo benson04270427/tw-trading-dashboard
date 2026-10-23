@@ -10,7 +10,7 @@ const COMMON = /^[1-9]\d{3}$/;
 const LABEL = '證交所／櫃買開放資料';
 
 let last = 0, tail = Promise.resolve();
-async function get(url, { signal, interval = 2500 } = {}) {
+export async function get(url, { signal, interval = 2500 } = {}) {
   const previous = tail; let release; tail = new Promise(r => release = r); await previous;
   try {
     const wait = Math.max(0, last + interval - Date.now()); if (wait) await new Promise(r => setTimeout(r, wait));

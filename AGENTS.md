@@ -21,6 +21,6 @@
 
 - 沒有建置步驟：Node 22 以上的 ES 模組，前端為原生 JavaScript。架構與擴充方式見 `docs/ARCHITECTURE.md`。
 - 介面文字以繁體中文為 key，英文翻譯在 `EquiLens-Nexus/public/locales/en.json`；新增字串後執行 `node EquiLens-Nexus/tools/i18n-keys.mjs --missing en` 直到 0。
-- `insight-ui.js`、`i18n.js`、`market.js`、`report-card.js`、`flow-cards.js`、`save-image.js`、`intraday.js`、`riskvalue-ui.js` 在 Nexus 與 Pocket 各有一份，必須完全相同。
+- `insight-ui.js`、`i18n.js`、`market.js`、`report-card.js`、`flow-cards.js`、`save-image.js`、`intraday.js`、`riskvalue-ui.js`、`research-ui.js` 在 Nexus 與 Pocket 各有一份，必須完全相同。
 - 測試：`cd EquiLens-Nexus && npm test`、`cd EquiLens-Pocket && npm test`。「Windows credential encryption」測試只能在 Windows 執行。
 - `.local/` 存放金鑰與個人資料，絕不提交。

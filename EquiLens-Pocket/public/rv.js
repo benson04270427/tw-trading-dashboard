@@ -1,5 +1,6 @@
 // 手機版：盤勢分頁的風控水位卡片（完整分析開在底部視窗）與型態分頁的「低估選股」（畫面見 riskvalue-ui.js）
 import { riskHTML, valueHTML, moversHTML, picksHTML, zonesHTML, macroHTML } from './riskvalue-ui.js';
+import { portfolioHTML, backtestHTML } from './research-ui.js';
 let X = null; // { api, toast, draw, S, openSheet, $ }
 const R = { info: null, error: '', sheet: false }, V = { info: null, error: '', strategy: 'value', minTurnover: 1e7, scope: 'ai' };
 export function initRV(ctx) { X = ctx; }
@@ -19,12 +20,16 @@ let pp = false;
 async function pollPicks() { if (pp) return; pp = true; try { do { await sleep(3000); H.picks = await X.api('api/picks'); if (X.S.tab === 'home') X.draw(); } while (H.picks?.busy); } catch { } finally { pp = false; } }
 // 型態分頁的「策略選股」、盤勢分頁的「總經大地圖」
 const Z = { info: null, tab: 'value' }, MC = { info: null };
-export function zonesView() { return `<div class="rv-wrap">${zonesHTML(Z.info, { tab: Z.tab, limit: 60 })}</div>`; }
+export function zonesView() { return `<div class="rv-wrap">${zonesHTML(Z.info, { tab: Z.tab, limit: 60 })}</div><section class="card"><div class="card-h"><h2>策略回測<small>勝率 · 平均報酬 · 最大回撤</small></h2></div><div class="card-b rv-wrap">${backtestHTML(BT.info)}</div></section>`; }
+// 盤勢分頁的持股健檢（唯讀；持股在電腦版輸入）
+const PF = { info: null }, BT = { info: null };
+export function portfolioCard() { return !PF.info?.count ? '' : `<section class="card"><div class="card-h"><h2>持股健檢<small>${PF.info.count} 檔</small></h2></div><div class="card-b rv-wrap">${portfolioHTML(PF.info)}</div></section>`; }
+export async function loadPortfolio() { try { PF.info = await X.api('api/portfolio'); } catch { } }
 export function macroCard() { return MC.info && !MC.info.capable ? '' : `<section class="card"><div class="card-h"><h2>總經大地圖<small>${MC.info?.data?.indexName || ''}</small></h2></div><div class="card-b rv-wrap">${macroHTML(MC.info)}</div></section>`; }
-export async function loadZones() { try { Z.info = await X.api('api/zones'); } catch { } if (Z.info?.busy) pollZ(); }
+export async function loadZones() { try { [Z.info, BT.info] = await Promise.all([X.api('api/zones'), X.api('api/backtest')]); } catch { } if (Z.info?.busy || BT.info?.busy) pollZ(); }
 export async function loadMacro() { try { MC.info = await X.api('api/macro'); } catch { } }
 let zp = false;
-async function pollZ() { if (zp) return; zp = true; try { do { await sleep(3000); Z.info = await X.api('api/zones'); if (X.S.tab === 'patterns') X.draw(); } while (Z.info?.busy); } catch { } finally { zp = false; } }
+async function pollZ() { if (zp) return; zp = true; try { do { await sleep(3000); [Z.info, BT.info] = await Promise.all([X.api('api/zones'), X.api('api/backtest')]); if (X.S.tab === 'patterns') X.draw(); } while (Z.info?.busy || BT.info?.busy); } catch { } finally { zp = false; } }
 export function valueView() { return `${errLine(V.error)}<div class="rv-wrap">${valueHTML(V.info, { limit: 40 })}</div>`; }
 const sheetBody = () => `<div class="rv-wrap">${errLine(R.error)}${riskHTML(R.info)}</div>`;
 function repaintSheet() { if (R.sheet && X.$('#sheet')?.classList.contains('open')) { const b = X.$('#sheet-body'), y = b.scrollTop; b.innerHTML = sheetBody(); b.scrollTop = y; } else R.sheet = false; }
@@ -39,6 +44,8 @@ async function pollValue() { if (vp) return; vp = true; try { do { await sleep(3
 
 document.addEventListener('click', async e => {
   if (!X) return;
+  const bt = e.target.closest('[data-bt-run]');
+  if (bt) { bt.disabled = true; try { BT.info = await X.api('api/backtest/run', { hold: Number(X.$('[data-bt-hold]')?.value) || 20 }); X.draw(); pollZ(); } catch (err) { X.toast(err.message); } return; }
   const b = e.target.closest('[data-rv],[data-rv-strategy],[data-rv-scope],[data-rv-watch],[data-rv-mtab],[data-rv-zone]'); if (!b) return;
   e.stopPropagation();
   try {

@@ -20,7 +20,7 @@ const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/heatmap.js': ['heatmap.js', 'text/javascript; charset=utf-8'], '/flow-cards.js': ['flow-cards.js', 'text/javascript; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json'], '/icon.svg': ['icon.svg', 'image/svg+xml'],
-  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/live.js': ['live.js', 'text/javascript; charset=utf-8'], '/chips.js': ['chips.js', 'text/javascript; charset=utf-8'], '/rv.js': ['rv.js', 'text/javascript; charset=utf-8'], '/riskvalue-ui.js': ['riskvalue-ui.js', 'text/javascript; charset=utf-8'], '/intraday.js': ['intraday.js', 'text/javascript; charset=utf-8'], '/insight-ui.js': ['insight-ui.js', 'text/javascript; charset=utf-8'], '/report-card.js': ['report-card.js', 'text/javascript; charset=utf-8'], '/save-image.js': ['save-image.js', 'text/javascript; charset=utf-8'], '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'], '/market.js': ['market.js', 'text/javascript; charset=utf-8'],  '/icon-192.png': ['icon-192.png', 'image/png'], '/badge-96.png': ['badge-96.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'], '/apple-touch-icon.png': ['icon-192.png', 'image/png'],
+  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/live.js': ['live.js', 'text/javascript; charset=utf-8'], '/chips.js': ['chips.js', 'text/javascript; charset=utf-8'], '/rv.js': ['rv.js', 'text/javascript; charset=utf-8'], '/riskvalue-ui.js': ['riskvalue-ui.js', 'text/javascript; charset=utf-8'], '/research-ui.js': ['research-ui.js', 'text/javascript; charset=utf-8'], '/intraday.js': ['intraday.js', 'text/javascript; charset=utf-8'], '/insight-ui.js': ['insight-ui.js', 'text/javascript; charset=utf-8'], '/report-card.js': ['report-card.js', 'text/javascript; charset=utf-8'], '/save-image.js': ['save-image.js', 'text/javascript; charset=utf-8'], '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'], '/market.js': ['market.js', 'text/javascript; charset=utf-8'],  '/icon-192.png': ['icon-192.png', 'image/png'], '/badge-96.png': ['badge-96.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'], '/apple-touch-icon.png': ['icon-192.png', 'image/png'],
 };
 
 // 前端版本號：public 內檔案的修改時間雜湊（改了網頁檔即變更，手機 App 回到前景時會自動重新載入）
@@ -128,6 +128,9 @@ async function api(req, res, url) {
     if (route === 'movers') return send(req, res, 200, await nexus.movers());
     if (route === 'picks') return send(req, res, 200, await nexus.picks());
     if (route === 'targets' || route === 'zones/history') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await (route === 'targets' ? nexus.targets(q.get('id')) : nexus.zoneHistory(q.get('id')))); }
+    if (['financials', 'river', 'dividends', 'insiders', 'shorts', 'peers'].includes(route)) { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.deep(route, q.get('id'))); }
+    if (route === 'portfolio') return send(req, res, 200, await nexus.portfolio());
+    if (route === 'backtest') return send(req, res, 200, await nexus.backtest());
     if (route === 'zones') return send(req, res, 200, await nexus.zones());
     if (route === 'macro') return send(req, res, 200, await nexus.macro());
     if (route === 'signal') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.signal(q.get('id'))); }
@@ -179,6 +182,7 @@ async function api(req, res, url) {
     if (route === 'risk/query') return send(req, res, 202, await nexus.riskQuery());
     if (route === 'picks/query') return send(req, res, 202, await nexus.picksQuery());
     if (route === 'zones/query') return send(req, res, 202, await nexus.zonesQuery());
+    if (route === 'backtest/run') return send(req, res, 202, await nexus.backtestRun([5, 10, 20, 60].includes(Number(b.hold)) ? Number(b.hold) : 20));
     if (route === 'macro/query') return send(req, res, 202, await nexus.macroQuery());
     if (route === 'macro/explain') return send(req, res, 200, await nexus.macroExplain());
     if (route === 'risk/explain') return send(req, res, 200, await nexus.riskExplain());

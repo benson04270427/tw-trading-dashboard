@@ -1,7 +1,7 @@
 import { aggregate, renderTreemap, heatColor } from './heatmap.js';
 import { renderFlowCards, downloadFlowCard } from './flow-cards.js';
 import { initChips, loadChips, brokersView, holdersView } from './chips.js';
-import { initRV, riskCard, valueView, loadRisk, loadValue, picksCard, moversCard, loadHomeRank, zonesView, loadZones, macroCard, loadMacro } from './rv.js';
+import { initRV, riskCard, valueView, loadRisk, loadValue, picksCard, moversCard, loadHomeRank, zonesView, loadZones, macroCard, loadMacro, portfolioCard, loadPortfolio } from './rv.js';
 import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard, openQuote, openIndex } from './live.js';
 import { setLanguage, getLanguage, tx } from './i18n.js';
 import * as MK from './market.js';
@@ -91,7 +91,7 @@ async function load(force = false) {
   if (!jobTimer) pollJob();
   try {
     if (S.tab === 'brief') { await loadBrief(force); if (!S.stocks) loadStocks(S.tab === 'brief').catch(() => { }); }
-    else if (S.tab === 'home') { [S.summary] = await Promise.all([api('api/summary'), loadRisk(), loadHomeRank(), loadMacro()]); if (!S.stocks) loadStocks(); }
+    else if (S.tab === 'home') { [S.summary] = await Promise.all([api('api/summary'), loadRisk(), loadHomeRank(), loadMacro(), loadPortfolio()]); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'stocks') await loadStocks(true);
     else if (S.tab === 'heat') { if (replayActive()) return; if (!S.heat.data || force) await loadHeat(); if (S.heat.live && liveOpen()) await loadLive(); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'live') { await loadLiveTab(); if (!S.stocks) loadStocks(); }
@@ -215,7 +215,7 @@ function homePage() {
   const movers = d.movers.length ? `<section class="card"><div class="card-h"><h2>研究名單漲跌</h2></div><div class="card-b"><div class="seg" role="group"><button class="${S.moverSide === 'up' ? 'on' : ''}" data-mover="up">漲幅前 5</button><button class="${S.moverSide === 'down' ? 'on' : ''}" data-mover="down">跌幅前 5</button></div></div><div class="list">${(S.moverSide === 'up' ? d.movers.slice(0, 5) : d.movers.slice(-5).reverse()).map(s => stockRow(s)).join('')}</div></section>` : '';
   const pats = `<section class="card"><div class="card-h"><h2>型態新訊號<small>${d.patternMeta?.asOf || ''}</small></h2><button class="more" data-go="patterns">全部 ›</button></div>${d.patterns.map(patCard).join('') || '<div class="empty">目前沒有量價確認或待確認的突破。</div>'}</section>`;
   const groups = d.groups.length ? `<section class="card"><div class="card-h"><h2>族群強弱</h2></div><div class="bars">${d.groups.map(g => barRow(g.name, fmt(g.score), g.score, `<span>站上季線 ${fmt(g.breadth)}%</span><span>營收年增 <span class="${cls(g.growth)}">${pct(g.growth, 1)}</span></span>`, `data-group="${esc(g.id)}"`)).join('')}</div></section>` : '';
-  return `${status}${errBox()}${stale}${riskCard()}${picksCard()}${index}${heat}${flows}${watch}${moversCard()}${movers}${macroCard()}${pats}${groups}<div class="foot">資料經由電腦上的衡析 Nexus<br>研究資訊，非交易建議 · <button class="more" style="min-height:32px;font-size:.78rem" id="logout">登出這台裝置</button></div>`;
+  return `${status}${errBox()}${stale}${riskCard()}${portfolioCard()}${picksCard()}${index}${heat}${flows}${watch}${moversCard()}${movers}${macroCard()}${pats}${groups}<div class="foot">資料經由電腦上的衡析 Nexus<br>研究資訊，非交易建議 · <button class="more" style="min-height:32px;font-size:.78rem" id="logout">登出這台裝置</button></div>`;
 }
 
 /* ---------- stocks ---------- */

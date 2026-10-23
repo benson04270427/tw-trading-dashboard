@@ -1,5 +1,6 @@
 // 衡析 Pocket：盤中分頁（族群／自選即時看板、異動雷達、族群排名、雷達設定）、個股 K 線、熱浪時光機、個股籌碼深度、AI 盤後日報、推播訂閱。
 import { verdictHTML, signalHTML, targetsHTML, zoneHistoryHTML } from './riskvalue-ui.js';
+import { financialsHTML, riverHTML, dividendsHTML, insidersHTML, shortsHTML, peersHTML } from './research-ui.js';
 import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, warrantHTML, warrantBrokersHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, rotationData, rotationSVG, replayStocks, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { tx } from './i18n.js';
 import { intradaySVG, readAt, legendHTML, bookHTML, tapeHTML } from './intraday.js';
@@ -399,6 +400,7 @@ export function stockExtrasShell(id) {
   <section class="card ix-card"><div class="card-h"><h2>📶 訊號面板<small>ATR 追蹤線 · 交易計畫</small></h2></div><div class="card-b" id="ix-signal"><div class="empty"><span class="spinner"></span> 計算訊號…</div></div></section>
   <section class="card ix-card"><div class="card-h"><h2>🎯 目標價<small>分析師共識</small></h2></div><div class="card-b rv-wrap" id="ix-targets"><div class="empty"><span class="spinner"></span> 讀取目標價…</div></div></section>
   <section class="card ix-card"><div class="card-h"><h2>🧭 入選策略紀錄<small>價值區 · 升溫區</small></h2></div><div class="card-b rv-wrap" id="ix-zones"><div class="empty"><span class="spinner"></span> 讀取紀錄…</div></div></section>
+  <section class="card ix-card"><div class="card-h"><h2>🔬 深入研究<small>財報 · 估價 · 股利 · 內部人 · 放空 · 同業</small></h2></div><div class="card-b rv-wrap"><div class="rv-strats dd-tabs">${DD_TABS.map(([k, l]) => `<button data-dd-tab="${k}" data-dd-id="${esc(id)}">${l}</button>`).join('')}</div><div id="ix-deep"><p class="muted">選一個分頁讀取（財報與股利第一次讀取約需 30 秒）。</p></div></div></section>
   <section class="card ix-card"><div class="card-h"><h2>🏦 主力分點<small>近 5 日</small></h2></div><div class="card-b" id="ix-brokers"><div class="empty"><span class="spinner"></span> 讀取券商分點…</div></div></section>
   <section class="card ix-card"><div class="card-h"><h2>🐋 大戶持股<small>每週股權分散</small></h2></div><div class="card-b" id="ix-holders"><div class="empty"><span class="spinner"></span> 讀取股權分散表…</div></div></section>
   <section class="card ix-card"><div class="card-h"><h2>🎫 認購權證<small>權證條件與追蹤分點</small></h2></div><div class="card-b" id="ix-warrants"><div class="empty"><span class="spinner"></span> 讀取權證資料…</div></div></section>`;
@@ -407,6 +409,20 @@ export async function fillStockExtras(id) {
   const fill = async (sel, path, render) => { try { const d = await C.api(path); const el = C.$(sel); if (el && C.S.sheetStock?.id === id) el.innerHTML = render(d); } catch (e) { const el = C.$(sel); if (el && !e.silent) el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; } };
   await Promise.all([fill('#ix-verdict', 'api/verdict?id=' + id, verdictHTML), fill('#ix-signal', 'api/signal?id=' + id, signalHTML), fill('#ix-targets', 'api/targets?id=' + id, targetsHTML), fill('#ix-zones', 'api/zones/history?id=' + id, zoneHistoryHTML), fill('#ix-brokers', 'api/brokers?id=' + id, brokerHTML), fill('#ix-holders', 'api/holders?id=' + id, holderHTML), fill('#ix-warrants', 'api/warrants?id=' + id, warrantHTML)]);
 }
+
+// 深入研究分頁：點了才讀取（財報、股利會用到 FinMind 額度）
+const DD_TABS = [['fin', '財報'], ['river', '河流圖'], ['div', '股利'], ['insider', '內部人'], ['short', '放空'], ['peers', '同業']];
+const DD = { fin: ['api/financials?id=', financialsHTML], river: ['api/river?id=', d => riverHTML(d, { kind: DDS.kind })], div: ['api/dividends?id=', dividendsHTML], insider: ['api/insiders?id=', insidersHTML], short: ['api/shorts?id=', shortsHTML], peers: ['api/peers?id=', peersHTML] };
+const DDS = { kind: 'pe', river: null };
+document.addEventListener('click', async e => {
+  const b = e.target.closest?.('[data-dd-tab],[data-dd-river]'); if (!b || !C) return;
+  const box = C.$('#ix-deep'); if (!box) return;
+  if (b.dataset.ddRiver) { DDS.kind = b.dataset.ddRiver; if (DDS.river) box.innerHTML = riverHTML(DDS.river, { kind: DDS.kind }); return; }
+  const k = b.dataset.ddTab, id = b.dataset.ddId, [path, render] = DD[k];
+  for (const x of b.parentElement.children) x.classList.toggle('selected', x === b);
+  box.innerHTML = '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
+  try { const d = await C.api(path + encodeURIComponent(id)); if (k === 'river') DDS.river = d; if (C.S.sheetStock?.id === id) box.innerHTML = render(d); } catch (err) { box.innerHTML = `<p class="muted">${esc(err.message)}</p>`; }
+});
 
 /* ---------- 事件 ---------- */
 document.addEventListener('click', async e => {

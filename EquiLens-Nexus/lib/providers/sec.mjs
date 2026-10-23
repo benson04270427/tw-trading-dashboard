@@ -61,6 +61,9 @@ export function parseFacts(facts, id) {
   return [...out.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// 完整 companyfacts（財報分析用）；查不到代號時回 null
+export async function companyFacts(id, ctx) { const cik = await cikOf(id, ctx); return cik ? get(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, ctx) : null; }
+
 export default {
   id: 'sec', name: 'SEC EDGAR（美國證管會）', site: 'https://www.sec.gov/edgar', docs: 'https://www.sec.gov/search-filings/edgar-application-programming-interfaces', markets: ['US'],
   key: 'required', keyEnv: 'SEC_CONTACT_EMAIL', interval: 300,

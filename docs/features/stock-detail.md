@@ -49,6 +49,7 @@
 - 均線：MA5、MA20；滑鼠移動或手指按住可看每根的開高低收、量與漲跌幅。
 - 盤中每 10 秒更新報價與 K 線。
 - 下方可直接設定這檔的[自訂提醒](price-alerts.md)。
+- 其他分頁：[訊號](signal-panel.md)、[目標價](price-targets.md)、[策略](strategy-zones.md)、[財報與河流圖](financials.md)、[股利](dividends.md)、[內部人](insiders.md)、[放空](short-interest.md)、[同業](peers.md)。
 
 ## 資料來源與請求量
 

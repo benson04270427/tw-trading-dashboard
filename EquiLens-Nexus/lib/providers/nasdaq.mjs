@@ -39,7 +39,7 @@ export function nyseCalendar(from, to) {
 const nyDate = (now = new Date()) => now.toLocaleString('sv-SE', { timeZone: 'America/New_York' }).slice(0, 10);
 
 let last = 0, tail = Promise.resolve();
-async function get(path, ctx = {}) {
+export async function get(path, ctx = {}) {
   const previous = tail; let release; tail = new Promise(r => release = r); await previous;
   try {
     const wait = Math.max(0, last + (ctx.interval || 400) - Date.now()); if (wait) await sleep(wait, ctx.signal);

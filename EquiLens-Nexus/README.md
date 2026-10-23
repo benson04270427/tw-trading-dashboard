@@ -22,6 +22,9 @@
 | 資金熱浪 | 板塊熱浪圖（面積＝成交金額、顏色＝漲跌幅）、盤中即時更新、⏱ 時光機回放與板塊輪動 |
 | 盤中雷達 | 族群／自選即時看板（全日走勢圖、日 K／5 分 K，以盤中快照每 10 秒更新）、異動雷達、**自訂提醒**（價位、漲跌幅、預估量，條件成立時推播）、雷達與新聞推播設定（新聞：FinMind＋台股另加鉅亨網，每分鐘檢查）、浮動雷達視窗；有富果金鑰時異動雷達改用 WebSocket 即時推播，熱浪圖、時光機與看板仍用快照；當沖掃描（觀察名單四層確認、三種做多與兩種風險提醒、收盤後分版本檢討，見 docs/DAYTRADE.zh-TW.md；每個訊號記下加權／櫃買指數狀態，檢討依大盤環境分組，只記錄、不影響訊號，見 docs/features/daytrade-market.md） |
 | 族群排名 | 研究族群的量能加權漲幅排名與每日收盤紀錄 |
+| 持股健檢 | 台股、美股：持股損益、權重、集中度、相對大盤、實際持股 vs 風控建議、同產業候選、除權息行事曆，停損／停利提醒（持股存在 `portfolio.json`） |
+| 策略回測 | 台股、美股：ATR 追蹤線、價值區、升溫區、每日精選的勝率、平均報酬與最大回撤（結果存在 `backtest.json`） |
+| K 線視窗分頁 | 走勢、5 分 K、日 K、訊號、目標價、策略、財報、河流圖、股利、內部人、放空、同業（後 6 個見 docs/features/financials.md 等） |
 | 研究總覽／市場族群 | 四維評分（技術、籌碼、話題、行業）與族群脈動 |
 | 型態選股 | 90 個交易日、10 種型態，條件式進場與防守 |
 | 法人／期貨籌碼 | 台股＋FinMind 才顯示：三大法人、外資期權部位、個股買賣超排行與 9:16 圖卡 |
@@ -34,7 +37,7 @@
 ## 資料位置
 
 所有資料都在 `.local/`（或環境變數 `EQUITY_DATA_DIR` 指定的資料夾）：`config.json`、`settings.json`、`groups.json`、
-`watchlist.json`、`price-alerts.json`（自訂提醒）、`stocks/`（研究個股行情）、`heatmap-*.json`、`replay/`（時光機）、`alerts-*.json`、`reports/`、`broker-watch/`（分點追蹤，含認購權證進出）、`warrants/`（權證標的對照、行情與分點快取）、`holders-all/`（全市場股權分散表）等。
+`watchlist.json`、`price-alerts.json`（自訂提醒）、`portfolio.json`（持股）、`insiders/`（台股董監持股與申報轉讓）、`backtest.json`（策略回測）、`stocks/`（研究個股行情）、`heatmap-*.json`、`replay/`（時光機）、`alerts-*.json`、`reports/`、`broker-watch/`（分點追蹤，含認購權證進出）、`warrants/`（權證標的對照、行情與分點快取）、`holders-all/`（全市場股權分散表）等。
 切換研究市場時，目前市場的資料會移到 `.local/markets/<市場>/`，切回時搬回。
 
 金鑰由作業系統加密保存（Windows DPAPI、macOS 鑰匙圈、Linux Secret Service），頁面與 API 不會讀回。

@@ -1,5 +1,6 @@
 // 衡析 Nexus：盤中雷達頁（族群／自選即時看板＋異動雷達＋雷達設定）、個股 K 線視窗、桌面通知、新聞推播、個股籌碼深度、AI 盤後日報與排程設定。
 import { verdictHTML, signalHTML, targetsHTML, zoneHistoryHTML } from './riskvalue-ui.js';
+import { financialsHTML, riverHTML, dividendsHTML, insidersHTML, shortsHTML, peersHTML } from './research-ui.js';
 import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, warrantHTML, warrantBrokersHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { t, tx, translateTree } from './i18n.js';
 import * as MK from './market.js';
@@ -252,12 +253,18 @@ function paintChart() {
 }
 
 /* ---------- 個股即時走勢（K 線視窗的「走勢」分頁）：全日走勢、當日均價線、族群均價線、五檔、成交明細，盤中每 3 秒更新 ---------- */
-const CHART_TABS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K'], ['signal', '訊號'], ['targets', '目標價'], ['zones', '策略']];
+const CHART_TABS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K'], ['signal', '訊號'], ['targets', '目標價'], ['zones', '策略'], ['fin', '財報'], ['river', '河流圖'], ['div', '股利'], ['insider', '內部人'], ['short', '放空'], ['peers', '同業']];
 // 面板分頁（訊號、目標價、策略入選紀錄）：任何股票都可開
 const PANEL_TABS = {
   signal: { api: 'signal?id=', title: '📶 訊號面板', sub: 'ATR 追蹤線 · 日週月共振 · 交易計畫', eyebrow: 'Signal · ATR Trailing Line', render: d => signalHTML(d, { editable: true }), box: 'ix-signal' },
   targets: { api: 'targets?id=', title: '🎯 目標價', sub: '分析師共識 · 未來 12 個月', eyebrow: 'Analyst Price Targets', render: targetsHTML, box: 'ix-targets' },
   zones: { api: 'zones/history?id=', title: '🧭 入選策略紀錄', sub: '價值區 · 升溫區', eyebrow: 'Strategy Entries', render: zoneHistoryHTML, box: 'ix-zones' },
+  fin: { api: 'financials?id=', title: '📊 財報分析', sub: '近 12 季營收、利潤率、EPS、ROE、自由現金流、負債比', eyebrow: 'Financial Statements', render: financialsHTML, box: 'ix-fin' },
+  river: { api: 'river?id=', title: '🌊 估價河流圖', sub: '本益比／股價淨值比歷史倍數通道', eyebrow: 'Valuation River', render: d => riverHTML(d, { kind: K.riverKind }), box: 'ix-river' },
+  div: { api: 'dividends?id=', title: '💰 股利與除權息', sub: '配息紀錄 · 殖利率 · 填息天數', eyebrow: 'Dividends', render: dividendsHTML, box: 'ix-div' },
+  insider: { api: 'insiders?id=', title: '🏛 內部人持股與交易', sub: '董監持股增減 · 申報轉讓 · Form 4', eyebrow: 'Insiders', render: insidersHTML, box: 'ix-insider' },
+  short: { api: 'shorts?id=', title: '🩳 借券賣出與放空', sub: '借券賣出餘額 · 融券 · 放空股數 · 回補天數', eyebrow: 'Short Interest', render: shortsHTML, box: 'ix-short' },
+  peers: { api: 'peers?id=', title: '🧩 同業比較', sub: '同供應鏈或同產業的估值與成長', eyebrow: 'Peer Comparison', render: peersHTML, box: 'ix-peers' },
 };
 function paintPanel() {
   const P = PANEL_TABS[K.period], box = document.getElementById('detail'), id = K.id, raw = K.panel?.[K.period], d = raw?.id === id ? raw : null, s = L.board?.stocks.find(x => x.id === id);
@@ -368,6 +375,7 @@ document.addEventListener('click', async e => {
     if (ds.chartLive) return openChart(ds.chartLive, 'live');
     if (ds.igroup) { K.group = ds.igroup; return refreshChart(); }
     if (ds.cperiod) return openChart(K.id, ds.cperiod);
+    if (ds.ddRiver) { K.riverKind = ds.ddRiver; return paintChart(); }
     if (ds.bgroup) { L.bgroup = ds.bgroup; savePref('nexus.boardGroup', ds.bgroup); if (L.board) L.board = { ...L.board, group: ds.bgroup, stocks: [], loading: true }; repaint(); await loadBoard(); return repaint(); }
     if (ds.bsort) { L.bsort = ds.bsort; savePref('nexus.boardSort', ds.bsort); return repaint(); }
     if (ds.agroup) { L.group = ds.agroup; return repaint(); }

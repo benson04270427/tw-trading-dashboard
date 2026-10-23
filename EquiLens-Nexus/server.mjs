@@ -29,14 +29,14 @@ import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swa
 import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffset, evaluateSignal, reviewStats, signalTitle, DT_TITLES } from './lib/daytrade.mjs';
 import { createHistoryLoader } from './lib/daytrade-history.mjs';
 import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
-import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs } from './lib/providers/twse.mjs';
+import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs, get as twseGet } from './lib/providers/twse.mjs';
 import { buildRisk, fetchRiskInputs, riskContext } from './lib/riskgauge.mjs';
 import { buildRiskUS, fetchRiskInputsUS, parseFred } from './lib/riskgauge-us.mjs';
 import { buildMacro } from './lib/macro.mjs';
 import { fetchJSON } from './lib/providers/common.mjs';
 import { nyseHolidays } from './lib/providers/nasdaq.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
-import { SCOPES, AI_INDEX } from './lib/aichain.mjs';
+import { SCOPES, AI_INDEX, AI_CHAIN } from './lib/aichain.mjs';
 import { PICKS_VERSION, heatStocks, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh } from './lib/picks.mjs';
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
@@ -45,6 +45,14 @@ import { buildSignal, newSignal, normalizeSignalSettings } from './lib/signal.mj
 import { twTargets, usTargets, buildTargets, newsTargets, brokerTargets } from './lib/targets.mjs';
 import { ZONES_VERSION, ZONE_NAMES, zonesTW, zonesUS, historyOf } from './lib/zones.mjs';
 import { fundamentals as finnhubFundamentals } from './lib/providers/finnhub.mjs';
+import { twQuarters, secQuarters, nasdaqQuarters, buildFinancials, buildRiver, twRiverPoints, usRiverPoints } from './lib/financials.mjs';
+import { twEvents, usEvents, buildDividends, twExRights, calendar as divCal } from './lib/dividends.mjs';
+import { parseTwHoldings, parseTwTransfers, mergeTransfers, buildTwInsiders, parseUsInsiders, buildUsInsiders } from './lib/insiders.mjs';
+import { buildTwShorts, buildUsShorts, twPeers, usPeers } from './lib/shorts.mjs';
+import { BACKTEST_VERSION, signalTrades, holdTrades, report as btReport } from './lib/backtest.mjs';
+import { normalizePortfolio, relative, buildPortfolio, newAlerts } from './lib/portfolio.mjs';
+import { companyFacts as secCompanyFacts } from './lib/providers/sec.mjs';
+import { get as nasdaqGet } from './lib/providers/nasdaq.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
 import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
@@ -110,8 +118,8 @@ function loadMarketState(){
 loadMarketState();
 
 // 換市場：把目前市場的資料（股票清單、族群、自選、行情、紀錄）收進 .local/markets/<市場>/，再把目標市場先前收起來的資料搬回來
-const MARKET_FILE=/^(universe|groups|watchlist|watch-groups|evidence|last-job|news-seen|pattern-active|pattern-calendar|pattern-ledger|bulk-ledger|daytrade-prep|price-alerts)\.json$|^(heatmap|flows|grouprank|alerts|index|card)-\d{4}-\d{2}-\d{2}\.json$/;
-const MARKET_DIRS=['stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history'];
+const MARKET_FILE=/^(universe|groups|watchlist|watch-groups|evidence|last-job|news-seen|pattern-active|pattern-calendar|pattern-ledger|bulk-ledger|daytrade-prep|price-alerts|portfolio|portfolio-alerts|backtest)\.json$|^(heatmap|flows|grouprank|alerts|index|card)-\d{4}-\d{2}-\d{2}\.json$/;
+const MARKET_DIRS=['stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history','insiders'];
 function switchMarket(next){
   const cur=config().market;if(next===cur)return;
   if(job.running||flowBusy||heatBusy||reportBusy||livePending)throw new UserError('請等待更新完成或停止後，再切換市場');
@@ -1220,6 +1228,169 @@ setTimeout(()=>{if(!read('zones/latest.json',null)&&latestHeat())runZones();},40
 // 第一次啟動且已有收盤熱浪圖時先產生一次（不推播）
 setTimeout(()=>{if(!read('picks/latest.json',null)&&latestHeat())runPicks({push:false});},20e3).unref();
 
+/* ---------- 個股深入：財報、河流圖、股利、內部人、借券／放空、同業（K 線視窗分頁） ---------- */
+const deepCache=new Map();
+// 快取：同一個 key 在 ttl 內重用；失敗時沿用舊資料
+async function cached(key,ttl,fn){const c=deepCache.get(key);if(c&&Date.now()-c.at<ttl)return c.v;try{const v=await fn();deepCache.set(key,{at:Date.now(),v});if(deepCache.size>600)deepCache.delete(deepCache.keys().next().value);return v;}catch(e){if(c)return c.v;throw e;}}
+const nameOf=id=>uniIndex().meta.get(id)?.name||id;
+const sevenYears=()=>minusDays(today(),365*6+30);
+// 長期日 K（約 6 年，河流圖與填息用）：台股 FinMind、美股 Nasdaq；每檔每 12 小時最多 1 次
+async function longRows(id){
+  return cached('long:'+id,12*3600e3,async()=>{
+    if(M().id==='TW'&&data.finmind())return finmindRequest('TaiwanStockPrice',{data_id:id,start_date:sevenYears(),end_date:today()},fmOpt());
+    if(data.has('daily'))return(await data.daily(id,sevenYears(),today(),{})).price||[];
+    return signalRows(id);
+  });
+}
+const closesOf=rows=>rows.map(r=>[String(r.date).slice(0,10),Number(r.close)]).filter(x=>x[1]>0).sort((a,b)=>a[0].localeCompare(b[0]));
+const nowPrice=(id,closes)=>{const l=liveRow(id,today());return Number(l?.close)>0?Number(l.close):closes.at(-1)?.[1]??null;};
+const deepMarket=()=>{if(!['TW','US'].includes(M().id))throw new UserError('這項功能目前只支援台股與美股');return M().id;};
+// 財報原始資料：台股 FinMind 三表＋本益比（4 個請求），美股 SEC companyfacts（有聯絡 email 時）或 Nasdaq 財報；每檔 24 小時
+async function finRaw(id){
+  const mk=deepMarket();
+  return cached('fin:'+id,24*3600e3,async()=>{
+    if(mk==='TW'){
+      if(!data.finmind())throw new UserError('需要 FinMind 才能取得台股財報');
+      const start=minusDays(today(),365*3+120),o=fmOpt();
+      const statements=await finmindRequest('TaiwanStockFinancialStatements',{data_id:id,start_date:start},o),balance=await finmindRequest('TaiwanStockBalanceSheet',{data_id:id,start_date:start},o),cashflow=await finmindRequest('TaiwanStockCashFlowsStatement',{data_id:id,start_date:start},o);
+      const per=await finmindRequest('TaiwanStockPER',{data_id:id,start_date:sevenYears()},o);
+      return{quarters:twQuarters({statements,balance,cashflow}),per,source:'FinMind（公開資訊觀測站財報）'};
+    }
+    const key=await getSecret('sec','SEC_CONTACT_EMAIL');let quarters=[],source='',note='';
+    if(key){try{const f=await secCompanyFacts(id,{key});if(f){quarters=secQuarters(f);source='SEC EDGAR（10-Q／10-K）';}}catch(e){note=e.message;}}
+    if(quarters.length<4){try{const q=nasdaqQuarters(await nasdaqGet(`/company/${encodeURIComponent(id)}/financials?frequency=2`,{}));if(q.length>quarters.length){quarters=q;source='Nasdaq（最近 4 季）';note=key?note:t('在「資料與設定」填入 SEC EDGAR 聯絡 email 可看到 12 季財報與本益比河流圖');}}catch(e){note=note||e.message;}}
+    return{quarters,source,note};
+  });
+}
+async function financialsReport(id){const raw=await finRaw(id);return buildFinancials({id,name:nameOf(id),market:M().id,quarters:raw.quarters,source:raw.source,note:raw.note||''});}
+async function riverReport(id){
+  const mk=deepMarket(),raw=await finRaw(id),closes=closesOf(await longRows(id));
+  const pe=buildRiver(mk==='TW'?twRiverPoints(raw.per||[],closes,'pe'):usRiverPoints(raw.quarters,closes),{kind:'pe'}),pb=mk==='TW'?buildRiver(twRiverPoints(raw.per||[],closes,'pb'),{kind:'pb'}):null;
+  if(!pe&&!pb)return{id,name:nameOf(id),market:mk,available:false,reason:mk==='US'&&!raw.source.startsWith('SEC')?t('美股河流圖需要 SEC EDGAR 的每股盈餘歷史，請在「資料與設定」填入聯絡 email'):t('本益比或股價歷史不足，無法畫河流圖')};
+  return{id,name:nameOf(id),market:mk,available:true,pe,pb,source:raw.source};
+}
+async function dividendsReport(id){
+  const mk=deepMarket(),h=readPortfolio().holdings.find(x=>x.id===id);
+  const raw=await cached('div:'+id,12*3600e3,async()=>{
+    if(mk==='TW'){if(!data.finmind())throw new UserError('需要 FinMind 才能取得台股股利資料');const o=fmOpt();return{events:twEvents(await finmindRequest('TaiwanStockDividend',{data_id:id,start_date:sevenYears()},o)),results:await finmindRequest('TaiwanStockDividendResult',{data_id:id,start_date:sevenYears()},o)};}
+    const d=await nasdaqGet(`/quote/${encodeURIComponent(id)}/dividends?assetclass=stocks`,{});return{events:usEvents(d),results:[],header:{annual:Number(d?.annualizedDividend)||null,yield:Number(String(d?.yield||'').replace('%',''))||null}};
+  });
+  const closes=closesOf(await longRows(id));
+  return buildDividends({id,name:nameOf(id),market:mk,...raw,closes,price:nowPrice(id,closes),today:today(),shares:h?.shares??null});
+}
+// 台股內部人：每月董監持股明細與每日申報轉讓（全市場，證交所＋櫃買開放資料，共 4 個請求），每天最多同步一次
+let insiderJob={busy:false,error:'',checked:''};
+const insiderMonths=()=>{try{return fs.readdirSync(path.join(LOCAL,'insiders')).map(f=>/^tw-(\d{4}-\d{2})\.json$/.exec(f)?.[1]).filter(Boolean).sort();}catch{return[];}};
+async function syncInsiders({alerts=true}={}){
+  if(insiderJob.busy||M().id!=='TW'||insiderJob.checked===today())return;insiderJob={busy:true,error:'',checked:today()};
+  try{
+    fs.mkdirSync(path.join(LOCAL,'insiders'),{recursive:true});
+    const [l,o]=await Promise.all([twseGet('https://openapi.twse.com.tw/v1/opendata/t187ap11_L',{}),twseGet('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap11_O',{})]),snap=parseTwHoldings([...(l||[]),...(o||[])]);
+    if(snap.ym&&Object.keys(snap.data).length>500)write(`insiders/tw-${snap.ym}.json`,snap);
+    for(const m of insiderMonths().slice(0,-13))fs.rmSync(path.join(LOCAL,'insiders',`tw-${m}.json`),{force:true});
+    const [tl,to]=await Promise.all([twseGet('https://openapi.twse.com.tw/v1/opendata/t187ap12_L',{}),twseGet('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap12_O',{})]);
+    const add=parseTwTransfers([...(tl||[]),...(to||[])]),old=read('insiders/tw-transfers.json',[]),known=new Set(old.map(x=>`${x.date}|${x.id}|${x.person}|${x.shares}`));
+    write('insiders/tw-transfers.json',mergeTransfers(old,add,today()));
+    // 自選與持股的新申報轉讓 → 提醒（第一次同步只記錄）
+    const mine=new Set([...watchlist,...readPortfolio().holdings.map(h=>h.id)]),fresh=add.filter(x=>mine.has(x.id)&&!known.has(`${x.date}|${x.id}|${x.person}|${x.shares}`));
+    if(alerts&&old.length&&fresh.length)addAlerts(today(),fresh.slice(0,20).map(x=>({type:'insider',title:t('內部人申報轉讓'),detail:t('{r} {p} 預定轉讓 {n} 張（{m}）',{r:x.role,p:x.person,n:Math.round(x.shares/1000).toLocaleString(),m:x.method}),stockId:x.id,name:x.company,t:clock().hms,level:'mid',watch:watchlist.includes(x.id),date:x.date})));
+  }catch(e){insiderJob.error=e.message;insiderJob.checked='';}finally{insiderJob.busy=false;}
+}
+async function insidersReport(id){
+  const mk=deepMarket();
+  if(mk==='US'){const p=await cached('ins:'+id,12*3600e3,async()=>parseUsInsiders(await nasdaqGet(`/company/${encodeURIComponent(id)}/insider-trades?limit=30&type=ALL&sortColumn=lastDate&sortOrder=DESC`,{})));return buildUsInsiders({id,name:nameOf(id),parsed:p});}
+  const months=insiderMonths();if(!months.length){void syncInsiders({alerts:false});return{id,name:nameOf(id),market:'TW',available:false,busy:true,reason:t('第一次使用，正在下載全市場董監持股資料（約 1 分鐘），請稍後再開啟')};}
+  const cur=read(`insiders/tw-${months.at(-1)}.json`,null),prev=months.length>1?read(`insiders/tw-${months.at(-2)}.json`,null):null;
+  return{...buildTwInsiders({id,name:nameOf(id),cur:cur?.data?.[id],prev:prev?.data?.[id]||null,curYm:cur?.ym,prevYm:prev?.ym||null,transfers:read('insiders/tw-transfers.json',[])}),error:insiderJob.error};
+}
+async function shortsReport(id){
+  const mk=deepMarket();
+  if(mk==='TW'){if(!data.finmind())throw new UserError('需要 FinMind 才能取得借券賣出資料');const rows=await cached('sbl:'+id,6*3600e3,()=>finmindRequest('TaiwanDailyShortSaleBalances',{data_id:id,start_date:minusDays(today(),200)},fmOpt()));return buildTwShorts({id,name:nameOf(id),rows,price:await signalRows(id)});}
+  const d=await cached('si:'+id,12*3600e3,()=>nasdaqGet(`/quote/${encodeURIComponent(id)}/short-interest?assetClass=stocks`,{})),f=read('zones/us-fund.json',{})[id]?.f,px=nowPrice(id,closesOf(await signalRows(id)));
+  return buildUsShorts({id,name:nameOf(id),data:d,shares:f?.mcap>0&&px>0?f.mcap*1e6/px:null});
+}
+function peersReport(id){
+  const mk=deepMarket(),heat=heatStocks(latestHeat());
+  if(mk==='TW'){const value=read('value/inputs.json',null)?.rows||[];if(!value.length){void runScreen();return{id,available:false,reason:t('低估選股資料還沒取得，請稍候再試')};}return twPeers({id,value,heat,chainOf:AI_INDEX,chains:AI_CHAIN});}
+  const cache=read('zones/us-fund.json',{}),fund=new Map(Object.entries(cache).map(([k,v])=>[k,v.f]));return usPeers({id,heat,fund});
+}
+
+/* ---------- 持股損益與健檢（.local/portfolio.json） ---------- */
+const readPortfolio=()=>normalizePortfolio(read('portfolio.json',{}));
+function pfQuote(id,heatMap){
+  const l=liveRow(id,today()),c=Number(l?.close);
+  if(c>0){const prev=Number(l.reference??l.yesterday_price??l.prev_close)||(Number.isFinite(Number(l.change_price))?c-Number(l.change_price):null);return{close:c,prev:prev>0?prev:null};}
+  const h=heatMap.get(id);if(h?.close>0)return{close:h.close,prev:h.change!=null?h.close/(1+h.change/100):null};
+  return null;
+}
+async function portfolioReport({deep=true}={}){
+  const mk=M().id,pf=readPortfolio(),heat=heatStocks(latestHeat()),hm=new Map(heat.map(h=>[h.id,h])),quotes=new Map(),rs=new Map(),signals=new Map();
+  const index=read('macro/index.json',null)?.closes||[];if(!index.length&&['TW','US'].includes(mk))void runMacro();
+  for(const h of pf.holdings){
+    const meta=uniIndex().meta.get(h.id)||{},q=pfQuote(h.id,hm);let rows=[];
+    if(deep||!q){try{rows=await signalRows(h.id);}catch{}}
+    const c=closesOf(rows),last=c.at(-1);
+    quotes.set(h.id,{...(q||(last?{close:last[1],prev:c.at(-2)?.[1]??null}:{})),name:meta.name||hm.get(h.id)?.name||h.id,sector:hm.get(h.id)?.sector||meta.sector||'',chain:mk==='TW'?AI_INDEX.get(h.id)||null:null});
+    if(c.length){const r=relative(c,index);if(r)rs.set(h.id,r);const s=signalOf(rows,M());if(s&&!s.stopped)signals.set(h.id,s.side);}
+  }
+  const z=read('zones/latest.json',null),pk=read('picks/latest.json',null),ideas=[...(z?.zones?.value||[]).map(x=>({...x,from:'value'})),...(z?.zones?.heat||[]).map(x=>({...x,from:'heat'})),...(pk?.picks||[]).map(x=>({...x,from:'picks'}))].map(x=>({id:x.id,name:x.name,sector:x.sector||hm.get(x.id)?.sector||'',chain:x.chain||null,from:x.from,names:z?.names||ZONE_NAMES[mk]}));
+  const risk=read('risk/latest.json',null);
+  const p=buildPortfolio({market:mk,holdings:pf.holdings,cash:pf.cash,capital:normalizeSignalSettings(settings.signal).capital,quotes,rs,signals,risk:risk?.risk!=null?{risk:risk.risk,exposure:risk.exposure,label:risk.label}:null,ideas,lot:M().lot||1});
+  return{...p,calendar:divCalendar.data,calendarBusy:divCalendar.busy,calendarError:divCalendar.error,watch:watchlist,capable:['TW','US'].includes(mk)};
+}
+// 除權息行事曆（持股＋自選）：台股證交所／櫃買預告表＋持股的 FinMind 股利政策，美股持股與自選的 Nasdaq 股利紀錄；每 12 小時更新
+let divCalendar={data:null,busy:false,error:'',at:0};
+async function refreshCalendar(force=false){
+  const mk=M().id;if(divCalendar.busy||!['TW','US'].includes(mk)||(!force&&Date.now()-divCalendar.at<12*3600e3))return;
+  divCalendar={...divCalendar,busy:true,error:''};
+  try{
+    const pf=readPortfolio(),perStock=new Map(),names=new Map();let market=[];
+    if(mk==='TW'){
+      try{const [a,b]=await Promise.all([twseGet('https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL',{}),twseGet('https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost',{})]);market=twExRights(a||[],b||[]);}catch(e){divCalendar.error=e.message;}
+      if(data.finmind())for(const h of pf.holdings.slice(0,30)){try{const raw=await cached('div:'+h.id,12*3600e3,async()=>({events:twEvents(await finmindRequest('TaiwanStockDividend',{data_id:h.id,start_date:sevenYears()},fmOpt())),results:[]}));perStock.set(h.id,raw.events);}catch{}}
+    }else{
+      for(const id of [...new Set([...pf.holdings.map(h=>h.id),...watchlist])].slice(0,60)){try{const raw=await cached('div:'+id,12*3600e3,async()=>{const d=await nasdaqGet(`/quote/${encodeURIComponent(id)}/dividends?assetclass=stocks`,{});return{events:usEvents(d),results:[],header:{annual:Number(d?.annualizedDividend)||null,yield:Number(String(d?.yield||'').replace('%',''))||null}};});perStock.set(id,raw.events);}catch{}}
+    }
+    for(const id of [...pf.holdings.map(h=>h.id),...watchlist])names.set(id,nameOf(id));
+    divCalendar.data={...divCal({today:today(),days:30,market,perStock,holdings:pf.holdings,watch:new Set(watchlist),names}),market:mk,marketCount:market.filter(x=>x.date>=today()).length};divCalendar.at=Date.now();
+  }catch(e){divCalendar.error=e.message;}finally{divCalendar.busy=false;}
+}
+// 停損／停利提醒：盤中每分鐘檢查一次持股（同一檔同一種提醒每天一次）
+let pfAlertBusy=false;
+async function checkPortfolioAlerts(){
+  if(pfAlertBusy||!readPortfolio().holdings.length)return;pfAlertBusy=true;
+  try{const p=await portfolioReport({deep:false}),r=newAlerts(p,read('portfolio-alerts.json',{}),today());if(r.out.length){write('portfolio-alerts.json',r.seen);addAlerts(today(),r.out.map(a=>({type:'portfolio',title:t(a.kind==='stop'?'持股跌破停損價':'持股到達停利價'),detail:t('{n} 現價 {p}，設定 {l}',{n:a.name,p:a.price,l:a.level}),stockId:a.id,name:a.name,close:a.price,t:clock().hms,level:a.kind==='stop'?'hi':'mid',watch:watchlist.includes(a.id),date:today()})));}}
+  catch{}finally{pfAlertBusy=false;}
+}
+setInterval(()=>{if(['TW','US'].includes(M().id)&&(liveWindow()||!read('portfolio-alerts.json',null)))void checkPortfolioAlerts();},60e3).unref();
+// 台股內部人：每天 19:10 後同步一次；除權息行事曆每 12 小時
+setInterval(()=>{const x=clock();if(M().id==='TW'&&x.hm>='19:10'&&insiderMonths().length)void syncInsiders();void refreshCalendar();},10*60e3).unref();
+setTimeout(()=>{void refreshCalendar();},60e3).unref();
+
+/* ---------- 策略回測 ---------- */
+let backtestJob={busy:false,error:'',step:0,total:0};
+// 每天保存的收盤熱浪圖 → Map(date → Map(id → close))
+function heatPrices(limit=400){const m=new Map();for(const d of heatFiles().slice(-limit)){const h=read('heatmap-'+d+'.json',null);if(!h)continue;const x=new Map();for(const s of heatStocks(h))if(s.close>0)x.set(s.id,s.close);m.set(d,x);}return m;}
+async function runBacktest({hold=20}={}){
+  if(backtestJob.busy)return;const mk=M().id;if(!['TW','US'].includes(mk))return;
+  backtestJob={busy:true,error:'',step:0,total:0};
+  try{
+    const index=read('macro/index.json',null)?.closes||[],out=[];
+    // 1) 訊號策略：研究名單每檔的本機日 K
+    const ids=scopeIds(researchScope);backtestJob.total=ids.length;let trades=[];
+    for(const id of ids){backtestJob.step++;const rows=raw[id]?.price||read(`stocks/${id}.json`,{}).price||[];if(rows.length>=60)trades.push(...signalTrades(id,rows).map(x=>({...x,name:nameOf(id)})));}
+    out.push(btReport({key:'signal',name:t('ATR 追蹤線翻多（研究名單）'),trades,index}));
+    // 2) 入選策略：價值區、升溫區、每日精選，持有 hold 個交易日
+    const prices=heatPrices(),cal=[...prices.keys()].sort(),files=zoneFiles().map(d=>read(`zones/${d}.json`,null)).filter(Boolean),names=ZONE_NAMES[mk];
+    for(const z of ['value','heat'])out.push(btReport({key:z,name:names[z],trades:holdTrades(files.flatMap(f=>(f.zones?.[z]||[]).map(r=>({id:r.id,name:r.name,date:f.date,close:r.close}))),prices,hold),index,calendar:cal.filter(d=>d>=(files[0]?.date||'9'))}));
+    const pf=(()=>{try{return fs.readdirSync(path.join(LOCAL,'picks')).map(f=>/^(\d{4}-\d{2}-\d{2})\.json$/.exec(f)?.[1]).filter(Boolean).sort();}catch{return[];}})().map(d=>read(`picks/${d}.json`,null)).filter(Boolean);
+    out.push(btReport({key:'picks',name:t('每日精選'),trades:holdTrades(pf.flatMap(f=>(f.picks||[]).map(r=>({id:r.id,name:r.name,date:f.date,close:r.close}))),prices,hold),index,calendar:cal.filter(d=>d>=(pf[0]?.date||'9'))}));
+    const doc={version:BACKTEST_VERSION,market:mk,generatedAt:new Date().toISOString(),date:today(),hold,heatDays:cal.length,indexName:mk==='US'?'S&P 500':t('加權指數'),strategies:out};
+    write('backtest.json',doc);
+  }catch(e){backtestJob.error=e.message;}finally{backtestJob.busy=false;}
+}
+function backtestInfo(){const d=read('backtest.json',null);if(!backtestJob.busy&&(!d||d.date<today())&&['TW','US'].includes(M().id))void runBacktest({hold:d?.hold||20});return{capable:['TW','US'].includes(M().id),data:d,busy:backtestJob.busy,step:backtestJob.step,total:backtestJob.total,error:backtestJob.error};}
+
 /* ---------- 推理模型 ---------- */
 // 金鑰以服務代號保存（anthropic、openai、gemini、compatible）；OpenAI 相容端點（例如本機模型）可不設金鑰
 function llmConfigured(){const l=config().llm,info=LLM_INFO[l.provider];if(!info||(info.needsBaseUrl&&!l.baseUrl))return false;return !!info.keyOptional||secretConfigured(l.provider,info.keyEnv);}
@@ -1484,7 +1655,7 @@ function importBundle(b,parts){
 }
 
 /* ---------- HTTP ---------- */
-const STATIC = { '/':'index.html', '/app.js':'app.js', '/heatmap.js':'heatmap.js', '/briefing.js':'briefing.js','/flow-cards.js':'flow-cards.js', '/live.js':'live.js', '/riskvalue.js':'riskvalue.js', '/riskvalue-ui.js':'riskvalue-ui.js', '/insight-ui.js':'insight-ui.js', '/report-card.js':'report-card.js', '/save-image.js':'save-image.js', '/prefs.js':'prefs.js', '/grouprank.js':'grouprank.js', '/i18n.js':'i18n.js', '/setup.js':'setup.js', '/market.js':'market.js', '/daytrade.js':'daytrade.js', '/intraday.js':'intraday.js', '/chipwatch.js':'chipwatch.js', '/hud.css':'hud.css', '/favicon.svg':'favicon.svg' };
+const STATIC = { '/':'index.html', '/app.js':'app.js', '/heatmap.js':'heatmap.js', '/briefing.js':'briefing.js','/flow-cards.js':'flow-cards.js', '/live.js':'live.js', '/riskvalue.js':'riskvalue.js', '/riskvalue-ui.js':'riskvalue-ui.js', '/research-ui.js':'research-ui.js', '/portfolio.js':'portfolio.js', '/insight-ui.js':'insight-ui.js', '/report-card.js':'report-card.js', '/save-image.js':'save-image.js', '/prefs.js':'prefs.js', '/grouprank.js':'grouprank.js', '/i18n.js':'i18n.js', '/setup.js':'setup.js', '/market.js':'market.js', '/daytrade.js':'daytrade.js', '/intraday.js':'intraday.js', '/chipwatch.js':'chipwatch.js', '/hud.css':'hud.css', '/favicon.svg':'favicon.svg' };
 // 舊版模組丟出的一般錯誤（尚未改成 UserError）中，可以直接顯示的訊息
 const LEGACY_MESSAGE=/FinMind|金鑰|股票|族群|設定|格式|請|更新|無效|內容|行情|休市|公布|日期|查無|日報|雷達|時光機|畫格|分組|自選/;
 const server = http.createServer(async (req,res) => {
@@ -1623,6 +1794,12 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/macro/explain'&&req.method==='POST')return json(res,200,await explainMacro());
     if(route==='/api/zones'&&req.method==='GET')return json(res,200,zonesInfo());
     if(route==='/api/zones/query'&&req.method==='POST'){if(zonesJob.busy)throw new UserError('策略選股計算中，請稍候');void runZones();await new Promise(r=>setTimeout(r,300));return json(res,202,zonesInfo());}
+    {const deep={'/api/financials':financialsReport,'/api/river':riverReport,'/api/dividends':dividendsReport,'/api/insiders':insidersReport,'/api/shorts':shortsReport,'/api/peers':async id=>peersReport(id)}[route];
+      if(deep&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`${route}:${id}`,()=>deep(id)));}}
+    if(route==='/api/portfolio'&&req.method==='GET')return json(res,200,await once('portfolio',()=>portfolioReport()));
+    if(route==='/api/portfolio'&&req.method==='POST'){const b=await body(req);const pf=normalizePortfolio(b);for(const h of pf.holdings)if(!validId(h.id))throw new UserError('股票代碼格式錯誤：{id}',{id:h.id});write('portfolio.json',pf);void refreshCalendar(true);return json(res,200,await portfolioReport());}
+    if(route==='/api/backtest'&&req.method==='GET')return json(res,200,backtestInfo());
+    if(route==='/api/backtest/run'&&req.method==='POST'){const b=await body(req);if(backtestJob.busy)throw new UserError('回測計算中，請稍候');const hold=[5,10,20,60].includes(Number(b.hold))?Number(b.hold):20;void runBacktest({hold});await new Promise(r=>setTimeout(r,300));return json(res,202,backtestInfo());}
     if(route==='/api/zones/history'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await zoneHistory(id));}
     if(route==='/api/targets'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`tg:${id}`,()=>targetsReport(id)));}
     if(route==='/api/signal'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await signalReport(id));}

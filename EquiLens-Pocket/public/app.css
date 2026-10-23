@@ -621,3 +621,42 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 .mc-body h4{margin:0 0 6px;font-size:1rem}.mc-body ol{margin:0 0 6px;padding-left:1.2em;line-height:1.7;font-size:.88rem}
 .mc-stat{margin:0 0 6px;font-size:.84rem;color:var(--muted)}.mc-ev{margin:0;padding-left:1em;font-size:.82rem;line-height:1.7}
 @media (max-width:560px){.mc-card{grid-template-columns:1fr}.mc-mon{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);padding:0 0 8px}}
+/* ---- 個股深入（財報、河流圖、股利、內部人、放空、同業）、持股健檢、策略回測：research-ui.js ---- */
+.dd{display:flex;flex-direction:column;gap:10px}
+.dd-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.dd-tiles>div{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);margin:0 -1px -1px 0}
+.dd-tiles small{color:var(--muted);font-size:.74rem}.dd-tiles b{font-size:1.15rem;font-variant-numeric:tabular-nums}.dd-tiles em{font-style:normal;font-size:.74rem;color:var(--soft)}
+.dd-chart{width:100%;height:auto;max-height:320px}.dd-chart path{fill:none;vector-effect:non-scaling-stroke}
+.dd-bar{fill:color-mix(in srgb,var(--cyan,var(--accent)) 38%,transparent)}
+.dd-gm{stroke:var(--amber);stroke-width:1.8}.dd-gm-dot{fill:var(--amber)}.dd-om{stroke:var(--violet);stroke-width:1.8}.dd-om-dot{fill:var(--violet)}
+.dd-k-bar,.dd-k-gm,.dd-k-om,.dd-k-river,.dd-k-sbl,.dd-k-mg,.bt-k-eq,.bt-k-bench{display:inline-block;width:16px;height:3px;vertical-align:middle;margin-right:6px}
+.dd-k-bar{background:color-mix(in srgb,var(--cyan,var(--accent)) 50%,transparent);height:8px}.dd-k-gm{background:var(--amber)}.dd-k-om{background:var(--violet)}.dd-k-river{background:linear-gradient(90deg,#16a37a,#c9a227,#d0465c);height:8px}
+.dd-river path.dd-rv{stroke:none}.dd-river path.dd-rv0{fill:rgba(22,163,122,.20)}.dd-river path.dd-rv1{fill:rgba(120,180,90,.16)}.dd-river path.dd-rv2{fill:rgba(201,162,39,.16)}.dd-river path.dd-rv3{fill:rgba(208,70,92,.18)}
+.dd-rl{stroke:color-mix(in srgb,var(--muted) 60%,transparent);stroke-width:1}.dd-rp{stroke:var(--text,var(--ink,#e4f1ff));stroke-width:1.8}.dd-rlab{fill:var(--muted);font-size:10.5px}
+.dd-ls{stroke:var(--up);stroke-width:1.8}.dd-lm{stroke:var(--amber);stroke-width:1.4;stroke-dasharray:4 3}.dd-k-sbl{background:var(--up)}.dd-k-mg{background:var(--amber)}
+.dd-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.dd-tbl td,.dd-tbl th{white-space:nowrap}.dd-tbl td.num,.dd-tbl td>.num{text-align:right}
+.dd-fin th:first-child{position:sticky;left:0;background:var(--panel,var(--surface));z-index:1}.dd-fin td{text-align:right}
+.dd-h{margin:8px 0 0;font-size:.9rem;color:var(--muted);font-weight:600}
+.dd-years{display:flex;align-items:flex-end;gap:8px;height:130px;padding:6px 2px;border-bottom:1px solid var(--line)}
+.dd-years>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px;font-size:.72rem}
+.dd-years span{display:block;width:70%;max-width:36px;background:color-mix(in srgb,var(--amber) 55%,transparent);border-radius:4px 4px 0 0}.dd-years small{color:var(--muted)}
+.dd-chip{display:inline-block;font-size:.74rem;padding:2px 8px;border:1px solid var(--line2);border-radius:999px;margin:2px 4px 2px 0;background:transparent}
+.dd-chips{display:flex;flex-wrap:wrap}.dd-group{margin:0;font-size:.86rem;color:var(--muted)}.dd-group b{color:var(--text,var(--ink))}
+.dd-self td{background:color-mix(in srgb,var(--cyan,var(--accent)) 10%,transparent)}.dd-med td{color:var(--muted);font-style:italic}
+.pf-expo{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}.pf-expo p{margin:0;font-size:.84rem}
+.pf-expo-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;font-size:.86rem}
+.pf-bar{position:relative;height:10px;border-radius:999px;background:color-mix(in srgb,var(--line) 80%,transparent)}.pf-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:var(--cyan,var(--accent))}.pf-bar em{position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1px;background:var(--amber);border-radius:2px}
+.pf-warn{margin:0;padding:8px 12px;list-style:none;border:1px solid color-mix(in srgb,var(--amber) 45%,transparent);border-radius:10px;font-size:.84rem;color:var(--amber)}
+.pf-table td{vertical-align:top}.pf-hit-stop td{background:color-mix(in srgb,var(--down) 10%,transparent)}.pf-hit-target td{background:color-mix(in srgb,var(--up) 10%,transparent)}
+.pf-del{padding:2px 9px;min-height:0}
+.pf-form{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.pf-form input{flex:1;min-width:110px}.pf-form label{display:flex;gap:6px;align-items:center;font-size:.84rem;color:var(--muted)}
+.pf-sectors{display:flex;flex-direction:column;gap:5px}.pf-sectors>div{display:grid;grid-template-columns:minmax(90px,30%) 1fr 3.5em;gap:8px;align-items:center;font-size:.82rem}.pf-sectors i{display:block;height:8px;border-radius:4px;background:color-mix(in srgb,var(--cyan,var(--accent)) 55%,transparent)}.pf-sectors b{text-align:right}
+.pf-swap{display:flex;flex-direction:column;gap:4px;padding:8px 0;border-bottom:1px solid var(--line);font-size:.84rem}
+.bt-ctl{display:flex;gap:8px;align-items:center}.bt-ctl select{padding:5px 8px}
+.bt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.bt-card{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}.bt-card header{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}.bt-card h4{margin:0}
+.bt-card details summary{cursor:pointer;color:var(--muted);font-size:.84rem}
+.bt-eq{stroke:var(--cyan,var(--accent));stroke-width:1.8}.bt-bench{stroke:var(--muted);stroke-width:1.2;stroke-dasharray:4 3}.bt-k-eq{background:var(--cyan,var(--accent))}.bt-k-bench{background:var(--muted)}
+@media (max-width:560px){.dd-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.bt-grid{grid-template-columns:1fr}}
+.dd .cyan{color:var(--cyan,var(--accent))}.dd .muted{color:var(--muted)}
