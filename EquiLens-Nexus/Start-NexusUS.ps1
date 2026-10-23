@@ -1,10 +1,19 @@
 ﻿# 衡析美股：第二個 Nexus（埠 4331、資料在 .local-us），與台股版（埠 4330、.local）同時執行、互不影響。
 # 第一次啟動時寫入 market=US 的設定，開啟網頁後在設定精靈貼上美股資料源金鑰（例如 Twelve Data）。
-param([switch]$NoBrowser)
+param([switch]$NoBrowser, [switch]$Restart)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $data = Join-Path $root '.local-us'
 $url = 'http://127.0.0.1:4331'
+# -Restart：先停止目前的美股版（只停 .local-us\server.pid 記錄、且確實是本專案 server.mjs 的 node 程序）
+if ($Restart) {
+    $pidFile = Join-Path $data 'server.pid'
+    if (Test-Path -LiteralPath $pidFile) {
+        $old = Get-CimInstance Win32_Process -Filter ("ProcessId = " + [int](Get-Content -LiteralPath $pidFile))
+        if ($old -and $old.Name -eq 'node.exe' -and $old.CommandLine.Contains((Join-Path $root 'server.mjs'))) { Stop-Process -Id $old.ProcessId; Start-Sleep -Milliseconds 800 }
+        Remove-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
+    }
+}
 try { $h = Invoke-RestMethod -Uri "$url/api/health" -TimeoutSec 2; if ($h.app -eq 'equilens-nexus') { if (-not $NoBrowser) { Start-Process $url }; exit 0 } } catch { }
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
 if (-not $node) { throw 'Node.js 22 or newer is required.' }

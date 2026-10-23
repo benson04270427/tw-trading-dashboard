@@ -8,13 +8,16 @@
 |---|---|
 | `EquiLens.vbs` | 在背景依序啟動台股 Nexus、手機版、Cloudflare 通道與美股 Nexus，不開任何視窗；加參數 `tw`／`us` 會在啟動後開啟對應的網頁 |
 | `EquiLens-Nexus/Start-NexusUS.ps1` | 啟動美股版 Nexus：埠 **4331**、資料夾 `EquiLens-Nexus/.local-us`；第一次啟動寫入 `market: US` 的設定 |
+| `重新啟動衡析.vbs` | 在背景重新啟動台股版、美股版與手機版（手機網址不變），套用程式更新時使用 |
+| `建立桌面圖示.vbs` | 在桌面建立「衡析 台股」「衡析 美股」捷徑 |
+| `EquiLens-Autostart.vbs` | 在 Windows「啟動」資料夾建立捷徑，登入後自動在背景啟動 |
 | `icons/equilens-tw.ico`、`icons/equilens-us.ico` | 桌面捷徑圖示（台股青色、美股金色） |
 
 ## 怎麼用
 
 - **自動啟動**：把一支呼叫 `EquiLens.vbs` 的小程式放進 Windows「啟動」資料夾（`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`），登入後就在背景啟動全部服務。
 - **桌面圖示**：捷徑目標為 `wscript.exe "…\EquiLens.vbs" tw`（或 `us`）。服務已在執行時直接開網頁；沒有執行時先在背景啟動再開。
-- **美股版**：第一次開啟 http://127.0.0.1:4331 會進入設定精靈，選美國股市並貼上美股資料源金鑰（例如 [Twelve Data](https://twelvedata.com) 免費方案）。美股版與台股版的設定、族群、自選、金鑰各自獨立。
+- **美股版**：第一次開啟 http://127.0.0.1:4331 會進入設定精靈，選美國股市。免金鑰的「Nasdaq 公開資料」即可取得股票清單（含產業）、日 K、批次報價與當日走勢；也可以另外啟用 Twelve Data、Alpha Vantage。美股版與台股版的設定、族群、自選、金鑰各自獨立。
 
 ## 手機網址更換通知
 
