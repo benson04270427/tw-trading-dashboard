@@ -218,23 +218,25 @@ const chartShown = id => document.getElementById('detail-dialog')?.open && !!doc
 export async function openChart(id, period = K.period) {
   const dialog = document.getElementById('detail-dialog');
   if (K.id !== id) { K.data = null; K.live = null; K.error = ''; K.group = ''; }
-  K.id = id; K.period = period; savePref('nexus.chartPeriod', period);
+  K.id = id; K.period = period; if (period !== 'signal') savePref('nexus.chartPeriod', period);
   if (!dialog.open) dialog.showModal();
   paintChart(); await refreshChart();
 }
 async function refreshChart() {
   const id = K.id, period = K.period, seq = ++K.seq;
   try {
-    if (period === 'live') { const d = await C.api(`intraday?id=${id}${K.group ? '&group=' + encodeURIComponent(K.group) : ''}`); if (seq !== K.seq) return; K.live = d; K.error = ''; }
+    if (period === 'signal') { const d = await C.api('signal?id=' + id); if (seq !== K.seq) return; K.sig = d; K.error = ''; }
+    else if (period === 'live') { const d = await C.api(`intraday?id=${id}${K.group ? '&group=' + encodeURIComponent(K.group) : ''}`); if (seq !== K.seq) return; K.live = d; K.error = ''; }
     else { const d = await C.api(`chart?id=${id}&period=${period}`); if (seq !== K.seq) return; K.data = d; K.error = ''; }
   }
   catch (e) { if (seq !== K.seq) return; K.error = e.message; }
   if (chartShown(id)) paintChart();
 }
-setInterval(() => { if (K.id && K.period !== 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+setInterval(() => { if (K.id && !['live', 'signal'].includes(K.period) && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
 setInterval(() => { if (K.id && K.period === 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 3000);
 function paintChart() {
   if (K.period === 'live') return paintLive();
+  if (K.period === 'signal') return paintSignal();
   const box = document.getElementById('detail'), id = K.id, d = K.data?.id === id ? K.data : null, s = L.board?.stocks.find(x => x.id === id);
   const ready = d && d.period === K.period, q = d?.quote ?? s?.quote, dayBar = d?.session || null;
   const price = q?.close ?? dayBar?.[4] ?? d?.daily?.price ?? s?.daily?.price, chg = q?.change ?? d?.daily?.change ?? s?.daily?.change;
@@ -250,7 +252,14 @@ function paintChart() {
 }
 
 /* ---------- 個股即時走勢（K 線視窗的「走勢」分頁）：全日走勢、當日均價線、族群均價線、五檔、成交明細，盤中每 3 秒更新 ---------- */
-const CHART_TABS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K']];
+const CHART_TABS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K'], ['signal', '訊號']];
+// 「訊號」分頁：訊號面板（與個股診斷相同內容），任何股票都可開
+function paintSignal() {
+  const box = document.getElementById('detail'), id = K.id, d = K.sig?.id === id ? K.sig : null, s = L.board?.stocks.find(x => x.id === id);
+  box.innerHTML = `<div class="detailtop" data-chart="${id}"><div><p class="eyebrow">Signal · ATR Trailing Line</p><h2>${esc(d?.name || s?.name || id)} <span class="stockcode">${id}</span></h2>${d?.price != null ? `<div class="price">${fmt(d.price, 2)}</div>` : ''}</div>
+    <div class="actions"><div class="segmented">${CHART_TABS.map(([v, l]) => `<button class="${K.period === v ? 'selected' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>${C.inScope(id) ? `<button data-stock-detail="${id}">個股診斷</button>` : ''}<button class="close" data-action="close-detail" aria-label="關閉">×</button></div></div>
+    <div class="detailbody"><section class="panel sg-panel"><div class="panelhead"><h3>📶 訊號面板</h3><span class="fine">ATR 追蹤線 · 日週月共振 · 交易計畫</span></div><div class="contentpad" id="ix-signal">${K.error && !d ? `<p class="fine">${esc(K.error)}</p>` : d ? signalHTML(d, { editable: true }) : '<p><i class="spinner"></i>計算訊號…</p>'}</div></section></div>`;
+}
 function paintLive() {
   const box = document.getElementById('detail'), id = K.id, d = K.live?.id === id ? K.live : null, s = L.board?.stocks.find(x => x.id === id);
   const q = d?.quote || {}, price = q.last ?? s?.quote?.close, chg = q.change ?? s?.quote?.change, live = d?.live && marketOpen();
