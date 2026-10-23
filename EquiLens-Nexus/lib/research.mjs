@@ -10,17 +10,19 @@ export const LOOKBACK = { price: 400, adjusted: 400, institutions: 130, revenue:
 // 依資料源能力組成要抓的項目：{ keys, label, fetch(id, from, to) → rows 或 { key: rows } }
 export function defaultSources(opts = {}) {
   const src = [];
-  if (data.has('daily')) src.push({ keys: ['price', 'adjusted'], label: 'daily', fetch: (id, from, to) => data.daily(id, from, to, opts) });
-  if (data.has('institutional') && data.pick('institutional')?.caps.institutional !== 'bulk') src.push({ keys: ['institutions'], label: 'institutional', fetch: (id, from, to) => data.institutional(id, from, to, opts) });
-  if (data.has('revenue')) src.push({ keys: ['revenue'], label: 'revenue', fetch: (id, from, to) => data.revenue(id, from, to, opts) });
-  if (data.has('valuation')) src.push({ keys: ['valuation'], label: 'valuation', fetch: (id, from, to) => data.valuation(id, from, to, opts) });
+  if (data.has('daily')) src.push({ keys: ['price', 'adjusted'], label: 'daily', provider: data.pick('daily')?.id, fetch: (id, from, to) => data.daily(id, from, to, opts) });
+  if (data.has('institutional') && data.pick('institutional')?.caps.institutional !== 'bulk') src.push({ keys: ['institutions'], label: 'institutional', provider: data.pick('institutional')?.id, fetch: (id, from, to) => data.institutional(id, from, to, opts) });
+  if (data.has('revenue')) src.push({ keys: ['revenue'], label: 'revenue', provider: data.pick('revenue')?.id, fetch: (id, from, to) => data.revenue(id, from, to, opts) });
+  if (data.has('valuation')) src.push({ keys: ['valuation'], label: 'valuation', provider: data.pick('valuation')?.id, fetch: (id, from, to) => data.valuation(id, from, to, opts) });
   return src;
 }
 
 export async function fetchStock(id, previous = {}, { cutoff, signal, onDataset = () => { }, sources = defaultSources({ signal }) } = {}) {
-  const raw = { ...previous, errors: { ...(previous.errors || {}) }, checked: { ...(previous.checked || {}) } };
+  const raw = { ...previous, errors: { ...(previous.errors || {}) }, checked: { ...(previous.checked || {}) }, checkedBy: { ...(previous.checkedBy || {}) } };
   for (const s of sources) {
-    if (s.keys.every(k => raw.checked[k] === cutoff)) continue;
+    // 同一天已成功、且仍是同一個資料源取得的項目不重抓（換了資料源時重抓一次）
+    const by = s.provider ?? null;
+    if (s.keys.every(k => raw.checked[k] === cutoff && (!by || raw.checkedBy[k] === by))) continue;
     onDataset(s.label);
     const from = minusDays(cutoff, Math.max(...s.keys.map(k => LOOKBACK[k] || 400)));
     try {
@@ -28,7 +30,7 @@ export async function fetchStock(id, previous = {}, { cutoff, signal, onDataset 
       const byKey = Array.isArray(got) ? { [s.keys[0]]: got } : got || {};
       for (const key of s.keys) {
         const rows = byKey[key] || [];
-        if (rows.length) { raw[key] = rows; raw.checked[key] = cutoff; delete raw.errors[key]; }
+        if (rows.length) { raw[key] = rows; raw.checked[key] = cutoff; if (by) raw.checkedBy[key] = by; delete raw.errors[key]; }
         else { if (!raw[key]?.length) raw[key] = []; delete raw.checked[key]; raw.errors[key] = t('本次未回傳資料；既有資料保留原日期'); }
       }
       if (byKey.adjustedIsRaw) raw.adjustedIsRaw = true; else if (s.keys.includes('adjusted')) delete raw.adjustedIsRaw;

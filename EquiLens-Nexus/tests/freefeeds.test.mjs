@@ -39,16 +39,23 @@ test('finnhub and fmp parsers', () => {
 });
 
 import { parseFacts } from '../lib/providers/sec.mjs';
-test('SEC EDGAR companyfacts → 季營收（日曆季 frame，第 4 季由年度扣前三季）', () => {
-  const v = (start, end, val, frame) => ({ start, end, val, frame, filed: end });
+test('SEC EDGAR companyfacts → 季營收（合併標籤、第 4 季由全年扣前三季）', () => {
+  const v = (start, end, val, filed = end) => ({ start, end, val, filed });
   const facts = { facts: { 'us-gaap': {
-    Revenues: { units: { USD: [v('2022-01-01', '2022-03-31', 1, 'CY2022Q1')] } },
+    Revenues: { units: { USD: [v('2022-01-01', '2022-03-31', 1)] } },
     RevenueFromContractWithCustomerExcludingAssessedTax: { units: { USD: [
-      v('2024-01-01', '2024-03-31', 100, 'CY2024Q1'), v('2024-04-01', '2024-06-30', 110, 'CY2024Q2'), v('2024-07-01', '2024-09-30', 120, 'CY2024Q3'),
-      v('2024-01-01', '2024-12-31', 460, 'CY2024'), v('2024-01-01', '2024-06-30', 210), v('2025-01-01', '2025-03-31', 140, 'CY2025Q1')] } } } } };
+      v('2024-01-01', '2024-03-31', 100), v('2024-04-01', '2024-06-30', 110), v('2024-07-01', '2024-09-30', 120),
+      v('2024-01-01', '2024-12-31', 460), v('2024-01-01', '2024-06-30', 210), v('2025-01-01', '2025-03-31', 139, '2025-04-30'), v('2025-01-01', '2025-03-31', 140, '2025-07-30')] } } } } };
   const rows = parseFacts(facts, 'COHR');
-  assert.deepEqual(rows.map(r => [r.revenue_year, r.revenue_quarter, r.revenue]), [[2024, 1, 100], [2024, 2, 110], [2024, 3, 120], [2024, 4, 130], [2025, 1, 140]]);
+  assert.deepEqual(rows.map(r => [r.revenue_year, r.revenue_quarter, r.revenue]), [[2022, 1, 1], [2024, 1, 100], [2024, 2, 110], [2024, 3, 120], [2024, 4, 130], [2025, 1, 140]]);
   assert.equal(rows[0].stock_id, 'COHR');
-  assert.deepEqual(parseFacts({ facts: { 'ifrs-full': { Revenue: { units: { USD: [v('2025-04-01', '2025-06-30', 50, 'CY2025Q2')] } } } } }, 'NBIS').map(r => r.revenue), [50]);
+  assert.deepEqual(parseFacts({ facts: { 'ifrs-full': { Revenue: { units: { USD: [v('2025-04-01', '2025-06-30', 50)] } } } } }, 'NBIS').map(r => r.revenue), [50]);
   assert.deepEqual(parseFacts({}, 'X'), []);
+});
+test('SEC EDGAR：6 月結帳的公司，換標籤後的季度與年報推得的第 4 季', () => {
+  const v = (start, end, val) => ({ start, end, val, filed: end });
+  const facts = { facts: { 'us-gaap': {
+    RevenueFromContractWithCustomerExcludingAssessedTax: { units: { USD: [v('2024-12-29', '2025-03-29', 425), v('2024-06-30', '2025-06-28', 1645), v('2025-06-29', '2026-06-27', 3014)] } },
+    RevenueFromContractWithCustomerIncludingAssessedTax: { units: { USD: [v('2025-06-29', '2025-09-27', 534), v('2025-09-28', '2025-12-27', 665), v('2025-06-29', '2026-03-28', 2007), v('2025-12-28', '2026-03-28', 808), v('2025-06-29', '2026-06-27', 3014)] } } } } };
+  assert.deepEqual(parseFacts(facts, 'LITE').map(r => [r.revenue_year, r.revenue_quarter, r.revenue]), [[2025, 1, 425], [2025, 3, 534], [2025, 4, 665], [2026, 1, 808], [2026, 2, 1007]]);
 });

@@ -27,22 +27,38 @@ async function cikOf(id, ctx) {
 }
 // 營收標籤（依序嘗試，取資料最新的一個）
 const TAGS = [['us-gaap', 'RevenueFromContractWithCustomerExcludingAssessedTax'], ['us-gaap', 'Revenues'], ['us-gaap', 'SalesRevenueNet'], ['us-gaap', 'RevenueFromContractWithCustomerIncludingAssessedTax'], ['ifrs-full', 'Revenue']];
-// companyfacts → 季營收列：只取 SEC 已對齊日曆季的 3 個月數值（frame＝CY2026Q2），不足時以年度數值扣掉前三季補出第 4 季
+// companyfacts → 季營收列。
+// 取約 3 個月（80～100 天）的數值為單季；10-K 只報全年時，以全年（350～380 天）扣掉同一年度內的三個單季補出最後一季。
+// 公司常換營收標籤（例如 2025 年起改用 IncludingAssessedTax），因此合併所有標籤：資料越新的標籤優先，缺的季度由其他標籤補。
+// 季別以期末日期（往前 15 天）所在的日曆季計，與財報年度無關（例如 6 月結帳的公司，12 月底結束的季度算 Q4）。
+const DAY = 864e5, span = x => (Date.parse(x.end) - Date.parse(x.start)) / DAY;
 export function parseFacts(facts, id) {
-  let best = null;
+  const tags = [];
   for (const [tax, tag] of TAGS) {
     const units = facts?.facts?.[tax]?.[tag]?.units; if (!units) continue;
-    const list = units.USD || Object.values(units)[0] || [], last = list.reduce((m, x) => x.end > m ? x.end : m, '');
-    if (!best || last > best.last) best = { list, last };
+    const list = (units.USD || Object.values(units)[0] || []).filter(x => x.start && x.end && Number.isFinite(x.val));
+    if (list.length) tags.push({ list, last: list.reduce((m, x) => x.end > m ? x.end : m, '') });
   }
-  if (!best) return [];
-  const q = new Map(), annual = new Map();
-  for (const x of best.list) {
-    const m = /^CY(\d{4})Q([1-4])$/.exec(x.frame || ''); if (m) { q.set(`${m[1]}-${m[2]}`, { y: +m[1], q: +m[2], val: x.val, end: x.end, filed: x.filed }); continue; }
-    const a = /^CY(\d{4})$/.exec(x.frame || ''); if (a) annual.set(+a[1], x);
+  tags.sort((a, b) => b.last.localeCompare(a.last)); // 穩定排序：同樣新時依 TAGS 順序
+  const quarters = new Map(), annuals = new Map();
+  for (const { list } of tags) {
+    const q = new Map(), a = new Map(); // 同一標籤內同一期間以最新申報為準（更正後的數字）
+    for (const x of list) { const d = span(x), m = d >= 80 && d <= 100 ? q : d >= 350 && d <= 380 ? a : null; if (!m) continue; const k = x.end; if (!m.has(k) || String(x.filed) > String(m.get(k).filed)) m.set(k, x); }
+    for (const [k, x] of q) if (!quarters.has(k)) quarters.set(k, x);
+    for (const [k, x] of a) if (!annuals.has(k)) annuals.set(k, x);
   }
-  for (const [y, a] of annual) { const k = `${y}-4`; if (!q.has(k) && [1, 2, 3].every(n => q.has(`${y}-${n}`))) q.set(k, { y, q: 4, val: a.val - [1, 2, 3].reduce((s, n) => s + q.get(`${y}-${n}`).val, 0), end: a.end, filed: a.filed }); }
-  return [...q.values()].filter(r => Number.isFinite(r.val)).sort((a, b) => a.y * 4 + a.q - b.y * 4 - b.q).map(r => ({ date: r.end, stock_id: id, revenue_year: r.y, revenue_quarter: r.q, revenue: r.val, create_time: r.filed || r.end }));
+  const near = (a, b) => Math.abs(Date.parse(a) - Date.parse(b)) <= 5 * DAY;
+  for (const a of annuals.values()) {
+    if ([...quarters.keys()].some(e => near(e, a.end))) continue;
+    const inside = [...quarters.values()].filter(x => Date.parse(x.start) >= Date.parse(a.start) - 5 * DAY && x.end < a.end);
+    if (inside.length === 3) quarters.set(a.end, { start: inside.reduce((m, x) => x.end > m ? x.end : m, ''), end: a.end, val: a.val - inside.reduce((s, x) => s + x.val, 0), filed: a.filed });
+  }
+  const out = new Map();
+  for (const x of quarters.values()) {
+    const d = new Date(Date.parse(x.end) - 15 * DAY), y = d.getUTCFullYear(), q = Math.floor(d.getUTCMonth() / 3) + 1, k = `${y}-${q}`;
+    if (!out.has(k) || x.end > out.get(k).date) out.set(k, { date: x.end, stock_id: id, revenue_year: y, revenue_quarter: q, revenue: x.val, create_time: x.filed || x.end });
+  }
+  return [...out.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export default {
@@ -52,6 +68,6 @@ export default {
   validate: async key => { const k = String(key || '').trim(); if (!EMAIL.test(k)) throw new DataError('{label}：請在金鑰欄位填入聯絡 email', { label: LABEL }); if (!(await get('https://www.sec.gov/files/company_tickers.json', { key: k }))) throw new DataError('{label}：資料服務回應 {status}', { label: LABEL, status: 404 }); return { plan: 'free', tier: 'free' }; },
   revenue: async (id, from, to, ctx) => {
     const cik = await cikOf(id, ctx); if (!cik) return [];
-    return parseFacts(await get(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, ctx), id).filter(r => !to || r.date <= to);
+    return parseFacts(await get(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, ctx), id).filter(r => (!from || r.date >= from) && (!to || r.date <= to));
   },
 };
