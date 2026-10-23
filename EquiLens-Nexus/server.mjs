@@ -42,7 +42,7 @@ import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
 import { buildVerdict } from './lib/verdict.mjs';
 import { buildSignal, newSignal, normalizeSignalSettings } from './lib/signal.mjs';
-import { twTargets, usTargets, buildTargets } from './lib/targets.mjs';
+import { twTargets, usTargets, buildTargets, newsTargets, brokerTargets } from './lib/targets.mjs';
 import { ZONES_VERSION, ZONE_NAMES, zonesTW, zonesUS, historyOf } from './lib/zones.mjs';
 import { fundamentals as finnhubFundamentals } from './lib/providers/finnhub.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
@@ -1066,10 +1066,20 @@ const targetCache=new Map();
 async function targetsReport(id){
   const mk=M().id;if(!['TW','US'].includes(mk))return{id,available:false,reason:t('目標價目前只支援台股與美股')};
   let c=targetCache.get(id);
-  if(!c||Date.now()-c.at>12*3600e3){let raw=null,error='';try{raw=mk==='TW'?await twTargets(id):await usTargets(id);}catch(e){error=e.message;raw=c?.raw||null;}c={at:Date.now(),raw,error};targetCache.set(id,c);}
-  const rows=await signalRows(id),closes=rows.map(r=>[String(r.date).slice(0,10),Number(r.close)]).filter(x=>x[1]>0).slice(-250),live=liveRow(id,today());
+  const name=uniIndex().meta.get(id)?.name||id;
+  if(!c||Date.now()-c.at>12*3600e3){
+    let raw=null,news=[],error='';
+    try{raw=mk==='TW'?await twTargets(id):await usTargets(id);}catch(e){error=e.message;raw=c?.raw||null;}
+    try{news=await newsTargets({market:mk,id,name});}catch(e){news=c?.news||[];error=error||e.message;}
+    c={at:Date.now(),raw,news,error};targetCache.set(id,c);
+  }
+  // 近一年股價：本機日 K 不足一年時，台股向 FinMind 取 400 天（每檔每 6 小時最多 1 次）
+  let rows=await signalRows(id);
+  if(rows.length<200&&mk==='TW'&&data.finmind()){const k='tp:'+id,h=signalCache.get(k);if(h&&Date.now()-h.at<6*3600e3)rows=h.rows;else{try{const r=await finmindRequest('TaiwanStockPrice',{data_id:id,start_date:minusDays(today(),400),end_date:today()},fmOpt());if(r.length>rows.length)rows=r;}catch{}signalCache.set(k,{at:Date.now(),rows});}}
+  const closes=rows.map(r=>[String(r.date).slice(0,10),Number(r.close)]).filter(x=>x[1]>0).slice(-250),live=liveRow(id,today());
   const price=Number(live?.close)>0?Number(live.close):closes.at(-1)?.[1]??null;
-  return{...buildTargets({id,name:uniIndex().meta.get(id)?.name||id,market:mk,raw:c.raw,price,closes,today:today()}),error:c.error||''};
+  const brokers=brokerTargets(c.news||[],{market:mk,name,id,price,today:today()});
+  return{...buildTargets({id,name,market:mk,raw:c.raw,brokers,price,closes,today:today()}),error:c.error||''};
 }
 // 研究更新完成後掃描自選股：最新一根 K 棒出現新訊號就推播（第一次只記錄、不推播）
 let signalScanBusy=false;

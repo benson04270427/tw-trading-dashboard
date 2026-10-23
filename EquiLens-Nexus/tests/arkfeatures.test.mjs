@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCnyesRatings, summarize, parseNasdaqTargets, buildTargets } from '../lib/targets.mjs';
+import { parseCnyesRatings, summarize, parseNasdaqTargets, buildTargets, parseRss, targetFromTitle, brokerTargets } from '../lib/targets.mjs';
 import { zonesTW, zonesUS, historyOf } from '../lib/zones.mjs';
 import { seasonal, monthStats, nextSessions, monthEvents, buildMacro, position } from '../lib/macro.mjs';
 
@@ -16,9 +16,11 @@ test('目標價：鉅亨網表格、近 120 天摘要、Nasdaq 共識', () => {
   assert.equal(s.mean, 3220); assert.equal(s.count, 1); assert.equal(s.upside, 33.06); assert.equal(s.latest.target, 3220);
   const n = parseNasdaqTargets({ consensusOverview: { lowPriceTarget: 275, highPriceTarget: 465, priceTarget: 323.45, buy: 33, sell: 0, hold: 0 }, historicalConsensus: [{ z: { buy: 35, hold: 1, sell: 1, date: '10/01/2025', consensus: 'Buy' }, y: 187.24 }] });
   assert.equal(n.mean, 323.45); assert.equal(n.history[0].date, '2025-10-01');
-  const b = buildTargets({ id: 'NVDA', market: 'US', raw: n, price: 212.21 });
-  assert.equal(b.available, true); assert.equal(b.upside, 52.42); assert.equal(b.count, 33);
-  assert.equal(buildTargets({ id: 'X', market: 'TW', raw: { history: [] } }).available, false);
+  const b = buildTargets({ id: 'NVDA', market: 'US', raw: n, price: 212.21, brokers: [{ broker: 'Goldman Sachs', target: 300, date: '2026-10-20' }] });
+  assert.equal(b.available, true); assert.equal(b.upside, 52.42); assert.equal(b.count, 33); assert.equal(b.brokers[0].upside, 41.37);
+  assert.equal(buildTargets({ id: 'X', market: 'TW', raw: { history: [] }, today: '2026-10-24' }).available, false);
+  const tw = buildTargets({ id: '2330', market: 'TW', raw: { history: h }, price: 2420, today: '2026-10-24', brokers: [{ broker: '高盛', target: 3300, date: '2026-10-06' }, { broker: '麥格理', target: 4410, date: '2026-10-07' }] });
+  assert.equal(tw.count, 3); assert.equal(tw.high, 4410); assert.equal(tw.low, 3220); assert.equal(tw.mean, 3643.33); assert.equal(tw.brokers[0].broker, 'FactSet 共識');
 });
 
 test('策略選股：台股價值區與升溫區、美股、入選紀錄', () => {
@@ -52,4 +54,17 @@ test('總經大地圖：季節性推估、月份統計、事件、交易日', ()
   const m = buildMacro({ market: 'TW', closes, today: '2026-10-24' });
   assert.equal(m.available, true); assert.equal(m.projection.length, 40); assert.equal(m.months.map(x => x.m).join(), '10,11,12');
   assert.ok(position(closes) > 50 && position(closes) < 100);
+});
+
+test('新聞標題擷取各家券商目標價', () => {
+  const rss = '<rss><channel><item><title>高盛上調台積電目標價至3300元 看好AI需求續強 - 鉅亨網</title><link>https://a</link><pubDate>Mon, 06 Oct 2026 03:00:00 GMT</pubDate><source url="x">鉅亨網</source></item><item><title><![CDATA[3100→3300！大摩調高台積電目標價 - 經濟日報]]></title><link>https://b</link><pubDate>Sun, 05 Oct 2026 03:00:00 GMT</pubDate><source url="x">經濟日報</source></item></channel></rss>';
+  const items = parseRss(rss);
+  assert.deepEqual(items.map(i => [i.date, i.title, i.source]), [['2026-10-06', '高盛上調台積電目標價至3300元 看好AI需求續強', '鉅亨網'], ['2026-10-05', '3100→3300！大摩調高台積電目標價', '經濟日報']]);
+  assert.equal(targetFromTitle('台積電法說前目標價先噴！麥格理喊4,410元、創內外資最高價', { price: 2400 }), 4410);
+  assert.equal(targetFromTitle('EPS衝刺152.77元！台積電 目標價曝光', { price: 2400 }), null);
+  assert.equal(targetFromTitle('Goldman Sachs raises Nvidia price target to $300 from $250', { market: 'US', price: 212 }), 300);
+  const b = brokerTargets([...items, { date: '2026-10-13', title: '台積電「8大外資送暖」目標價曝光麥格理、大摩、花旗全說了 3300元', link: 'c' }, { date: '2026-10-04', title: '高盛喊台積電目標價3100元', link: 'd' }], { market: 'TW', name: '台積電', id: '2330', price: 2400, today: '2026-10-24' });
+  assert.deepEqual(b.map(x => [x.broker, x.target, x.date]), [['高盛', 3300, '2026-10-06'], ['摩根士丹利', 3300, '2026-10-05']]);
+  const us = brokerTargets([{ date: '2026-10-20', title: 'Morgan Stanley lifts NVDA price target to $310', link: 'e' }, { date: '2026-10-19', title: 'Apple price target raised to $300 by Citi', link: 'f' }], { market: 'US', name: 'NVIDIA Corporation', id: 'NVDA', price: 212, today: '2026-10-24' });
+  assert.deepEqual(us.map(x => [x.broker, x.target]), [['Morgan Stanley', 310]]);
 });

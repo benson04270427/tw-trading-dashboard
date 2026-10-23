@@ -190,29 +190,36 @@ export function picksHTML(info) {
   <p class="ix-foot">依固定規則加總：法人買超排行${d.market === 'TW' ? '（外資、投信）' : ''}、ATR 追蹤線訊號、當日量價、營收年增、近兩日新聞${d.market === 'TW' ? '與 AI 供應鏈' : ''}；同一供應鏈或產業最多 2 檔。這是研究清單，不是買賣建議。</p>`;
 }
 
-// ---- 目標價（股價與未來 12 個月目標區間） ----
+// ---- 目標價（股價與未來 12 個月目標區間；下方列出各家券商） ----
 export function targetChartSVG(d) {
-  const c = (d.closes || []).filter(x => x[1] > 0); if (c.length < 5 || !d.mean) return '';
-  const W = 600, H = 220, P = 30, split = W * 0.58, px = d.price ?? c.at(-1)[1];
-  const lo = Math.min(...c.map(x => x[1]), d.low ?? d.mean) * 0.97, hi = Math.max(...c.map(x => x[1]), d.high ?? d.mean) * 1.03;
-  const y = v => (8 + (hi - v) / (hi - lo) * (H - 24)).toFixed(1), x = i => (4 + i * (split - 4) / (c.length - 1)).toFixed(1);
+  const c = (d.closes || []).filter(x => x[1] > 0); if (c.length < 2 || !d.mean) return '';
+  const W = 640, H = 300, L = 46, R = 92, T = 12, B = 26, split = L + (W - L - R) * 0.55, end = W - R, px = d.price ?? c.at(-1)[1];
+  const vals = [...c.map(x => x[1]), d.high ?? d.mean, d.low ?? d.mean, d.mean], lo0 = Math.min(...vals), hi0 = Math.max(...vals), pad = (hi0 - lo0) * 0.08 || hi0 * 0.05, lo = lo0 - pad, hi = hi0 + pad;
+  const y = v => (T + (hi - v) / (hi - lo) * (H - T - B)).toFixed(1), x = i => (L + i * (split - L) / Math.max(1, c.length - 1)).toFixed(1);
+  const grid = Array.from({ length: 6 }, (_, k) => lo + (hi - lo) * k / 5).map(v => `<line class="tg-grid" x1="${L}" x2="${end}" y1="${y(v)}" y2="${y(v)}"/><text class="tg-ax" x="${L - 6}" y="${(+y(v) + 3).toFixed(1)}" text-anchor="end">${fmt(v, v < 100 ? 1 : 0)}</text>`).join('');
+  const vgrid = [0.25, 0.5, 0.75].map(f => `<line class="tg-grid" x1="${(L + (split - L) * f).toFixed(1)}" x2="${(L + (split - L) * f).toFixed(1)}" y1="${T}" y2="${H - B}"/>`).join('') + [0.5, 1].map(f => `<line class="tg-grid" x1="${(split + (end - split) * f).toFixed(1)}" x2="${(split + (end - split) * f).toFixed(1)}" y1="${T}" y2="${H - B}"/>`).join('');
   const line = `<polyline class="tg-price" points="${c.map((p, i) => `${x(i)},${y(p[1])}`).join(' ')}"/>`;
-  const curve = (v, cls) => v == null ? '' : `<path class="${cls}" d="M${split} ${y(px)} C ${split + (W - P - split) * 0.45} ${y(px)}, ${split + (W - P - split) * 0.4} ${y(v)}, ${W - P - 70} ${y(v)} L ${W - 70} ${y(v)}"/>`;
-  const band = d.high != null && d.low != null ? `<path class="tg-band" d="M${split} ${y(px)} C ${split + 60} ${y(px)}, ${split + 50} ${y(d.high)}, ${W - P - 70} ${y(d.high)} L ${W - 70} ${y(d.high)} L ${W - 70} ${y(d.low)} L ${W - P - 70} ${y(d.low)} C ${split + 50} ${y(d.low)}, ${split + 60} ${y(px)}, ${split} ${y(px)} Z"/>` : '';
-  const lab = (v, t) => v == null ? '' : `<text class="tg-lab" x="${W - 66}" y="${(+y(v) + 4).toFixed(1)}">${esc(t)} ${fmt(v, v < 100 ? 2 : 0)}</text>`;
-  return `<svg class="tg-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="股價與目標價">${band}<line class="tg-now" x1="${split}" x2="${split}" y1="4" y2="${H - 16}"/>${line}${curve(d.high, 'tg-hi')}${curve(d.mean, 'tg-mean')}${curve(d.low, 'tg-lo')}${lab(d.high, '最高')}${lab(d.mean, '平均')}${lab(d.low, '最低')}
-    <text class="tg-ax" x="4" y="${H - 3}">${esc(String(c[0][0]).slice(5).replace('-', '/'))}</text><text class="tg-ax" x="${split - 18}" y="${H - 3}">${esc(String(c.at(-1)[0]).slice(5).replace('-', '/'))}</text><text class="tg-ax" x="${(split + W - 70) / 2 - 20}" y="${H - 3}">未來 12 個月</text></svg>`;
+  const knee = split + (end - split) * 0.55, cv = v => `M${split} ${y(px)} C ${(split + (knee - split) * 0.5).toFixed(1)} ${y(px)}, ${(split + (knee - split) * 0.55).toFixed(1)} ${y(v)}, ${knee.toFixed(1)} ${y(v)} L ${end} ${y(v)}`;
+  const band = d.high != null && d.low != null && d.high !== d.low ? `<path class="tg-band" d="${cv(d.high)} L ${end} ${y(d.low)} L ${knee.toFixed(1)} ${y(d.low)} C ${(split + (knee - split) * 0.55).toFixed(1)} ${y(d.low)}, ${(split + (knee - split) * 0.5).toFixed(1)} ${y(px)}, ${split} ${y(px)} Z"/>` : '';
+  const curves = [[d.high, 'tg-hi'], [d.low, 'tg-lo'], [d.mean, 'tg-mean']].filter(([v]) => v != null).map(([v, k]) => `<path class="${k}" d="${cv(v)}"/>`).join('');
+  // 標籤：最高、平均、最低（太接近時上下錯開）
+  const labs = [['最高', d.high], ['平均', d.mean], ['最低', d.low]].filter(([, v]) => v != null).map(([t, v]) => ({ t, v, yy: +y(v) }));
+  for (let k = 1; k < labs.length; k++) if (labs[k].yy - labs[k - 1].yy < 14) labs[k].yy = labs[k - 1].yy + 14;
+  const tags = labs.map(l => `<text class="tg-lab${l.t === '平均' ? ' tg-lab-mean' : ''}" x="${end + 6}" y="${(l.yy + 4).toFixed(1)}">${l.t} ${fmt(l.v, l.v < 100 ? 2 : 0)}</text>`).join('');
+  const md = s => esc(String(s).slice(5).replace('-', '/'));
+  const xt = [0, Math.floor((c.length - 1) / 2), c.length - 1].map(i => `<text class="tg-ax" x="${x(i)}" y="${H - 8}" text-anchor="middle">${md(c[i][0])}</text>`).join('') + `<text class="tg-ax" x="${((split + end) / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">未來12個月</text>`;
+  return `<svg class="tg-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="股價與目標價">${grid}${vgrid}${band}<line class="tg-now" x1="${split}" x2="${split}" y1="${T}" y2="${H - B}"/>${line}${curves}${tags}${xt}</svg>`;
 }
 export function targetsHTML(d) {
   if (!d) return '<p class="ix-empty">讀取中…</p>';
   if (!d.available) return `<p class="ix-empty">${esc(d.reason || '這檔股票沒有目標價資料。')}${d.error ? `<br><small class="soft">${esc(d.error)}</small>` : ''}</p>`;
-  const nd = v => fmt(v, v < 100 ? 2 : 0), up = v => v == null ? '—' : `<b class="num ${v > 0 ? 'up' : v < 0 ? 'down' : ''}">${sign(v, 2)}%</b>`;
-  const head = `<div class="tg-sum"><div><small>平均目標價</small><b class="num amber">${nd(d.mean)}</b></div><div><small>上漲空間</small>${up(d.upside)}</div><div><small>目前股價</small><b class="num">${nd(d.price)}</b></div>${d.ratings ? `<div><small>分析師評等</small><b>買進 ${d.ratings.buy}・持有 ${d.ratings.hold}・賣出 ${d.ratings.sell}</b></div>` : `<div><small>近 120 天</small><b>${d.count} 筆${d.stale ? '（較舊）' : ''}</b></div>`}</div>`;
+  const nd = v => fmt(v, v < 100 ? 2 : 0), up = v => v == null ? '—' : `<b class="num ${v > 0 ? 'up' : v < 0 ? 'down' : ''}">${sign(v, 2)}%</b>`, ymd = s => esc(String(s || '').slice(5).replace('-', '/'));
+  const head = `<div class="tg-top"><div><small>平均目標價</small><b class="num amber">${nd(d.mean)}</b></div><div><small>上漲空間</small>${up(d.upside)}</div></div>`;
   const legend = '<div class="tg-legend"><span><i class="tg-k-price"></i>股價</span><span><i class="tg-k-mean"></i>目標價</span></div>';
-  const rows = d.market === 'US'
-    ? `<table class="tg-table"><thead><tr><th>月份</th><th>共識</th><th>買進／持有／賣出</th><th>當時股價</th></tr></thead><tbody>${d.history.map(h => `<tr><td>${esc(h.date.slice(0, 7))}</td><td>${esc(h.rating || '—')}</td><td class="num">${h.buy ?? '—'}／${h.hold ?? '—'}／${h.sell ?? '—'}</td><td class="num">${h.price != null ? fmt(h.price, 2) : '—'}</td></tr>`).join('')}</tbody></table>`
-    : `<table class="tg-table"><thead><tr><th>來源</th><th>評等</th><th>目標價</th><th>上漲空間</th><th>發布日</th></tr></thead><tbody>${d.history.map(h => `<tr><td>${esc(h.broker)}${h.eps ? `<br><small class="soft">EPS ${fmt(h.eps, 2)}（${h.epsYear}）</small>` : ''}</td><td>${esc([h.change, h.rating].filter(Boolean).join(' ') || '—')}</td><td class="num">${h.target ? nd(h.target) : '—'}</td><td>${h.upside != null ? up(h.upside) : '—'}</td><td class="num">${esc(h.date.slice(2).replace(/-/g, '/'))}</td></tr>`).join('')}</tbody></table>`;
-  return `<div class="tg">${head}${legend}${targetChartSVG(d)}${rows}<p class="ix-foot">${d.market === 'US' ? '平均／最高／最低為分析師目前的共識目標價；表格為每月的共識評等。' : '平均／最高／最低取近 120 天內每個來源最新的目標價；台股以 FactSet 共識目標價為主，另含部分外資券商（未具名）。'}資料來源：${esc(d.source || '')}。目標價是分析師預估，不代表會達到，也不是買賣建議。</p></div>`;
+  const brokers = (d.brokers || []).length ? `<table class="tg-table tg-brokers"><thead><tr><th>券商名稱</th><th>目標價</th><th>上漲空間</th><th>發布日</th></tr></thead><tbody>${d.brokers.map(b => `<tr><td>${b.link ? `<a href="${esc(b.link)}" target="_blank" rel="noopener" title="${esc(b.title || '')}">${esc(b.broker)}</a>` : esc(b.broker)}${b.consensus ? ' <small class="soft">（多家平均）</small>' : ''}</td><td class="num">${nd(b.target)}</td><td>${up(b.upside)}</td><td class="num">${ymd(b.date)}</td></tr>`).join('')}</tbody></table>`
+    : '<p class="ix-empty">近 90 天的新聞標題中沒有找到具名券商的目標價。</p>';
+  const extra = d.market === 'US' && d.ratings ? `<p class="soft tg-note">Nasdaq 分析師共識（${d.count} 位）：買進 ${d.ratings.buy}・持有 ${d.ratings.hold}・賣出 ${d.ratings.sell}；平均／最高／最低取自共識。</p>` : '';
+  return `<div class="tg">${head}${legend}${targetChartSVG(d)}${extra}${brokers}<p class="ix-foot">各家券商的目標價擷取自近 90 天新聞標題（同一家只留最新一則，點券商名稱可開啟原文）${d.market === 'US' ? '；平均／最高／最低為 Nasdaq 分析師共識' : '；台股另加 FactSet 共識，平均／最高／最低以上表計算'}。擷取可能有遺漏或誤判，請以原文為準。目標價是分析師預估，不是買賣建議。</p></div>`;
 }
 
 // ---- 策略選股：價值區、升溫區與個股入選紀錄 ----

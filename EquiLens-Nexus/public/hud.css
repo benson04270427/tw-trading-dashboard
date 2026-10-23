@@ -873,17 +873,19 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 .pk-news{margin:6px 0 0;padding-left:1.1em;font-size:.8rem;line-height:1.6}.pk-news a{color:inherit}
 
 /* 目標價 */
-.tg-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:8px}
-.tg-sum>div{border:1px solid var(--line);border-radius:10px;padding:8px 12px;display:flex;flex-direction:column;gap:2px}.tg-sum small{color:var(--muted)}.tg-sum b{font-size:1.15rem}
-.tg-legend{display:flex;gap:16px;justify-content:center;font-size:.78rem;color:var(--muted)}.tg-legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
-.tg-k-price{background:var(--text)}.tg-k-mean{background:var(--amber)}
-.tg-chart{width:100%;height:auto;max-height:260px}
-.tg-chart polyline,.tg-chart path{fill:none;vector-effect:non-scaling-stroke}.tg-price{stroke:var(--text);stroke-width:1.5}
-.tg-mean{stroke:var(--amber);stroke-width:1.6;stroke-dasharray:4 3}.tg-hi,.tg-lo{stroke:color-mix(in srgb,var(--amber) 55%,transparent);stroke-width:1;stroke-dasharray:3 3}
-.tg-chart .tg-band{fill:color-mix(in srgb,var(--amber) 10%,transparent);stroke:none}.tg-now{stroke:var(--line);stroke-dasharray:3 3}
-.tg-lab{fill:var(--amber);font-size:11px}.tg-ax{fill:var(--muted);font-size:10px}
-.tg-table{width:100%;border-collapse:collapse;font-size:.84rem;margin-top:8px}.tg-table th{color:var(--muted);font-weight:500;text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}.tg-table td{padding:6px 4px;border-bottom:1px solid var(--line)}
-
+.tg-top{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
+.tg-top>div{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px}.tg-top>div+div{border-left:1px solid var(--line)}.tg-top small{color:var(--muted)}.tg-top b{font-size:1.6rem}
+.tg-legend{display:flex;gap:18px;justify-content:center;font-size:.8rem;color:var(--muted)}.tg-legend i{display:inline-block;width:16px;height:2px;vertical-align:middle;margin-right:6px}
+.tg-k-price{background:var(--text,var(--ink,#e4f1ff))}.tg-k-mean{background:var(--amber)}
+.tg-chart{width:100%;height:auto;max-height:340px}
+.tg-chart polyline,.tg-chart path{fill:none;vector-effect:non-scaling-stroke}.tg-price{stroke:var(--text,var(--ink,#e4f1ff));stroke-width:1.6}
+.tg-grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.tg-mean{stroke:var(--amber);stroke-width:1.8;stroke-dasharray:4 3}.tg-hi,.tg-lo{stroke:color-mix(in srgb,var(--amber) 55%,transparent);stroke-width:1.2;stroke-dasharray:3 3}
+.tg-chart .tg-band{fill:color-mix(in srgb,var(--amber) 12%,transparent);stroke:none}.tg-now{stroke:var(--muted);stroke-dasharray:3 3;opacity:.6}
+.tg-lab{fill:color-mix(in srgb,var(--amber) 75%,var(--muted));font-size:11px}.tg-lab-mean{fill:var(--amber);font-weight:600}.tg-ax{fill:var(--muted);font-size:10px}
+.tg-table{width:100%;border-collapse:collapse;font-size:.88rem;margin-top:10px}.tg-table th{color:var(--muted);font-weight:500;text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--line) 40%,transparent)}.tg-table td{padding:9px 6px;border-bottom:1px solid var(--line)}
+.tg-brokers td:nth-child(n+2),.tg-brokers th:nth-child(n+2){text-align:right}.tg-brokers a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
+.tg-note{font-size:.8rem;margin:6px 0 0}
 /* 策略選股 */
 .zn-head,.zn-row{display:grid;grid-template-columns:minmax(0,1.5fr) 1.3fr 1fr 1fr 1fr 2em;gap:8px;align-items:center}
 .zn-head{font-size:.74rem;color:var(--muted);padding:6px 0;border-bottom:1px solid var(--line)}.zn-head>span:not(:first-child){text-align:right}
