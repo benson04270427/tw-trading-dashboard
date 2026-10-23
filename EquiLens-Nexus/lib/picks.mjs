@@ -108,10 +108,12 @@ export function choose(scored, n = 5, maxPer = 2) {
   }
   return out;
 }
-// 候選池：研究名單、自選、AI 供應鏈（台股）、法人買超前段、當日成交金額大且上漲的股票
-export function candidates({ heat, market = 'TW', research = new Set(), watch = new Set(), chain = new Map(), flows = new Map(), top = 60 } = {}) {
+// 候選池：研究名單、自選、AI 供應鏈（台股）、法人買超前段、當日成交金額大且上漲的股票。
+// focus＝true（台股預設）時只看研究名單、自選與 AI 供應鏈，法人買賣超仍會加分
+export function candidates({ heat, market = 'TW', research = new Set(), watch = new Set(), chain = new Map(), flows = new Map(), top = 60, focus = false } = {}) {
   const t = THRESHOLDS[market] || THRESHOLDS.US, rows = heatStocks(heat).filter(x => x.close >= t.minPrice && (x.money ?? 0) >= t.minMoney);
   const active = new Set([...rows].filter(x => x.change > 0).sort((a, b) => b.money - a.money).slice(0, top).map(x => x.id));
+  if (focus) return rows.filter(x => research.has(x.id) || watch.has(x.id) || chain.has(x.id));
   return rows.filter(x => research.has(x.id) || watch.has(x.id) || chain.has(x.id) || (flows.get(x.id)?.foreignRank > 0) || (flows.get(x.id)?.trustRank > 0) || active.has(x.id));
 }
 // 研究名單的本機資料 → 訊號（只算有日 K 的股票）

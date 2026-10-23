@@ -1083,11 +1083,6 @@ function moversInfo(){
   if(!heat)return{available:false};
   return{available:true,source:live?'live':'close',market:M().id,...movers(heat,{market:M().id,watch:new Set(watchlist)})};
 }
-async function flowsFor(date){
-  let f=read('flows-'+date+'.json',null);const fm=data.finmind();
-  if(!f&&fm&&M().id==='TW'&&!flowBusy){flowBusy=true;try{const r=await queryFlows(date,{requestData:fm,...fmOpt()});if(cacheableFlow(r))write('flows-'+date+'.json',r);f=r;}catch{}finally{flowBusy=false;}}
-  return f;
-}
 // 每日精選：收盤熱浪圖的候選股依籌碼、訊號、量價、營收、新聞、AI 供應鏈加總，取前 5 名（同一供應鏈或產業最多 2 檔）
 let picksJob={busy:false,error:''};
 async function runPicks({push=true}={}){
@@ -1096,22 +1091,22 @@ async function runPicks({push=true}={}){
   picksJob={busy:true,error:''};
   try{
     const mk=M().id,date=heat.date,tw=mk==='TW';
-    // 法人買賣超排行：籌碼頁的當日資料（FinMind）；沒有時改用證交所／櫃買全市場法人資料（免金鑰）
-    let flows=tw?flowMap(await flowsFor(date)):new Map();
-    if(tw&&!flows.size&&data.has('institutionalAll')){try{flows=flowMapFromRows(await data.institutionalAll(date));}catch{}}
+    // 法人買賣超排行：籌碼頁已存的當日資料；沒有時用證交所／櫃買全市場法人資料（免金鑰，不占 FinMind 額度）
+    let flows=tw?flowMap(read('flows-'+date+'.json',null)):new Map();
+    if(tw&&!flows.size&&data.has('institutionalAll')){try{flows=flowMapFromRows(await data.institutionalAll(date,{signal:AbortSignal.timeout(60e3)}));}catch{}}
     const research=new Set(scopeIds(researchScope)),watch=new Set(watchlist),chain=tw?AI_INDEX:new Map(),st=new Map(market().stocks.map(s=>[s.id,s]));
-    const list=candidates({heat,market:mk,research,watch,chain,flows});
+    const list=candidates({heat,market:mk,research,watch,chain,flows,focus:tw});
     const scored=list.map(x=>{const s=st.get(x.id),f={...x,chain:chain.get(x.id)||null,flow:flows.get(x.id)||null,chips5:s?.chips?.net5??null,revYoY:s?.revenue?.yoy??null,signal:signalOf(raw[x.id]?.price,M())};return{...f,...scoreStock(f,{market:mk})};});
     const top=k=>[...scored].sort((a,b)=>b.score-a.score).slice(0,k);
     // 分數前 20 名中沒有本機日 K 的股票，取近 200 天日 K（台股 FinMind、美股 Nasdaq，每檔 1 個請求）計算訊號與 60 日新高
     for(const f of top(20)){
       let rows=raw[f.id]?.price;
-      if(!rows?.length){try{rows=tw&&data.finmind()?await finmindRequest('TaiwanStockPrice',{data_id:f.id,start_date:minusDays(date,200),end_date:date},fmOpt()):(await data.daily(f.id,minusDays(date,200),date,{})).price;}catch{rows=[];}}
+      if(!rows?.length){try{rows=tw&&data.finmind()?await finmindRequest('TaiwanStockPrice',{data_id:f.id,start_date:minusDays(date,200),end_date:date},{...fmOpt(),signal:AbortSignal.timeout(15e3)}):(await data.daily(f.id,minusDays(date,200),date,{signal:AbortSignal.timeout(15e3)})).price;}catch{rows=[];}}
       if(rows?.length){f.signal=signalOf(rows,M());f.high60=newHigh(rows);Object.assign(f,scoreStock(f,{market:mk}));}
     }
     // 分數前 12 名取近兩日新聞（每檔 2 個請求），只保留標題提到這檔股票的新聞
     if(data.has('news'))for(const f of top(12)){
-      try{const n=relevantNews([...await data.news(f.id,date),...await data.news(f.id,minusDays(date,1))],f.id,f.name);
+      try{const o={signal:AbortSignal.timeout(15e3)},n=relevantNews([...await data.news(f.id,date,o),...await data.news(f.id,minusDays(date,1),o)],f.id,f.name);
         if(n.length){f.news=n.slice(0,3);Object.assign(f,scoreStock(f,{market:mk}));}}catch{}
     }
     const picks=choose(scored,5,tw?2:3).map(f=>({id:f.id,name:f.name,sector:f.sector,chain:f.chain,close:f.close,change:f.change,money:f.money,score:f.score,reasons:f.reasons,warnings:f.warnings,news:f.news||[]}));

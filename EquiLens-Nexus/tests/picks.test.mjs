@@ -42,3 +42,7 @@ test('證交所法人資料排行、新聞過濾、60 日新高', () => {
   assert.equal(relevantNews([{ title: 'Apple downgrade' }, { title: 'Netflix jumps' }], 'NFLX', 'Netflix Inc. Common Stock').length, 1);
   const up = Array.from({ length: 70 }, (_, i) => ({ close: 100 + i })); assert.equal(newHigh(up), true); assert.equal(newHigh([...up, { close: 150 }]), false);
 });
+test('台股聚焦：只看研究、自選與 AI 供應鏈', () => {
+  const ids = candidates({ heat, market: 'TW', research: new Set(['2454']), chain: new Map([['3324', '散熱']]), flows: new Map([['2330', { foreignRank: 1 }]]), top: 5, focus: true }).map(x => x.id).sort();
+  assert.deepEqual(ids, ['2454', '3324']);
+});
