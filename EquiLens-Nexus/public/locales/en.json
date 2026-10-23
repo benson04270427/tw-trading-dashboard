@@ -3179,5 +3179,7 @@
  "🧭 個股判讀": "🧭 Stock summary",
  "，留意散戶接刀": "; watch for retail catching a falling knife",
  "，籌碼由散戶流向法人": "; shares moving from retail to institutions",
- "，連 {0} 日{1}超": ", {0} days in a row of net {1}"
+ "，連 {0} 日{1}超": ", {0} days in a row of net {1}",
+ "電腦重新啟動後換了新網址，點這則通知開啟，登入後重新加到主畫面：{0}": "The computer restarted and the phone URL changed. Tap to open the new address, sign in and add it to your home screen again: {0}",
+ "📱 衡析手機網址已更換": "📱 EquiLens phone URL changed"
 }

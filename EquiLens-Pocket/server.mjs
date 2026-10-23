@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { ROOT, read } from './lib/storage.mjs';
+import { ROOT, LOCAL, read } from './lib/storage.mjs';
 import * as auth from './lib/auth.mjs';
 import * as nexus from './lib/nexus.mjs';
 import * as push from './lib/push.mjs';
@@ -202,6 +202,19 @@ async function api(req, res, url) {
   }
   return send(req, res, 404, { error: '不存在的操作' });
 }
+
+// 手機網址（Cloudflare 臨時網址）改變時推播新網址：點通知直接開新網址，重新登入並加到主畫面即可
+// 推播不經過通道，所以舊網址失效後手機仍收得到。每 30 秒檢查 .local/public-url.txt
+function checkPublicUrl() {
+  try {
+    const now = fs.readFileSync(path.join(LOCAL, 'public-url.txt'), 'utf8').trim(); if (!/^https:\/\//.test(now)) return;
+    const file = path.join(LOCAL, 'notified-url.txt'), last = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : '';
+    if (now === last) return;
+    fs.writeFileSync(file, now, 'utf8');
+    if (last && push.subscriptionCount()) push.sendToAll(push.localize({ title: '📱 衡析手機網址已更換', body: `電腦重新啟動後換了新網址，點這則通知開啟，登入後重新加到主畫面：${now}`, tag: 'public-url', url: now })).catch(() => { });
+  } catch { }
+}
+setInterval(checkPublicUrl, 30e3).unref(); setTimeout(checkPublicUrl, 5e3).unref();
 
 export const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer'); res.setHeader('X-Frame-Options', 'DENY');

@@ -9,3 +9,6 @@ node_modules/
 *.zip
 dev/
 *.log
+
+# 美股版 Nexus 的本機資料
+.local-us/
