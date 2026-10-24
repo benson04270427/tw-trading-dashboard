@@ -39,7 +39,7 @@ test('財報：SEC 年初至今累計補單季、Q4 由全年推算、Nasdaq 千
 });
 
 test('河流圖：倍數分位、目前位置與合理價', () => {
-  const d = days(400), closes = d.map((x, i) => [x, 100 + i * 0.1]), per = d.map((x, i) => ({ date: x, PER: 10 + (i % 20), PBR: 2 }));
+  const d = days(800), closes = d.map((x, i) => [x, 100 + i * 0.1]), per = d.map((x, i) => ({ date: x, PER: 10 + (i % 20), PBR: 2 }));
   const r = buildRiver(twRiverPoints(per, closes), { kind: 'pe' });
   assert.equal(r.levels.length, 5); assert.ok(r.levels[0] < r.levels[4]);
   assert.equal(r.series[0].length, 8); assert.ok(r.fair > 0); assert.ok(['偏低', '合理', '偏高'].includes(r.zone));
@@ -175,4 +175,19 @@ test('河流圖：獲利接近 0 的失真倍數不畫，波動大時提示', ()
   // 目前倍數就失真 → 不畫
   const now = days.map((d, i) => [d, 100, i > 880 ? 0.2 : 5]);
   assert.ok(buildRiver(now, { kind: 'pe' }).unusable);
+});
+
+test('SEC：委託書（DEF 14A）以百萬元列的淨利不採用', () => {
+  const ni = [['2023-01-01', '2023-03-31', 438], ['2023-04-01', '2023-06-30', 492], ['2023-07-01', '2023-09-30', 545]].map(([start, end, v]) => ({ start, end, val: v * 1e6, form: '10-Q', filed: '2023-11-01' }));
+  ni.push({ start: '2023-01-01', end: '2023-12-31', val: 2087321000, form: '10-K', filed: '2024-02-13' }, { start: '2023-01-01', end: '2023-12-31', val: 2087, form: 'DEF 14A', filed: '2026-04-16' });
+  const eps = ni.map(x => ({ ...x, val: x.form === 'DEF 14A' ? 6.5 : x.val / 3.2e8 }));
+  const facts = { facts: { 'us-gaap': { NetIncomeLoss: { units: { USD: ni } }, EarningsPerShareDiluted: { units: { 'USD/shares': eps } } } } };
+  const q4 = secQuarters(facts).find(x => x.date === '2023-12-31');
+  assert.equal(Math.round(q4.netIncome / 1e6), 612); assert.ok(Math.abs(q4.eps - 612.3 / 320) < 0.01);
+});
+
+test('河流圖：最近一點離最新收盤超過 120 天就不畫', () => {
+  const pts = []; for (let i = 0; i < 800; i++) pts.push([new Date(Date.UTC(2021, 0, 1) + i * 86400000).toISOString().slice(0, 10), 100, 5]);
+  assert.ok(buildRiver(pts, { asOf: '2026-10-23' }).unusable); assert.ok(!buildRiver(pts, { asOf: '2023-04-10' }).unusable);
+  assert.match(buildRiver(pts.slice(0, 400)).unusable, /不到 2 年/);
 });

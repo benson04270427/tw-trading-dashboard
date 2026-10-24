@@ -3882,5 +3882,9 @@
   "晶圓代工": "Foundry",
   "矽光子與光通訊": "Silicon photonics & optical",
   "電力與散熱": "Power & cooling",
-  "雲端與 AI 平台": "Cloud & AI platforms"
+  "雲端與 AI 平台": "Cloud & AI platforms",
+  "這家公司沒有向 SEC 申報美國格式的季報（多為外國公司），無法畫河流圖": "This company does not file US-format quarterly reports with the SEC (usually a foreign issuer), so no river chart",
+  "近四季合計虧損，沒有本益比，無法畫河流圖": "Trailing four quarters are a net loss, so there is no P/E and no river chart",
+  "近期獲利資料不足（近四季虧損或財報缺漏），無法畫河流圖": "Not enough recent earnings data (recent losses or missing reports) to draw the river chart",
+  "可用的獲利歷史不到 2 年（之前虧損或剛上市），歷史倍數樣本太少，河流圖參考性低": "Less than 2 years of positive earnings history (earlier losses or recent listing); too few historical multiples for a meaningful river chart"
 }

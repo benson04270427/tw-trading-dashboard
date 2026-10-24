@@ -1273,18 +1273,19 @@ async function finRaw(id){
     const key=await getSecret('sec','SEC_CONTACT_EMAIL');let quarters=[],source='',note='';
     if(key){try{const f=await secCompanyFacts(id,{key});if(f){quarters=secQuarters(f);source='SEC EDGAR（10-Q／10-K）';}}catch(e){note=e.message;}}
     if(quarters.length<4){try{const q=nasdaqQuarters(await nasdaqGet(`/company/${encodeURIComponent(id)}/financials?frequency=2`,{}));if(q.length>quarters.length){quarters=q;source='Nasdaq（最近 4 季）';note=key?note:t('在「資料與設定」填入 SEC EDGAR 聯絡 email 可看到 12 季財報與本益比河流圖');}}catch(e){note=note||e.message;}}
-    return{quarters,source,note};
+    return{quarters,source,note,hasKey:!!key};
   });
 }
 async function financialsReport(id){const raw=await finRaw(id);return buildFinancials({id,name:nameOf(id),market:M().id,quarters:raw.quarters,source:raw.source,note:raw.note||''});}
+const lossNow=qs=>{const e=(qs||[]).filter(x=>x.eps!=null).slice(-4);return e.length===4&&e.reduce((a,x)=>a+x.eps,0)<=0;};
 async function riverReport(id){
   const mk=deepMarket(),raw=await finRaw(id),closes=closesOf(await longRows(id));
-  let pe=buildRiver(mk==='TW'?twRiverPoints(raw.per||[],closes,'pe'):usRiverPoints(raw.quarters,closes),{kind:'pe'});let pb=mk==='TW'?buildRiver(twRiverPoints(raw.per||[],closes,'pb'),{kind:'pb'}):null;
+  let pe=buildRiver(mk==='TW'?twRiverPoints(raw.per||[],closes,'pe'):usRiverPoints(raw.quarters,closes),{kind:'pe',asOf:closes.at(-1)?.[0]});let pb=mk==='TW'?buildRiver(twRiverPoints(raw.per||[],closes,'pb'),{kind:'pb',asOf:closes.at(-1)?.[0]}):null;
   const bad=[pe,pb].find(x=>x?.unusable);
   if(!(pe&&!pe.unusable)&&!(pb&&!pb.unusable)&&bad)return{id,name:nameOf(id),market:mk,available:false,reason:t(bad.unusable)};
   const note=pe?.unusable&&pb&&!pb.unusable?t('本益比河流圖不顯示：')+t(pe.unusable):null;
   if(pe?.unusable)pe=null;if(pb?.unusable)pb=null;
-  if(!pe&&!pb)return{id,name:nameOf(id),market:mk,available:false,reason:mk==='US'&&!raw.source.startsWith('SEC')?t('美股河流圖需要 SEC EDGAR 的每股盈餘歷史，請在「資料與設定」填入聯絡 email'):t('本益比或股價歷史不足，無法畫河流圖')};
+  if(!pe&&!pb)return{id,name:nameOf(id),market:mk,available:false,reason:mk==='US'&&!raw.source.startsWith('SEC')?(raw.hasKey?t('這家公司沒有向 SEC 申報美國格式的季報（多為外國公司），無法畫河流圖'):t('美股河流圖需要 SEC EDGAR 的每股盈餘歷史，請在「資料與設定」填入聯絡 email')):lossNow(raw.quarters)?t('近四季合計虧損，沒有本益比，無法畫河流圖'):t('本益比或股價歷史不足，無法畫河流圖')};
   return{id,name:nameOf(id),market:mk,available:true,pe,pb,note,source:raw.source};
 }
 async function dividendsReport(id){

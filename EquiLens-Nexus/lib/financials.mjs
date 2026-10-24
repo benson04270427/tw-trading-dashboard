@@ -54,7 +54,9 @@ export function twQuarters({ statements = [], balance = [], cashflow = [] }) {
 const span = x => (Date.parse(x.end) - Date.parse(x.start)) / DAY;
 function durationQuarters(list) {
   // 同一期間：數字取最新申報（更正、重編後），公布日取最早申報（第一次公布的時間）
-  const latest = new Map(), first = new Map(); for (const x of list) { if (!x.start || !x.end || !Number.isFinite(x.val)) continue; const k = x.start + x.end; if (!latest.has(k) || String(x.filed) > String(latest.get(k).filed)) latest.set(k, x); if (x.filed && (!first.has(k) || String(x.filed) < first.get(k))) first.set(k, String(x.filed)); }
+  // 偶爾有申報把數字標錯單位（差上千倍），最新申報和其他申報的中位數差 20 倍以上時改用其他申報中最新的一筆
+  const latest = new Map(), first = new Map(), byKey = new Map(); for (const x of list) { if (!x.start || !x.end || !Number.isFinite(x.val)) continue; const k = x.start + x.end; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(x); if (x.filed && (!first.has(k) || String(x.filed) < first.get(k))) first.set(k, String(x.filed)); }
+  for (const [k, xs] of byKey) latest.set(k, pickFact(xs));
   const known = x => first.get(x.start + x.end) || x.filed;
   const all = [...latest.values()].sort((a, b) => span(a) - span(b)), q = new Map();
   for (const x of all) { const d = span(x); if (d >= 80 && d <= 100 && !q.has(x.end)) q.set(x.end, { end: x.end, val: x.val, filed: known(x) }); }
@@ -64,7 +66,15 @@ function durationQuarters(list) {
     if (prev) { q.set(x.end, { end: x.end, val: x.val - prev.val, filed: known(x), src: x }); continue; }
     if (d >= 350) { const inside = [...q.values()].filter(y => y.end > x.start && y.end < x.end); if (inside.length === 3) q.set(x.end, { end: x.end, val: x.val - inside.reduce((s, y) => s + y.val, 0), filed: known(x), src: x }); }
   }
+  // 推算的單季和前後幾季差距離譜（例如全年數字標錯單位，算出 -15 億）就不採用
+  for (const [k, v] of q) { if (!v.src) continue; const others = [...q.values()].filter(y => !y.src && y.val !== 0 && Math.abs(Date.parse(y.end) - Date.parse(k)) < 400 * DAY).map(y => Math.abs(y.val)); if (others.length >= 2) { const m = others.sort((a, b) => a - b)[Math.floor(others.length / 2)]; if (Math.abs(v.val) > m * 20 || (Math.abs(v.src.val) < m / 20 && v.src.val !== 0)) q.delete(k); } }
   return q;
+}
+function pickFact(xs) {
+  const s = [...xs].sort((a, b) => String(b.filed).localeCompare(String(a.filed))), top = s[0]; if (s.length < 2 || !top.val) return top;
+  const rest = s.slice(1).map(x => Math.abs(x.val)).filter(v => v > 0).sort((a, b) => a - b); if (!rest.length) return top;
+  const m = rest[Math.floor(rest.length / 2)], r = Math.abs(top.val) / m;
+  return r > 20 || r < 0.05 ? s.slice(1).find(x => { const q = Math.abs(x.val) / m; return q <= 20 && q >= 0.05; }) || top : top;
 }
 function instants(list) { const m = new Map(); for (const x of list) { if (!x.end || x.start || !Number.isFinite(x.val)) continue; if (!m.has(x.end) || String(x.filed) > String(m.get(x.end).filed)) m.set(x.end, { end: x.end, val: x.val, filed: x.filed }); } return m; }
 const CONCEPTS = {
@@ -74,9 +84,11 @@ const CONCEPTS = {
   cfo: ['NetCashProvidedByUsedInOperatingActivities', 'ifrs:CashFlowsFromUsedInOperatingActivities'], capex: ['PaymentsToAcquirePropertyPlantAndEquipment', 'ifrs:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities'],
 };
 const INSTANT = { assets: ['Assets', 'ifrs:Assets'], liabilities: ['Liabilities', 'ifrs:Liabilities'], equity: ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest', 'ifrs:EquityAttributableToOwnersOfParent'], le: ['LiabilitiesAndStockholdersEquity', 'ifrs:EquityAndLiabilities'] };
+// 只用財報（10-Q、10-K、20-F、40-F、6-K 與更正版）；股東會委託書（DEF 14A）的薪酬對照表常以百萬元列淨利，會混進錯的數字
+const REPORT_FORM = /^(10-Q|10-K|20-F|40-F|6-K|8-K)/;
 function factList(facts, tag) {
   const [tax, name] = tag.startsWith('ifrs:') ? ['ifrs-full', tag.slice(5)] : ['us-gaap', tag], units = facts?.facts?.[tax]?.[name]?.units; if (!units) return [];
-  return units.USD || units['USD/shares'] || Object.values(units)[0] || [];
+  return (units.USD || units['USD/shares'] || Object.values(units)[0] || []).filter(x => !x.form || REPORT_FORM.test(x.form));
 }
 // 合併同一概念的多個標籤：資料越新的標籤優先，缺的季度由其他標籤補
 function merged(facts, tags, fn) {
@@ -89,7 +101,8 @@ export function secQuarters(facts) {
   const inst = {}; for (const [k, tags] of Object.entries(INSTANT)) inst[k] = merged(facts, tags, instants);
   const base = cols.revenue.size ? cols.revenue : cols.eps, near = (m, d) => { for (const [k, v] of m) if (Math.abs(Date.parse(k) - Date.parse(d)) <= 5 * DAY) return v; return null; };
   // 推算出來的單季 EPS（全年或年初累計減前期）可能混到分割前後不同口徑，改用「單季淨利 ÷ 同一期間的股數（淨利 ÷ EPS）」
-  const niFacts = new Map(); for (const t of CONCEPTS.netIncome) for (const x of factList(facts, t)) { const k = x.start + x.end; if (x.start && (!niFacts.has(k) || String(x.filed) > String(niFacts.get(k).filed))) niFacts.set(k, x); }
+  const niAll = new Map(); for (const t of CONCEPTS.netIncome) for (const x of factList(facts, t)) { if (!x.start || !Number.isFinite(x.val)) continue; const k = x.start + x.end; if (!niAll.has(k)) niAll.set(k, []); niAll.get(k).push(x); }
+  const niFacts = new Map([...niAll].map(([k, xs]) => [k, pickFact(xs)]));
   const rows = [...base.keys()].map(d => {
     const o = { date: d }; for (const k of Object.keys(CONCEPTS)) { const v = near(cols[k], d); o[k] = v?.val ?? null; if (k === 'eps' && v) o.filed = v.filed; }
     const ev = near(cols.eps, d), ni = niFacts.get(ev?.src ? ev.src.start + ev.src.end : '');
@@ -133,14 +146,17 @@ const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); if (!s.length)
 // 倍數上限：超過視為獲利接近 0 的失真點
 export const RIVER_CAP = { pe: 150, pb: 50 };
 // points：[[date, close, base]]（base＝近四季 EPS 或每股淨值，> 0），每週取一點
-export function buildRiver(points, { kind = 'pe', years = 5 } = {}) {
+export function buildRiver(points, { kind = 'pe', years = 5, asOf = null } = {}) {
   const all = points.filter(x => x[1] > 0 && x[2] > 0).sort((a, b) => a[0].localeCompare(b[0]));
   if (all.length < 120) return null;
+  // 最近一點離最新收盤太久（近幾季虧損或財報缺漏），不能拿舊的倍數當現在的位置
+  if (asOf && Date.parse(asOf) - Date.parse(all.at(-1)[0]) > 120 * DAY) return { kind, unusable: '近期獲利資料不足（近四季虧損或財報缺漏），無法畫河流圖', stale: all.at(-1)[0] };
   const cut = new Date(Date.parse(all.at(-1)[0]) - years * 365.25 * DAY).toISOString().slice(0, 10), inWin = all.filter(x => x[0] >= cut);
   // 獲利接近 0 時倍數會爆掉（例如 EPS 0.17、本益比上千倍），這些點不算進通道；剩下太少或倍數分散太大就不畫
   const cap = RIVER_CAP[kind] ?? Infinity, w = inWin.filter(x => x[1] / x[2] <= cap), dropped = inWin.length - w.length;
   const why = '獲利不穩定（曾虧損或獲利接近 0），歷史倍數失真，河流圖參考性低';
   if (w.length < 120 || dropped / inWin.length > 0.4) return { kind, unusable: why, dropped, total: inWin.length };
+  if (Date.parse(w.at(-1)[0]) - Date.parse(w[0][0]) < 2 * 365 * DAY) return { kind, unusable: '可用的獲利歷史不到 2 年（之前虧損或剛上市），歷史倍數樣本太少，河流圖參考性低', dropped, total: inWin.length };
   if (Math.abs(w.at(-1)[1] / w.at(-1)[2]) > cap || w.at(-1)[0] !== inWin.at(-1)[0]) return { kind, unusable: why, dropped, total: inWin.length };
   const mult = w.map(x => x[1] / x[2]), levels = [0.1, 0.3, 0.5, 0.7, 0.9].map(k => q(mult, k)).map(v => v < 10 ? r1(v) : Math.round(v));
   const weekly = w.filter((x, i) => i === w.length - 1 || new Date(x[0] + 'T00:00:00Z').getUTCDay() === 5 || (w[i + 1] && Date.parse(w[i + 1][0]) - Date.parse(x[0]) > 3 * DAY));
@@ -158,7 +174,7 @@ export function twRiverPoints(perRows, closes, kind = 'pe') {
 // 美股：每季 EPS（含申報日）→ 每個交易日當時已公布的近四季 EPS
 export function usRiverPoints(quarters, closes) {
   const qs = quarters.filter(x => x.eps != null).map(x => ({ ...x, known: x.filed || new Date(Date.parse(x.date) + 45 * DAY).toISOString().slice(0, 10) })).sort((a, b) => a.date.localeCompare(b.date));
-  return closes.map(([d, px]) => { const k = qs.filter(x => x.known <= d).slice(-4); if (k.length < 4) return null; const ttm = k.reduce((s, x) => s + x.eps, 0); return ttm > 0 ? [d, px, ttm] : null; }).filter(Boolean);
+  return closes.map(([d, px]) => { const k = qs.filter(x => x.known <= d).slice(-4); if (k.length < 4 || Date.parse(k[3].date) - Date.parse(k[0].date) > 300 * DAY) return null; const ttm = k.reduce((s, x) => s + x.eps, 0); return ttm > 0 ? [d, px, ttm] : null; }).filter(Boolean);
 }
 // 畫面資料
 export function buildFinancials({ id, name, market, quarters = [], source = '', note = '' }) {
