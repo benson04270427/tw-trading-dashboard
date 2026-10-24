@@ -43,7 +43,10 @@ document.addEventListener('click', async e => {
 const SH = { info: null, detail: null, bias: '', scope: 'tech', error: '', q: '', found: null, hl: null };
 export function shapesPage() { return `${errBox(SH.error)}<section class="panel"><div class="contentpad rv-wrap" id="sh-box">${shapesHTML(SH.info, SH, SH.detail)}</div></section>`; }
 const paintS = () => repaint('shapes', 'sh-box', () => shapesHTML(SH.info, SH, SH.detail));
-export async function enterShapes() { SH.detail = null; try { SH.info = await C.api('shapes?scope=' + SH.scope); SH.error = ''; } catch (e) { SH.error = e.message; } paintS(); }
+export async function enterShapes() { SH.detail = null; try { SH.info = await C.api('shapes?scope=' + SH.scope); SH.error = ''; } catch (e) { SH.error = e.message; } paintS(); if (SH.info?.busy && !SH.info?.available) pollShapes(); }
+// 美股第一次準備資料時每 3 秒更新進度
+let shPolling = false;
+async function pollShapes() { if (shPolling) return; shPolling = true; try { do { await sleep(3000); if (C.page() !== 'shapes') return; SH.info = await C.api('shapes?scope=' + SH.scope); paintS(); } while (SH.info?.busy && !SH.info?.available); } catch { } finally { shPolling = false; } }
 // 開啟型態後：有指定股票就捲到那一列並標示，否則回到頁首
 const afterOpen = () => { const el = SH.hl && document.querySelector('#sh-box .sh-hl'); if (el) el.scrollIntoView({ block: 'center' }); else window.scrollTo(0, 0); };
 // 瀏覽器「上一頁」（或滑鼠側鍵）從型態個股回到型態列表

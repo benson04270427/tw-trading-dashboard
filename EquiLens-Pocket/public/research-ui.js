@@ -174,7 +174,7 @@ export function shapesHTML(d, st = {}, detail = null) {
     const list = (d.shapes || []).filter(s => s.group === g.id && (!bias || s.bias === bias)); if (!list.length) return '';
     return `<h3 class="sh-group">${esc(g.name)}</h3><div class="sh-grid">${list.map(s => `<button class="sh-card${s.count ? '' : ' sh-zero'}" data-sh-open="${esc(s.id)}">${shIcon(s.icon)}<span class="sh-name">${esc(s.name)}<small><i class="sh-${s.bias}">${esc(SH_BIAS[s.bias])}</i>・${esc(s.kind)}${s.top?.length ? `・${esc(s.top.join('、'))}` : ''}</small></span><b class="num">${fmt(s.count)}</b></button>`).join('')}</div>`;
   }).join('');
-  return `${top}${scopes}${head}${filt}${groups}<p class="ix-foot">用最近約 90 個交易日的日 K（還原權值）判斷，轉折點門檻依波動度調整；一檔股票可同時屬於多個型態，型態是常見的技術分析分類，同一段走勢常可有不同解讀，不是買賣建議。成交量過低（近 20 日平均不到 300 張）的股票不列入。</p>`;
+  return `${top}${scopes}${head}${filt}${groups}<p class="ix-foot">用最近約 90 個交易日的日 K（還原權值）判斷，轉折點門檻依波動度調整；一檔股票可同時屬於多個型態，型態是常見的技術分析分類，同一段走勢常可有不同解讀，不是買賣建議。成交量過低（近 20 日平均不到 ${fmt(d.volUnit === '股' ? d.minVol : (d.minVol || 300000) / 1000)} ${esc(d.volUnit || '張')}）的股票不列入。</p>`;
 }
 function shapeDetailHTML(s, d, hl) {
   const rows = (s.stocks || []).map(x => `<button class="sh-row${x.id === hl ? ' sh-hl' : ''}" data-alert-stock="${esc(x.id)}"><span class="sh-nm">${esc(x.name)}<small>${esc(x.id)}・${esc(x.sector || '')}</small></span><span class="sh-px num">${px(x.close)}<small class="${x.change > 0 ? 'up' : x.change < 0 ? 'down' : ''}">${x.change > 0 ? '+' : ''}${fmt(x.change, 2)}%</small></span><span class="sh-sc"><i style="width:${Math.max(4, x.score)}%"></i><small>${fmt(x.score)}</small></span><span class="sh-note">${esc(x.note || '')}${x.others?.length ? `<small>也符合 ${x.others.length} 種型態</small>` : ''}</span></button>`).join('');

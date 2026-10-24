@@ -4041,5 +4041,14 @@
   "目前沒有符合任何型態": "Currently matches no pattern",
   "近 20 日平均成交量 {n} 張，低於 300 張不列入": "20-day average volume {n} lots, below the 300-lot minimum",
   "近 90 日資料不足（新上市或停止交易）": "Not enough data in the last 90 days (new listing or suspended)",
-  "返回型態列表": "Back to patterns"
+  "返回型態列表": "Back to patterns",
+  "AI 供應鏈＋持股＋自選": "AI supply chain + holdings + watchlist",
+  "不在美股型態分區的範圍（AI 供應鏈＋持股＋自選）；加入自選後，下次重算時會納入": "Not in the US pattern-zone universe (AI supply chain + holdings + watchlist); add it to your watchlist and it will be included at the next recalculation",
+  "台股科技股（美股為 AI 供應鏈、持股與自選）依技術型態分組：支撐壓力、趨勢線、雙底雙頂、頭肩、三角楔形、旗形通道、圓弧杯柄、諧波，標示偏多、偏空或中性。點型態看個股，點股票看 K 線。": "Taiwan tech stocks (US: AI supply chain, holdings and watchlist) grouped by chart pattern: support/resistance, trendlines, double bottoms/tops, head and shoulders, triangles and wedges, flags and channels, rounding and cup patterns, harmonics — each marked bullish, bearish or neutral. Tap a pattern for its stocks and a stock for its chart.",
+  "型態分區目前只支援台股與美股": "Pattern zones currently support Taiwan and US markets only",
+  "持股／自選": "Holdings / watchlist",
+  "第一次準備美股型態資料（約 100 檔，每檔 1 個請求，約 3～5 分鐘）：{step}/{total}": "Preparing US pattern data for the first time (about 100 stocks, one request each, about 3–5 minutes): {step}/{total}",
+  "美股日 K 取得失敗，請稍後再試": "Could not fetch US daily bars; try again later",
+  "近 20 日平均成交量 {n} {unit}，低於 {min} {unit}不列入": "20-day average volume {n} {unit}, below the {min} {unit} minimum",
+  "用最近約 90 個交易日的日 K（還原權值）判斷，轉折點門檻依波動度調整；一檔股票可同時屬於多個型態，型態是常見的技術分析分類，同一段走勢常可有不同解讀，不是買賣建議。成交量過低（近 20 日平均不到 {0} {1}）的股票不列入。": "Based on about the last 90 trading days of adjusted daily bars, with the swing threshold scaled to volatility. A stock can belong to several patterns; patterns are common technical-analysis categories and the same move can often be read differently. Not trading advice. Stocks averaging under {0} {1} over 20 days are excluded."
 }

@@ -29,7 +29,7 @@ const PAGES = {
   value: { title: '低估選股', eyebrow: 'Value Screener · AI Supply Chain', sub: '以本益比、淨值比、殖利率、ROE 與月營收成長，在 AI 供應鏈（可切換電子科技或全市場）找出比同業便宜、但獲利與營收沒有轉壞的公司。' },
   zones: { title: '策略選股', eyebrow: 'Value Zone · Heating Zone', sub: '每天收盤後依固定規則篩出價值區與升溫區，並保存每檔的入選紀錄（K 線視窗「策略」分頁可回看）。' },
   portfolio: { title: '持股健檢', eyebrow: 'Portfolio · Health Check', sub: '輸入持股成本與股數，看損益、權重、產業集中度、相對大盤強弱、實際持股與風控建議的差距，以及除權息行事曆；停損、停利到價會提醒。' },
-  shapes: { title: '型態分區', eyebrow: 'Chart Patterns · Bull · Bear', sub: '台股科技股依技術型態分組：支撐壓力、趨勢線、雙底雙頂、頭肩、三角楔形、旗形通道、圓弧杯柄、諧波，標示偏多、偏空或中性。點型態看個股，點股票看 K 線。' },
+  shapes: { title: '型態分區', eyebrow: 'Chart Patterns · Bull · Bear', sub: '台股科技股（美股為 AI 供應鏈、持股與自選）依技術型態分組：支撐壓力、趨勢線、雙底雙頂、頭肩、三角楔形、旗形通道、圓弧杯柄、諧波，標示偏多、偏空或中性。點型態看個股，點股票看 K 線。' },
   backtest: { title: '策略回測', eyebrow: 'Backtest · Win Rate · Drawdown', sub: '把訊號面板、價值區、升溫區與每日精選的規則套到歷史資料，看平均報酬、勝率與最大回撤。' },
   macro: { title: '總經大地圖', eyebrow: 'Macro Map · Seasonality', sub: '大盤指數近況、依過去十年同期走勢推估的路徑與區間，以及未來幾個月的歷史統計與重點事件。' },
   overview: { title: '研究總覽', eyebrow: 'Research Matrix', sub: '從趨勢到證據，找到值得深入研究的公司。' },
@@ -65,7 +65,7 @@ const ICONS = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
 };
 // 只有部分市場或資料源才有的頁面（法人／期貨籌碼目前只有台股 FinMind）
-const navAllowed = k => (k !== 'flows' || !!state?.capabilities?.flows) && (k !== 'chips' || !!state?.capabilities?.brokers) && (!['value', 'shapes'].includes(k) || (state?.marketProfile?.id || state?.config?.market) === 'TW') && (!['risk', 'zones', 'macro', 'portfolio', 'backtest'].includes(k) || ['TW', 'US'].includes(state?.marketProfile?.id || state?.config?.market));
+const navAllowed = k => (k !== 'flows' || !!state?.capabilities?.flows) && (k !== 'chips' || !!state?.capabilities?.brokers) && (k !== 'value' || (state?.marketProfile?.id || state?.config?.market) === 'TW') && (k !== 'shapes' || ['TW', 'US'].includes(state?.marketProfile?.id || state?.config?.market)) && (!['risk', 'zones', 'macro', 'portfolio', 'backtest'].includes(k) || ['TW', 'US'].includes(state?.marketProfile?.id || state?.config?.market));
 const PROVIDER_NAMES = { finmind: 'FinMind', twse: 'TWSE / TPEx', fugle: 'Fugle', twelvedata: 'Twelve Data', alphavantage: 'Alpha Vantage' };
 const dataSources = () => [...new Set(Object.values(state.capabilities || {}).filter(Boolean))].map(id => PROVIDER_NAMES[id] || id).join(' / ') || '—';
 const NAV = [['TODAY', ['home', 'portfolio']], ['MARKET', ['heatmap', 'live', 'grouprank', 'risk', 'macro']], ['RESEARCH', ['overview', 'sectors', 'patterns', 'shapes', 'value', 'zones', 'backtest', 'flows', 'chips', 'topics', 'watchlist']], ['SYSTEM', ['method', 'settings']]];

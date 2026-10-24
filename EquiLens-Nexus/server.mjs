@@ -1382,34 +1382,62 @@ async function peerFund(ids){
 const SHAPE_SCOPES={tech:'電子科技',ai:'AI 供應鏈',all:'全市場'};
 let shapesCache=null;
 function shapesReport(scope='tech'){
-  if(M().id!=='TW')return{available:false,reason:t('型態分區目前只支援台股')};
+  if(M().id==='US')return usShapesReport();
+  if(M().id!=='TW')return{available:false,reason:t('型態分區目前只支援台股與美股')};
   if(!SHAPE_SCOPES[scope])scope='tech';
   const list=universe.filter(x=>patternPermitted(x,M())).filter(x=>scope==='all'||(scope==='ai'?AI_INDEX.has(x.id):TECH_SECTORS.has(x.sector)));
   const {raw,active}=patternBars(list.map(x=>x.id)),key=`${scope}|${active?.completedAt||''}|${list.length}|${today()}`;
   if(shapesCache?.key===key)return shapesCache.value;
+  const rows=new Map(list.map(x=>{const r=raw[x.id]||{};return[x.id,(r.adjusted?.length>=60?r.adjusted:r.price)||[]];}));
+  const value=finishShapes(list,rows,{scope,scopeName:t(SHAPE_SCOPES[scope]),scopes:Object.entries(SHAPE_SCOPES).map(([id,name])=>({id,name:t(name)})),minVol:300000,unit:'張',per:1000,snapshotAt:active?.completedAt||null,notReady:t('型態資料還沒準備好：請到「型態選股」按更新全市場型態資料（約 3～10 分鐘）')});
+  shapesCache={key,value};return value;
+}
+// 共用：日 K → 型態分組，並建立搜尋索引（股票 → 所屬型態；沒列入的記下原因）
+function finishShapes(list,rowsById,{scope,scopeName,scopes,minVol,unit,per,snapshotAt=null,notReady}){
   const stocks=[],skip=new Map();let thin=0,noData=0;
   for(const x of list){
-    const r=raw[x.id]||{},src=(r.adjusted?.length>=60?r.adjusted:r.price)||[],b=priceBars(src);
+    const b=priceBars(rowsById.get(x.id)||[]);
     if(b.length<60){noData++;skip.set(x.id,t('近 90 日資料不足（新上市或停止交易）'));continue;}
-    const vol=b.slice(-20).reduce((a,y)=>a+(y.Trading_Volume||0),0)/Math.min(20,b.length);if(vol<300000){thin++;skip.set(x.id,t('近 20 日平均成交量 {n} 張，低於 300 張不列入',{n:Math.round(vol/1000)}));continue;}
-    stocks.push({id:x.id,name:x.name,sector:x.sector,bars:b});
+    const vol=b.slice(-20).reduce((a,y)=>a+(y.Trading_Volume||0),0)/Math.min(20,b.length);if(vol<minVol){thin++;skip.set(x.id,t('近 20 日平均成交量 {n} {unit}，低於 {min} {unit}不列入',{n:Math.round(vol/per).toLocaleString('en-US'),min:(minVol/per).toLocaleString('en-US'),unit:t(unit)}));continue;}
+    stocks.push({id:x.id,name:x.name,sector:x.sector,bars:b.slice(-120)});
   }
   const v=buildShapes(stocks,{asOf:stocks.length?stocks.map(x=>x.bars.at(-1).date).sort().at(-1):null,scope});
-  const value={...v,available:stocks.length>0,scopeName:t(SHAPE_SCOPES[scope]),scopes:Object.entries(SHAPE_SCOPES).map(([id,name])=>({id,name:t(name)})),universe:list.length,thin,noData,snapshotAt:active?.completedAt||null,reason:stocks.length?null:t('型態資料還沒準備好：請到「型態選股」按更新全市場型態資料（約 3～10 分鐘）')};
-  // 搜尋用：股票 → 它所屬的型態；沒列入的股票記下原因（不送給畫面）
+  const value={...v,available:stocks.length>0,scopeName,scopes,universe:list.length,thin,noData,minVol,volUnit:t(unit),snapshotAt,reason:stocks.length?null:notReady};
   const index=new Map();for(const sh of value.shapes||[])for(const x of sh.stocks){if(!index.has(x.id))index.set(x.id,{id:x.id,name:x.name,sector:x.sector,close:x.close,change:x.change,lean:x.lean,matches:[]});index.get(x.id).matches.push({id:sh.id,name:sh.name,bias:sh.bias,kind:sh.kind,group:sh.group,icon:sh.icon,score:x.score,note:x.note,level:x.level});}
   for(const v2 of index.values())v2.matches.sort((a,b)=>b.score-a.score);
-  Object.defineProperty(value,'_index',{value:index});Object.defineProperty(value,'_skip',{value:skip});Object.defineProperty(value,'_scanned',{value:new Set(stocks.map(x=>x.id))});
-  shapesCache={key,value};return value;
+  Object.defineProperty(value,'_index',{value:index});Object.defineProperty(value,'_skip',{value:skip});Object.defineProperty(value,'_scanned',{value:new Set(stocks.map(x=>x.id))});Object.defineProperty(value,'_list',{value:list});
+  return value;
+}
+// 美股：沒有全市場單日行情，改為 AI 供應鏈＋持股＋自選（約 100 檔），每檔向 Nasdaq 取約 400 天日 K（1 個請求，6 小時內不重抓）；每天第一次開啟時在背景重算
+let usShapes={busy:false,step:0,total:0,error:'',value:null,date:''};
+function usShapeList(){
+  const ids=[...new Set([...Object.values(US_AI_CHAIN).flat(),...readPortfolio().holdings.map(h=>h.id),...watchlist])].filter(validId);
+  return ids.map(id=>({id,name:nameOf(id),sector:US_AI_INDEX.get(id)||t('持股／自選')}));
+}
+async function runUsShapes(){
+  if(usShapes.busy)return;usShapes={...usShapes,busy:true,step:0,error:''};
+  try{
+    const list=usShapeList(),rows=new Map();usShapes.total=list.length;
+    for(const x of list){usShapes.step++;try{rows.set(x.id,await signalRows(x.id));}catch{}}
+    usShapes.value=finishShapes(list,rows,{scope:'us',scopeName:t('AI 供應鏈＋持股＋自選'),scopes:[{id:'us',name:t('AI 供應鏈＋持股＋自選')}],minVol:300000,unit:'股',per:1,notReady:t('美股日 K 取得失敗，請稍後再試')});
+    usShapes.date=today();
+  }catch(e){usShapes.error=e.message;}finally{usShapes.busy=false;}
+}
+function usShapesReport(){
+  if(usShapes.date!==today()&&!usShapes.busy)void runUsShapes();
+  const v=usShapes.value,job={busy:usShapes.busy,step:usShapes.step,total:usShapes.total};
+  if(!v)return{available:false,...job,reason:usShapes.error||t('第一次準備美股型態資料（約 100 檔，每檔 1 個請求，約 3～5 分鐘）：{step}/{total}',{step:usShapes.step,total:usShapes.total})};
+  return Object.assign(v,job);
 }
 // 搜尋：代號開頭相符或名稱包含關鍵字（最多 20 檔）；不在結果中的股票說明原因
 function shapesSearch(r,q){
   q=String(q||'').trim().slice(0,20);if(!q)return{query:'',results:[]};
   const lq=q.toLowerCase(),hit=x=>x.id.startsWith(q)||String(x.name||'').toLowerCase().includes(lq);
-  const cand=universe.filter(hit).sort((a,b)=>(a.id===q?-1:0)-(b.id===q?-1:0)||a.id.localeCompare(b.id)).slice(0,20);
+  const pool=M().id==='US'?(r._list||[]):universe,cand=pool.filter(hit).sort((a,b)=>(a.id===q?-1:0)-(b.id===q?-1:0)||a.id.localeCompare(b.id)).slice(0,20);
   const results=cand.map(x=>{const f=r._index?.get(x.id);if(f)return{...f,status:'matched'};
-    const reason=r._skip?.get(x.id)||(r._scanned?.has(x.id)?t('目前沒有符合任何型態'):patternPermitted(x,M())?(r.scope==='all'?t('目前沒有型態資料'):t('不在「{scope}」範圍，可切換到「全市場」再查',{scope:r.scopeName})):t('不在型態分析範圍（ETF、權證、金融等產業不分析）'));
+    const reason=r._skip?.get(x.id)||(r._scanned?.has(x.id)?t('目前沒有符合任何型態'):M().id==='US'?t('目前沒有型態資料'):patternPermitted(x,M())?(r.scope==='all'?t('目前沒有型態資料'):t('不在「{scope}」範圍，可切換到「全市場」再查',{scope:r.scopeName})):t('不在型態分析範圍（ETF、權證、金融等產業不分析）'));
     return{id:x.id,name:x.name,sector:x.sector,status:'none',reason,matches:[]};});
+  if(!results.length&&M().id==='US'&&/^[A-Za-z][A-Za-z.]{0,5}$/.test(q))results.push({id:q.toUpperCase(),name:nameOf(q.toUpperCase()),status:'none',reason:t('不在美股型態分區的範圍（AI 供應鏈＋持股＋自選）；加入自選後，下次重算時會納入'),matches:[]});
   return{query:q,results};
 }
 
