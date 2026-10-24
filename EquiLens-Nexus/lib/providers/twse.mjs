@@ -10,14 +10,20 @@ const COMMON = /^[1-9]\d{3}$/;
 const LABEL = '證交所／櫃買開放資料';
 
 let last = 0, tail = Promise.resolve();
+export const RETRY = [8000, 20000, 45000];
 export async function get(url, { signal, interval = 2500 } = {}) {
   const previous = tail; let release; tail = new Promise(r => release = r); await previous;
   try {
     const wait = Math.max(0, last + interval - Date.now()); if (wait) await new Promise(r => setTimeout(r, wait));
     last = Date.now();
-    const r = await fetchJSON(url, { signal, label: LABEL, timeout: 40000 });
-    if (!r.ok || r.body == null) throw new DataError('{label}：資料服務回應 {status}', { label: LABEL, status: r.status });
-    return r.body;
+    // 證交所／櫃買偶爾回傳非 JSON 的流量限制頁（狀態 200）或 5xx／429：等 8、20、45 秒重試
+    for (let k = 0; ; k++) {
+      const r = await fetchJSON(url, { signal, label: LABEL, timeout: 40000 });
+      if (r.ok && r.body != null) { last = Date.now(); return r.body; }
+      const transient = (r.ok && r.body == null) || r.status === 429 || r.status >= 500;
+      if (!transient || k >= RETRY.length || signal?.aborted) throw new DataError('{label}：資料服務回應 {status}', { label: LABEL, status: r.status });
+      await new Promise(res => setTimeout(res, RETRY[k]));
+    }
   } finally { release(); }
 }
 const rwdTable = (body, re) => (body?.tables || []).find(t => re.test(t.title || '')) || null;
