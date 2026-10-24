@@ -192,6 +192,7 @@ export function watchAddHTML(st = {}, groups = []) {
   <div class="wa-list" id="wa-list">${watchAddList(st)}</div></section>`;
 }
 export function watchAddList(st = {}) {
+  if (st.error) return `<p class="wa-tip">搜尋失敗：${esc(st.error)}（剛更新程式的話，請先重新啟動衡析）</p>`;
   if (!st.q) return '<p class="wa-tip">打字就會列出符合的股票，按「＋ 加入」即可；在其他頁面也可以按股票旁的 ☆ 或「自選」選單加入。</p>';
   if (!st.results) return '<p class="wa-tip">搜尋中…</p>';
   if (!st.results.length) return `<p class="wa-tip">找不到「${esc(st.q)}」，請確認名稱或代號。</p>`;

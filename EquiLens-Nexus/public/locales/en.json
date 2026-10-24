@@ -4061,5 +4061,6 @@
   "未分組": "Ungrouped",
   "輸入股票名稱或代號，例如：國巨、2327": "Type a stock name or ticker, e.g. Yageo, 2327",
   "＋ 加入": "+ Add",
-  "＋ 加入自選股": "+ Add to watchlist"
+  "＋ 加入自選股": "+ Add to watchlist",
+  "搜尋失敗：{0}（剛更新程式的話，請先重新啟動衡析）": "Search failed: {0} (if the app was just updated, restart EquiLens first)"
 }

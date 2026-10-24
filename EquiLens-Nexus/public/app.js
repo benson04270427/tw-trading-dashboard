@@ -16,11 +16,11 @@ const WA = { q: '', results: null, group: '' };
 let waTimer = null, waSeq = 0;
 async function waSearch() {
   const seq = ++waSeq, q = WA.q; if (!q) { WA.results = null; return waPaint(); }
-  try { const r = await api('stock-search?q=' + encodeURIComponent(q)); if (seq !== waSeq) return; WA.results = r.results || []; } catch { WA.results = []; }
+  try { const r = await api('stock-search?q=' + encodeURIComponent(q)); if (seq !== waSeq) return; WA.results = r.results || []; WA.error = ''; } catch (e) { if (seq !== waSeq) return; WA.results = []; WA.error = e.message; }
   waPaint();
 }
 const waPaint = () => { const el = document.getElementById('wa-list'); if (el) el.innerHTML = watchAddList(WA); };
-document.addEventListener('input', e => { if (e.target.id !== 'wa-q') return; WA.q = e.target.value.trim(); WA.results = WA.q ? null : WA.results; waPaint(); clearTimeout(waTimer); waTimer = setTimeout(waSearch, 220); });
+document.addEventListener('input', e => { if (e.target.id !== 'wa-q') return; WA.q = e.target.value.trim(); WA.error = ''; WA.results = WA.q ? null : WA.results; waPaint(); clearTimeout(waTimer); waTimer = setTimeout(waSearch, 220); });
 document.addEventListener('change', e => { if (e.target.id === 'wa-group') WA.group = e.target.value; });
 document.addEventListener('submit', e => { const f = e.target.closest?.('[data-wa-form]'); if (!f) return; e.preventDefault(); const first = document.querySelector('#wa-list [data-wa-add]'); if (first) first.click(); });
 document.addEventListener('click', async e => {
