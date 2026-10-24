@@ -3,6 +3,8 @@ param([switch]$Nexus)
 # -Nexus also restarts EquiLens Nexus (the data engine).
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+# 重新啟動紀錄（每次覆寫），重新啟動失敗時可查看 .local/restart.log
+try { Start-Transcript -Path (Join-Path $root '.local/restart.log') -Force | Out-Null } catch { }
 & (Join-Path $root 'Stop-Pocket.ps1') -KeepTunnel
 if ($Nexus) {
     $nexusDir = $env:NEXUS_DIR
