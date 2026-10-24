@@ -10,15 +10,18 @@ let cache;
 function activeInfo(){return read('pattern-active.json',null);}
 function patternRaw(ids){const active=activeInfo(),base=readStocks(ids);for(const id of ids)base[id]=read(`${active?.directory||'pattern-stocks'}/${id}.json`,base[id]||{});return base;}
 export function clearPatterns(){cache=null;}
+// 型態分區用：目前快照中各檔的日 K（price、adjusted）與快照資訊
+export function patternBars(ids){return {raw:patternRaw(ids),active:activeInfo()};}
 export function patternSnapshot(universe){
   const cutoff=todayTW(),key=JSON.stringify(universe);
   if(!cache||cache.cutoff!==cutoff||cache.key!==key){const active=activeInfo();cache={key,cutoff,value:screenPatterns(universe,patternRaw(universe.filter(permitted).map(x=>x.id)),cutoff,active?.calendar||read('pattern-calendar.json',[]))};cache.value.snapshotCompletedAt=active?.completedAt||null;}
   return cache.value;
 }
 // 全市場型態資料需要資料源支援「全市場單日行情」（FinMind Sponsor、證交所開放資料等）；options.request 可注入 FinMind 形式的請求（測試用）
-export async function updatePatternData(universe,options){
-  const fetcher=options.request||null,cutoff=options.cutoff||todayTW();
-  const calendar=fetcher?(await fetcher('TaiwanStockTradingDate',{},options)).map(x=>x.date):await data.calendar(null,options),dates=[...new Set(calendar.filter(d=>d<=cutoff))].sort().slice(-90);
+// 日曆偶爾含休市日（例如補假、颱風假）：今天以前查無任何行情的日子記為休市（pattern-closed.json），往前補足 90 日再試一次
+export async function updatePatternData(universe,options,round=0){
+  const fetcher=options.request||null,cutoff=options.cutoff||todayTW(),closed=new Set(read('pattern-closed.json',[]));
+  const calendar=fetcher?(await fetcher('TaiwanStockTradingDate',{},options)).map(x=>x.date):await data.calendar(null,options),dates=[...new Set(calendar.filter(d=>d<=cutoff&&!closed.has(d)))].sort().slice(-90);
   if(dates.length!==90)throw new UserError('股票交易日曆不足 90 日，保留原資料');
   const ids=universe.filter(permitted).map(x=>x.id).sort(),known=new Set(ids),raw=patternRaw(ids);
   const signature=crypto.createHash('sha256').update(JSON.stringify(ids)).digest('hex').slice(0,12);
@@ -30,19 +33,22 @@ export async function updatePatternData(universe,options){
   for(const id of ids)raw[id]=read(`${directory}/${id}.json`,raw[id]||{});
   const tasks=[];
   for(const key of ['price','adjusted'])for(const date of dates){const dataset=key==='price'?'TaiwanStockPrice':'TaiwanStockPriceAdj',stamp=key==='price'?date:cutoff,token=`${dataset}:${date}`;if(ledger[token]!==stamp)tasks.push({key,date,dataset,stamp,token});}
-  let done=0,empty=0;const dirty=new Set(ids);
+  let done=0,empty=0;const dirty=new Set(ids),sameAdj=!fetcher&&data.hasAdjustedAll&&!data.hasAdjustedAll(),priceRows=new Map();
   const flush=()=>{for(const id of dirty)write(`${directory}/${id}.json`,{price:raw[id].price,adjusted:raw[id].adjusted,adjustedSnapshot:raw[id].adjustedSnapshot});dirty.clear();write(`${directory}/ledger.json`,ledger);};
   try{for(const task of tasks){
     if(options.signal?.aborted)break;
     options.onProgress?.({done,total:tasks.length,current:task.date,dataset:task.dataset,message:t('型態資料準備中 {done}/{total} 批次；仍顯示上次完整快照',{done,total:tasks.length})});
-    const rows=fetcher?await fetcher(task.dataset,{start_date:task.date,end_date:task.date},options):task.key==='price'?await data.dailyAll(task.date,options):await data.dailyAllAdjusted(task.date,options);
+    const rows=fetcher?await fetcher(task.dataset,{start_date:task.date,end_date:task.date},options):task.key==='price'?await data.dailyAll(task.date,options):sameAdj&&priceRows.has(task.date)?priceRows.get(task.date):await data.dailyAllAdjusted(task.date,options);
+    if(task.key==='price'&&sameAdj)priceRows.set(task.date,rows);
     for(const r of rows){if(!known.has(r.stock_id))continue;const id=r.stock_id;
       if(task.key==='adjusted'&&raw[id].adjustedSnapshot!==cutoff){raw[id].adjusted=[];raw[id].adjustedSnapshot=cutoff;}
       const merged=new Map((raw[id][task.key]||[]).map(x=>[x.date,x]));merged.set(r.date,r);raw[id][task.key]=[...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-300);dirty.add(id);
     }
-    if(rows.length)ledger[task.token]=task.stamp;else empty++;
+    if(rows.length)ledger[task.token]=task.stamp;else{empty++;if(task.key==='price'&&task.date<todayTW())closed.add(task.date);}
     done++;if(done%10===0)flush();
   }}finally{flush();options.onProgress?.({done,total:tasks.length});}
+  const newlyClosed=dates.filter(d=>closed.has(d));
+  if(newlyClosed.length&&!options.signal?.aborted&&round<2){write('pattern-closed.json',[...closed].sort().slice(-200));return updatePatternData(universe,options,round+1);}
   const complete=done===tasks.length&&!empty&&!options.signal?.aborted;
   // One atomic pointer write publishes only a complete snapshot. Failed or
   // cancelled downloads remain resumable, without changing the visible data.

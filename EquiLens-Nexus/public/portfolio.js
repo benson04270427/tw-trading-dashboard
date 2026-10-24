@@ -1,5 +1,5 @@
-// 電腦版：持股健檢頁與策略回測頁（畫面見 research-ui.js；股票名稱由 live.js 的 data-alert-stock 開啟個股視窗）
-import { portfolioHTML, backtestHTML } from './research-ui.js';
+// 電腦版：持股健檢頁、策略回測頁與型態分區頁（畫面見 research-ui.js；股票名稱由 live.js 的 data-alert-stock 開啟個股視窗）
+import { portfolioHTML, backtestHTML, shapesHTML } from './research-ui.js';
 let C = null; // { api, toast, page }
 const P = { info: null, error: '' }, B = { info: null, error: '' };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -7,7 +7,7 @@ const errBox = e => e ? `<div class="notice err"><span>${String(e).replace(/[<>&
 export function initPortfolio(ctx) { C = ctx; }
 export function portfolioPage() { return `${errBox(P.error)}<section class="panel"><div class="contentpad rv-wrap" id="pf-box">${portfolioHTML(P.info, { editable: true })}</div></section>`; }
 export function backtestPage() { return `${errBox(B.error)}<section class="panel"><div class="contentpad rv-wrap" id="bt-box">${backtestHTML(B.info)}</div></section>`; }
-function repaint(page, box, html) { if (C.page() !== page) return; const el = document.getElementById(box); if (el) el.innerHTML = html(); else { const pc = document.getElementById('pagecontent'); if (pc) pc.innerHTML = page === 'portfolio' ? portfolioPage() : backtestPage(); } }
+function repaint(page, box, html) { if (C.page() !== page) return; const el = document.getElementById(box); if (el) el.innerHTML = html(); else { const pc = document.getElementById('pagecontent'); if (pc) pc.innerHTML = page === 'portfolio' ? portfolioPage() : page === 'shapes' ? shapesPage() : backtestPage(); } }
 const paintP = () => repaint('portfolio', 'pf-box', () => portfolioHTML(P.info, { editable: true })), paintB = () => repaint('backtest', 'bt-box', () => backtestHTML(B.info));
 export async function enterPortfolio() { try { P.info = await C.api('portfolio'); P.error = ''; } catch (e) { P.error = e.message; } paintP(); if (P.info?.calendarBusy) pollCalendar(); }
 let calPolling = false;
@@ -36,5 +36,21 @@ document.addEventListener('click', async e => {
   try {
     if (b.dataset.pfDel) { const id = b.dataset.pfDel; await save(current().filter(h => h.id !== id)); C.toast(`已移除 ${id}`); return; }
     if (b.hasAttribute('data-bt-run')) { b.disabled = true; const hold = Number(document.querySelector('[data-bt-hold]')?.value) || 20; B.info = await C.api('backtest/run', { hold }); paintB(); pollBacktest(); }
+  } catch (err) { C.toast(err.message); }
+});
+
+// 型態分區：分組卡片 → 點開看個股（點股票開 K 線，由 live.js 的 data-alert-stock 處理）
+const SH = { info: null, detail: null, bias: '', scope: 'tech', error: '' };
+export function shapesPage() { return `${errBox(SH.error)}<section class="panel"><div class="contentpad rv-wrap" id="sh-box">${shapesHTML(SH.info, SH, SH.detail)}</div></section>`; }
+const paintS = () => repaint('shapes', 'sh-box', () => shapesHTML(SH.info, SH, SH.detail));
+export async function enterShapes() { try { SH.info = await C.api('shapes?scope=' + SH.scope); SH.error = ''; } catch (e) { SH.error = e.message; } paintS(); }
+document.addEventListener('click', async e => {
+  if (!C || C.page() !== 'shapes') return;
+  const b = e.target.closest('[data-sh-open],[data-sh-back],[data-sh-bias],[data-sh-scope]'); if (!b) return;
+  try {
+    if (b.dataset.shOpen) { SH.detail = await C.api(`shapes?scope=${SH.scope}&shape=${encodeURIComponent(b.dataset.shOpen)}`); paintS(); window.scrollTo(0, 0); return; }
+    if (b.hasAttribute('data-sh-back')) { SH.detail = null; return paintS(); }
+    if (b.dataset.shBias != null) { SH.bias = b.dataset.shBias; return paintS(); }
+    if (b.dataset.shScope) { SH.scope = b.dataset.shScope; SH.detail = null; SH.info = null; paintS(); return enterShapes(); }
   } catch (err) { C.toast(err.message); }
 });

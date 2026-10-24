@@ -1,7 +1,7 @@
 import { aggregate, renderTreemap, heatColor } from './heatmap.js';
 import { renderFlowCards, downloadFlowCard } from './flow-cards.js';
 import { initChips, loadChips, brokersView, holdersView } from './chips.js';
-import { initRV, riskCard, valueView, loadRisk, loadValue, picksCard, moversCard, loadHomeRank, zonesView, loadZones, macroCard, loadMacro, portfolioCard, loadPortfolio } from './rv.js';
+import { initRV, riskCard, valueView, loadRisk, loadValue, picksCard, moversCard, loadHomeRank, zonesView, loadZones, macroCard, loadMacro, portfolioCard, loadPortfolio, shapesView, loadShapes } from './rv.js';
 import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard, openQuote, openIndex } from './live.js';
 import { setLanguage, getLanguage, tx } from './i18n.js';
 import * as MK from './market.js';
@@ -95,7 +95,7 @@ async function load(force = false) {
     else if (S.tab === 'stocks') await loadStocks(true);
     else if (S.tab === 'heat') { if (replayActive()) return; if (!S.heat.data || force) await loadHeat(); if (S.heat.live && liveOpen()) await loadLive(); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'live') { await loadLiveTab(); if (!S.stocks) loadStocks(); }
-    else if (S.tab === 'patterns') { if (S.patView === 'value') await loadValue(); else if (S.patView === 'zones') await loadZones(); else if (!S.pat || force) S.pat = await api('api/patterns'); }
+    else if (S.tab === 'patterns') { if (S.patView === 'value') await loadValue(); else if (S.patView === 'zones') await loadZones(); else if (S.patView === 'shapes') await loadShapes(); else if (!S.pat || force) S.pat = await api('api/patterns'); }
     else if (S.tab === 'flows') { if (S.flows.view !== 'inst') await loadChips(force); else if (!S.flows.data || force) await loadFlows(); }
     S.error = '';
   } catch (e) { if (!e.silent) { S.error = e.message; } }
@@ -388,10 +388,11 @@ function patCard(r) {
   <div class="plan num"><div><span>強度</span><b>${r.score}</b></div><div><span>進場帶</span><b>${fmt(r.entry, r.entry < 100 ? 2 : 1)}</b></div><div><span>防守</span><b class="down">${fmt(r.stop, r.stop < 100 ? 2 : 1)}</b></div><div><span>R/R</span><b>${fmt(r.rr, 1)}</b></div></div></button>`;
 }
 // 型態分頁：型態選股／低估選股
-const patSeg = () => `<div class="seg" style="margin-bottom:12px">${[['pattern', '型態選股'], ['value', '低估選股'], ['zones', '策略選股']].map(([v, l]) => `<button class="${(S.patView || 'pattern') === v ? 'on' : ''}" data-pview="${v}">${l}</button>`).join('')}</div>`;
+const patSeg = () => `<div class="seg" style="margin-bottom:12px">${[['pattern', '型態選股'], ['shapes', '型態分區'], ['value', '低估選股'], ['zones', '策略選股']].map(([v, l]) => `<button class="${(S.patView || 'pattern') === v ? 'on' : ''}" data-pview="${v}">${l}</button>`).join('')}</div>`;
 function patternPage() {
   if (S.patView === 'value') return patSeg() + valueView();
   if (S.patView === 'zones') return patSeg() + zonesView();
+  if (S.patView === 'shapes') return patSeg() + shapesView();
   return patSeg() + patternBody();
 }
 function patternBody() {

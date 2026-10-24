@@ -11,7 +11,7 @@
 | 熱浪 | [資金熱浪與時光機](heatmap.md) |
 | 盤中 | 看板、當沖（含[大盤環境紀錄](daytrade-market.md)與訊號檢討）、雷達（含開啟通知）、提醒（[自訂提醒](price-alerts.md)）、[族群排名](group-rank.md)、雷達設定 |
 | 個股 | 研究名單與自選（可分組、排序）；[個股頁](stock-detail.md)含評分、K 線、個股判讀、[訊號面板](signal-panel.md)、[目標價](price-targets.md)、[入選策略紀錄](strategy-zones.md)、「🔬 深入研究」（[財報與河流圖](financials.md)、[股利](dividends.md)、[內部人](insiders.md)、[放空](short-interest.md)、[同業](peers.md)，點了才讀取）、自訂提醒、主力分點、大戶持股、認購權證、新聞 |
-| 型態 | [型態選股](patterns.md)；上方切換到[低估選股](value-screener.md)、[策略選股](strategy-zones.md)（下方有[策略回測](backtest.md)） |
+| 型態 | [型態選股](patterns.md)；上方切換到[型態分區](shapes.md)、[低估選股](value-screener.md)、[策略選股](strategy-zones.md)（下方有[策略回測](backtest.md)） |
 | 籌碼 | [法人](flows.md)、[分點追蹤](broker-watch.md)（含[認購權證進出](warrants.md)）、[大戶排行](big-holders.md)（後兩者需要 FinMind Sponsor） |
 
 左上角 ☰（設定）：螢幕恆亮、外觀（深色／淺色）、字型大小、[新聞推播](news-push.md)、通知狀態與各手機的提示音設定說明、登出這台裝置。

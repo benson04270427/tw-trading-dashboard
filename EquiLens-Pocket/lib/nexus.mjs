@@ -96,6 +96,7 @@ export const valueQuery = () => call('value/query', { body: {} });
 export const movers = () => call('movers');
 export const targets = id => call('targets?id=' + encodeURIComponent(id), { timeout: 60000 });
 export const zones = () => call('zones');
+export const shapes = (scope, shape) => call('shapes?' + qs({ scope, shape }), { timeout: 60000 });
 export const zonesQuery = () => call('zones/query', { body: {} });
 export const deep = (route, id) => call(`${route}?id=${encodeURIComponent(id)}`, { timeout: 120000 });
 export const portfolio = () => call('portfolio', { timeout: 60000 });

@@ -23,7 +23,8 @@ import { buildMarket, marketToday, WEIGHTS, FACTORS, minusDays, bars as priceBar
 import { fetchStock, fetchNews, isBulkInstitutional, bulkInstitutions, defaultSources } from './lib/research.mjs';
 import { buildGroupRanking, compareRanks, quotesFromSnapshot, quotesFromReplay, quotesFromDaily, RANK_RULES } from './lib/grouprank.mjs';
 import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGroup, removeGroup, reorderGroups, addStock, removeStock, importGroups, selectedUpdateIds } from './lib/scope.mjs';
-import { patternSnapshot, clearPatterns, updatePatternData } from './lib/pattern-service.mjs';
+import { patternSnapshot, clearPatterns, updatePatternData, patternBars } from './lib/pattern-service.mjs';
+import { permitted as patternPermitted } from './lib/patterns.mjs';
 import { createStreamPool, splitSymbols, spreadSymbols } from './lib/stream.mjs';
 import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV, exportDay } from './lib/bookrec.mjs';
 import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffset, evaluateSignal, reviewStats, signalTitle, DT_TITLES } from './lib/daytrade.mjs';
@@ -38,7 +39,8 @@ import { buildContrarian, parseFearGreed } from './lib/contrarian.mjs';
 import { fetchJSON, rocDate } from './lib/providers/common.mjs';
 import { nyseHolidays } from './lib/providers/nasdaq.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
-import { SCOPES, AI_INDEX, AI_CHAIN, US_AI_INDEX, US_AI_CHAIN, TW_PEER_INDEX, TW_PEER_GROUPS } from './lib/aichain.mjs';
+import { SCOPES, AI_INDEX, AI_CHAIN, US_AI_INDEX, US_AI_CHAIN, TW_PEER_INDEX, TW_PEER_GROUPS, TECH_SECTORS } from './lib/aichain.mjs';
+import { buildShapes } from './lib/shapes.mjs';
 import { PICKS_VERSION, heatStocks, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh } from './lib/picks.mjs';
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
@@ -1376,6 +1378,27 @@ async function peerFund(ids){
   if(n){fs.mkdirSync(path.join(LOCAL,'zones'),{recursive:true});write('zones/us-fund.json',cache);}
 }
 
+/* ---------- 型態分區（台股科技股，用型態選股的全市場 90 日快照） ---------- */
+const SHAPE_SCOPES={tech:'電子科技',ai:'AI 供應鏈',all:'全市場'};
+let shapesCache=null;
+function shapesReport(scope='tech'){
+  if(M().id!=='TW')return{available:false,reason:t('型態分區目前只支援台股')};
+  if(!SHAPE_SCOPES[scope])scope='tech';
+  const list=universe.filter(x=>patternPermitted(x,M())).filter(x=>scope==='all'||(scope==='ai'?AI_INDEX.has(x.id):TECH_SECTORS.has(x.sector)));
+  const {raw,active}=patternBars(list.map(x=>x.id)),key=`${scope}|${active?.completedAt||''}|${list.length}|${today()}`;
+  if(shapesCache?.key===key)return shapesCache.value;
+  const stocks=[];let thin=0,noData=0;
+  for(const x of list){
+    const r=raw[x.id]||{},src=(r.adjusted?.length>=60?r.adjusted:r.price)||[],b=priceBars(src);
+    if(b.length<60){noData++;continue;}
+    const vol=b.slice(-20).reduce((a,y)=>a+(y.Trading_Volume||0),0)/Math.min(20,b.length);if(vol<300000){thin++;continue;}
+    stocks.push({id:x.id,name:x.name,sector:x.sector,bars:b});
+  }
+  const v=buildShapes(stocks,{asOf:stocks.length?stocks.map(x=>x.bars.at(-1).date).sort().at(-1):null,scope});
+  const value={...v,available:stocks.length>0,scopeName:t(SHAPE_SCOPES[scope]),scopes:Object.entries(SHAPE_SCOPES).map(([id,name])=>({id,name:t(name)})),universe:list.length,thin,noData,snapshotAt:active?.completedAt||null,reason:stocks.length?null:t('型態資料還沒準備好：請到「型態選股」按更新全市場型態資料（約 3～10 分鐘）')};
+  shapesCache={key,value};return value;
+}
+
 /* ---------- 持股損益與健檢（.local/portfolio.json） ---------- */
 const readPortfolio=()=>normalizePortfolio(read('portfolio.json',{}));
 function pfQuote(id,heatMap){
@@ -2057,6 +2080,7 @@ const server = http.createServer(async (req,res) => {
       return json(res,200,{added:result.added,stockId:b.stockId,needsUpdate:!raw[b.stockId]?.price?.length});
     }
     if(route==='/api/patterns'&&req.method==='GET'){const snapshot=patternSnapshot(universe);return json(res,200,{...snapshot,stocks:snapshot.stocks.map(({bars,...s})=>s),scope:data.has('dailyAll')?'market':'local'});}
+    if(route==='/api/shapes'&&req.method==='GET'){const r=shapesReport(url.searchParams.get('scope')||'tech'),sid=url.searchParams.get('shape');if(sid){const sh=r.shapes?.find(x=>x.id===sid);return json(res,200,{...r,shapes:undefined,shape:sh||null});}return json(res,200,{...r,shapes:(r.shapes||[]).map(({stocks,...x})=>({...x,top:stocks.slice(0,3).map(y=>y.name)}))});}
     if(route==='/api/pattern-detail'&&req.method==='GET'){const s=patternSnapshot(universe).stocks.find(x=>x.id===url.searchParams.get('id'));return s?json(res,200,s):json(res,404,{error:t('此股票目前沒有符合的型態')});}
     if(route==='/api/pattern-update'&&req.method==='POST'){
       if(job.running)return json(res,409,{error:t('已有更新進行中')});

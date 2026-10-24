@@ -1,6 +1,6 @@
 // 手機版：盤勢分頁的風控水位卡片（完整分析開在底部視窗）與型態分頁的「低估選股」（畫面見 riskvalue-ui.js）
 import { riskHTML, valueHTML, moversHTML, picksHTML, zonesHTML, macroHTML } from './riskvalue-ui.js';
-import { portfolioHTML, backtestHTML } from './research-ui.js';
+import { portfolioHTML, backtestHTML, shapesHTML } from './research-ui.js';
 let X = null; // { api, toast, draw, S, openSheet, $ }
 const R = { info: null, error: '', sheet: false }, V = { info: null, error: '', strategy: 'value', minTurnover: 1e7, scope: 'ai' };
 export function initRV(ctx) { X = ctx; }
@@ -70,4 +70,20 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', async e => {
   if (!X || e.target.id !== 'rv-turnover') return;
   V.minTurnover = Number(e.target.value); try { V.info = await X.api(vq()); } catch (err) { V.error = err.message; } X.draw();
+});
+
+// 型態分頁的「型態分區」：台股科技股依技術型態分組，點型態看個股、點股票看報價與 K 線
+const SH = { info: null, detail: null, bias: '', scope: 'tech' };
+export function shapesView() { return `<div class="rv-wrap">${shapesHTML(SH.info, SH, SH.detail)}</div>`; }
+export async function loadShapes() { try { SH.info = await X.api('api/shapes?scope=' + SH.scope); } catch (e) { SH.info = { available: false, reason: e.message }; } }
+document.addEventListener('click', async e => {
+  if (!X || X.S.tab !== 'patterns' || X.S.patView !== 'shapes') return;
+  const b = e.target.closest('[data-sh-open],[data-sh-back],[data-sh-bias],[data-sh-scope]'); if (!b) return;
+  e.stopPropagation();
+  try {
+    if (b.dataset.shOpen) { SH.detail = await X.api(`api/shapes?scope=${SH.scope}&shape=${encodeURIComponent(b.dataset.shOpen)}`); X.draw(); window.scrollTo(0, 0); return; }
+    if (b.hasAttribute('data-sh-back')) { SH.detail = null; return X.draw(); }
+    if (b.dataset.shBias != null) { SH.bias = b.dataset.shBias; return X.draw(); }
+    if (b.dataset.shScope) { SH.scope = b.dataset.shScope; SH.detail = null; SH.info = null; X.draw(); await loadShapes(); return X.draw(); }
+  } catch (err) { X.toast(err.message); }
 });

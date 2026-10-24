@@ -56,3 +56,7 @@
 ## 相關檔案
 
 `EquiLens-Nexus/lib/patterns.mjs`、`lib/pattern-service.mjs`；資料 `.local/pattern-*`。
+
+## 休市日
+
+交易日曆偶爾會把休市日（補假、颱風假）列為交易日。更新全市場資料時，今天以前查無任何行情的日子會記為休市（`pattern-closed.json`），往前補足 90 個交易日再完成快照。

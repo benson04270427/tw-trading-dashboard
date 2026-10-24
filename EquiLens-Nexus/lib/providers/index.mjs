@@ -79,6 +79,8 @@ export const data = {
   dailyAll: (date, opts) => call('dailyAll', [date], opts),
   // 只供熱浪圖使用的全市場收盤行情（例如 Nasdaq 篩選器：只有最新一個交易日，之前的日子由本機紀錄提供）
   heatAll: (date, opts) => call('heatAll', [date], opts),
+  // 資料源是否另有「全市場還原股價」；沒有時還原股價和原始行情相同，型態快照直接沿用不重抓
+  hasAdjustedAll: () => !!pick('dailyAll')?.dailyAllAdjusted,
   dailyAllAdjusted: (date, opts) => { const p = pick('dailyAll'); return p?.dailyAllAdjusted ? ctxOf(p, opts).then(ctx => p.dailyAllAdjusted(date, ctx)) : call('dailyAll', [date], opts); },
   snapshot: (ids, opts) => call('snapshot', [ids], opts),
   intraday: (id, date, opts) => call('intraday', [id, date], opts),

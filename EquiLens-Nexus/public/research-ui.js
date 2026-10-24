@@ -149,3 +149,25 @@ export function backtestHTML(info) {
   const card = s => `<section class="bt-card"><header><h4>${esc(s.name)}</h4>${!s.enough ? `<span class="dd-chip amber">樣本 ${s.trades} 筆，參考性有限</span>` : ''}</header>${s.trades ? tiles([['交易筆數', `${s.trades}`, s.open ? `另有 ${s.open} 筆持有中` : ''], ['勝率', `${fmt(s.winRate, 1)}%`], ['平均報酬', pc(s.avg, 2), `中位數 ${sign(s.median, 2)}%`], ['組合報酬', pc(s.total, 1), s.benchmark != null ? `同期${esc(d.indexName)} ${sign(s.benchmark, 1)}%` : ''], ['最大回撤', `<span class="down">${fmt(s.mdd, 1)}%</span>`], ['獲利因子', s.profitFactor != null ? fmt(s.profitFactor, 2) : '—', s.avgDays != null ? `平均持有 ${fmt(s.avgDays, 1)} 天` : '']]) + `<div class="tg-legend"><span><i class="bt-k-eq"></i>策略組合</span><span><i class="bt-k-bench"></i>${esc(d.indexName)}</span></div>${curveSVG(s)}<details><summary>最近的交易</summary><div class="dd-scroll"><table class="tg-table dd-tbl"><thead><tr><th>股票</th><th>進場</th><th>出場</th><th>報酬</th></tr></thead><tbody>${s.recent.map(t => `<tr><td>${esc(t.name || t.id)} <small class="num soft">${esc(t.id)}</small></td><td class="num">${md(t.entryDate)} ${px(t.entry)}</td><td class="num">${t.open ? '<span class="soft">持有中</span>' : `${md(t.exitDate)} ${px(t.exit)}`}</td><td>${pc(t.ret, 2)}</td></tr>`).join('')}</tbody></table></div></details>` : '<p class="ix-empty">還沒有完成的交易；入選策略從開始保存名單的那天起累積。</p>'}</section>`;
   return `${ctl}<div class="bt-grid">${d.strategies.map(card).join('')}</div><p class="ix-foot">訊號策略：研究名單每檔的本機日 K，ATR 追蹤線翻多以收盤買進（只做多），跌破停損（進場價 − 1.5 倍 ATR）或翻空時賣出。入選策略：價值區、升溫區、每日精選當天收盤買進，持有固定交易日數後賣出，價格取自每天保存的收盤熱浪圖。組合報酬：每天把資金平均分配給持有中的部位，最大回撤由這條權益曲線計算。不含手續費、稅與滑價；過去績效不代表未來，不是買賣建議。</p>`;
 }
+
+// ---- 型態分區（台股科技股依技術型態分組；一檔可屬於多個型態） ----
+const SH_BIAS = { bull: '偏多', bear: '偏空', neutral: '中性' };
+const shIcon = icon => `<svg class="sh-ico" viewBox="-1 -1 42 14" aria-hidden="true">${String(icon || '').split(' M').map(s => `<polyline points="${esc(s.replace(/^M/, ''))}"/>`).join('')}</svg>`;
+// d：/api/shapes（列表）；st：{ bias, scope }；detail：/api/shapes?shape=（單一型態的個股）
+export function shapesHTML(d, st = {}, detail = null) {
+  const e = empty(d); if (e) return e;
+  const scopes = `<div class="rv-strats">${(d.scopes || []).map(s => `<button data-sh-scope="${esc(s.id)}" class="${d.scope === s.id ? 'selected' : ''}" aria-pressed="${d.scope === s.id}">${esc(s.name)}</button>`).join('')}</div>`;
+  if (detail?.shape) return scopes + shapeDetailHTML(detail.shape, d);
+  const bias = st.bias || '', filt = `<div class="rv-strats">${[['', '全部'], ['bull', '偏多'], ['bear', '偏空'], ['neutral', '中性']].map(([v, l]) => `<button data-sh-bias="${v}" class="${bias === v ? 'selected' : ''}" aria-pressed="${bias === v}">${l}</button>`).join('')}</div>`;
+  const head = tiles([['掃描', `${fmt(d.scanned)} 檔`, `${esc(d.scopeName || '')}・${esc(d.asOf || '')}`], ['有型態', `${fmt(d.matched)} 檔`, `偏多 ${fmt(d.leans?.bull)}・偏空 ${fmt(d.leans?.bear)}・中性 ${fmt(d.leans?.neutral)}`], ['偏多型態', `<span class="sh-bull">${fmt(d.totals?.bull)}</span>`, '筆'], ['偏空型態', `<span class="sh-bear">${fmt(d.totals?.bear)}</span>`, '筆']]);
+  const groups = (d.groups || []).map(g => {
+    const list = (d.shapes || []).filter(s => s.group === g.id && (!bias || s.bias === bias)); if (!list.length) return '';
+    return `<h3 class="sh-group">${esc(g.name)}</h3><div class="sh-grid">${list.map(s => `<button class="sh-card${s.count ? '' : ' sh-zero'}" data-sh-open="${esc(s.id)}">${shIcon(s.icon)}<span class="sh-name">${esc(s.name)}<small><i class="sh-${s.bias}">${esc(SH_BIAS[s.bias])}</i>・${esc(s.kind)}${s.top?.length ? `・${esc(s.top.join('、'))}` : ''}</small></span><b class="num">${fmt(s.count)}</b></button>`).join('')}</div>`;
+  }).join('');
+  return `${scopes}${head}${filt}${groups}<p class="ix-foot">用最近約 90 個交易日的日 K（還原權值）判斷，轉折點門檻依波動度調整；一檔股票可同時屬於多個型態，型態是常見的技術分析分類，同一段走勢常可有不同解讀，不是買賣建議。成交量過低（近 20 日平均不到 300 張）的股票不列入。</p>`;
+}
+function shapeDetailHTML(s, d) {
+  const rows = (s.stocks || []).map(x => `<button class="sh-row" data-alert-stock="${esc(x.id)}"><span class="sh-nm">${esc(x.name)}<small>${esc(x.id)}・${esc(x.sector || '')}</small></span><span class="sh-px num">${px(x.close)}<small class="${x.change > 0 ? 'up' : x.change < 0 ? 'down' : ''}">${x.change > 0 ? '+' : ''}${fmt(x.change, 2)}%</small></span><span class="sh-sc"><i style="width:${Math.max(4, x.score)}%"></i><small>${fmt(x.score)}</small></span><span class="sh-note">${esc(x.note || '')}${x.others?.length ? `<small>也符合 ${x.others.length} 種型態</small>` : ''}</span></button>`).join('');
+  return `<div class="sh-detail"><div class="sh-dh"><button class="textbtn" data-sh-back>‹ 全部型態</button>${shIcon(s.icon)}<b>${esc(s.name)}</b><i class="sh-${s.bias}">${esc(SH_BIAS[s.bias])}</i><span class="soft">${esc(s.kind)}・${fmt(s.count)} 檔・${esc(d?.asOf || '')}</span></div>
+  ${rows ? `<div class="sh-list">${rows}</div>` : '<p class="ix-empty">目前沒有股票符合這個型態。</p>'}<p class="ix-foot">分數是型態吻合程度（0～100），不是勝率；價位為型態的關鍵價（頸線、支撐、壓力等）。點股票看 K 線。</p></div>`;
+}

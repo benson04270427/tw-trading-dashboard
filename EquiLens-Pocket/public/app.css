@@ -679,3 +679,29 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 @media (max-width:560px){.ct-top{grid-template-columns:1fr;justify-items:center}.ct-gauges{width:100%}}
 
 .dd-warn { margin: 4px 0 8px; padding: 6px 10px; border-radius: 6px; background: rgba(255,176,32,.12); color: var(--amber, #ffb020); font-size: 12px; }
+
+/* 型態分區 */
+.sh-group { margin: 18px 0 8px; font-size: .9rem; color: var(--muted, var(--soft)); font-weight: 600; letter-spacing: .04em; }
+.sh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.sh-card { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--line2, var(--line)); border-radius: 10px; background: transparent; color: inherit; cursor: pointer; }
+.sh-card:hover { border-color: var(--cyan, var(--accent)); }
+.sh-card.sh-zero { opacity: .55; }
+.sh-ico { width: 48px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; opacity: .85; }
+.sh-name { flex: 1; min-width: 0; font-size: .95rem; }
+.sh-name small { display: block; margin-top: 2px; font-size: .74rem; color: var(--muted, var(--soft)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-card b { font-size: 1.05rem; }
+.sh-bull { color: var(--up); font-style: normal; }
+.sh-bear { color: var(--down); font-style: normal; }
+.sh-neutral { color: var(--muted, var(--soft)); font-style: normal; }
+.sh-dh { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+.sh-dh b { font-size: 1.05rem; }
+.sh-list { display: flex; flex-direction: column; gap: 6px; }
+.sh-row { display: grid; grid-template-columns: minmax(120px, 1.2fr) 110px 120px minmax(160px, 2fr); align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.sh-row:hover { border-color: var(--cyan, var(--accent)); }
+.sh-nm small, .sh-px small, .sh-note small { display: block; font-size: .74rem; color: var(--muted, var(--soft)); }
+.sh-px small.up { color: var(--up); } .sh-px small.down { color: var(--down); }
+.sh-sc { position: relative; height: 18px; border-radius: 4px; background: color-mix(in srgb, var(--line) 60%, transparent); overflow: hidden; }
+.sh-sc i { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--cyan, var(--accent)) 45%, transparent); }
+.sh-sc small { position: relative; padding-left: 6px; font-size: .74rem; line-height: 18px; }
+.sh-note { font-size: .82rem; }
+@media (max-width: 760px) { .sh-row { grid-template-columns: 1fr auto; } .sh-sc, .sh-note { grid-column: 1 / -1; } .sh-grid { grid-template-columns: 1fr; } }

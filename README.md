@@ -47,6 +47,7 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
   alerts are unchanged ([details, zh-TW](docs/features/daytrade-market.md)).
 - **Group ranking** – your research groups ranked by turnover-weighted gain, with daily close records.
 - **Pattern scanner** – 10 classic patterns over 90 sessions with conditional entry and stop levels.
+- **Pattern zones** (Taiwan) – tech stocks grouped into about 40 chart patterns (support/resistance, trendlines, double bottoms/tops, head and shoulders, triangles, wedges, flags, channels, rounding and cup patterns, harmonics), each marked bullish, bearish or neutral.
 - **Strategy zones** (Taiwan and US) – daily value and heating zones saved with history; the chart window's Strategy tab marks each stock's entries. See [docs/features/strategy-zones.md](docs/features/strategy-zones.md).
 - **Price targets** (Taiwan and US) – FactSet consensus via Anue for Taiwan, analyst consensus via Nasdaq for the US, with a 12-month target range chart. See [docs/features/price-targets.md](docs/features/price-targets.md).
 - **Financials and valuation river** (Taiwan and US) – 12 quarters of revenue, margins, EPS, ROE, free cash flow and debt ratio, plus a five-year P/E (and P/B for Taiwan) multiple river with fair-value levels. See [docs/features/financials.md](docs/features/financials.md).

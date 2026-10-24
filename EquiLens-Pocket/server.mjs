@@ -132,6 +132,7 @@ async function api(req, res, url) {
     if (route === 'portfolio') return send(req, res, 200, await nexus.portfolio());
     if (route === 'backtest') return send(req, res, 200, await nexus.backtest());
     if (route === 'zones') return send(req, res, 200, await nexus.zones());
+    if (route === 'shapes') { const sc = q.get('scope'), sh = q.get('shape'); if ((sc && !/^[a-z]{2,10}$/.test(sc)) || (sh && !/^[A-Za-z]{2,20}$/.test(sh))) throw Object.assign(new Error('參數格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.shapes(sc || undefined, sh || undefined)); }
     if (route === 'macro') return send(req, res, 200, await nexus.macro());
     if (route === 'signal') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.signal(q.get('id'))); }
     if (route === 'verdict') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.verdict(q.get('id'))); }
