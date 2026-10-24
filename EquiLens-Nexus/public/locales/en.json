@@ -3886,5 +3886,11 @@
   "這家公司沒有向 SEC 申報美國格式的季報（多為外國公司），無法畫河流圖": "This company does not file US-format quarterly reports with the SEC (usually a foreign issuer), so no river chart",
   "近四季合計虧損，沒有本益比，無法畫河流圖": "Trailing four quarters are a net loss, so there is no P/E and no river chart",
   "近期獲利資料不足（近四季虧損或財報缺漏），無法畫河流圖": "Not enough recent earnings data (recent losses or missing reports) to draw the river chart",
-  "可用的獲利歷史不到 2 年（之前虧損或剛上市），歷史倍數樣本太少，河流圖參考性低": "Less than 2 years of positive earnings history (earlier losses or recent listing); too few historical multiples for a meaningful river chart"
+  "可用的獲利歷史不到 2 年（之前虧損或剛上市），歷史倍數樣本太少，河流圖參考性低": "Less than 2 years of positive earnings history (earlier losses or recent listing); too few historical multiples for a meaningful river chart",
+  "獲利起伏太大（景氣循環或曾接近虧損），歷史倍數高低相差超過 6 倍，河流圖參考性低": "Earnings swing too much (cyclical or near losses); historical multiples differ by more than 6x, so the river chart is not meaningful",
+  "IC 設計": "IC design",
+  "矽智財與 ASIC": "Silicon IP & ASIC",
+  "網通設備": "Networking equipment",
+  "面板與顯示": "Panels & displays",
+  "玻纖布與銅箔基板": "Glass fabric & CCL"
 }

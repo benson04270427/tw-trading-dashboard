@@ -191,3 +191,8 @@ test('河流圖：最近一點離最新收盤超過 120 天就不畫', () => {
   assert.ok(buildRiver(pts, { asOf: '2026-10-23' }).unusable); assert.ok(!buildRiver(pts, { asOf: '2023-04-10' }).unusable);
   assert.match(buildRiver(pts.slice(0, 400)).unusable, /不到 2 年/);
 });
+
+test('河流圖：倍數高低相差超過 6 倍（景氣循環股）不畫', () => {
+  const pts = []; for (let i = 0; i < 800; i++) pts.push([new Date(Date.UTC(2023, 0, 1) + i * 864e5).toISOString().slice(0, 10), 100, 100 / (2 + (i % 80))]);
+  assert.match(buildRiver(pts).unusable, /6 倍/);
+});

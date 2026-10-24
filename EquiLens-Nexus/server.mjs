@@ -37,7 +37,7 @@ import { buildContrarian, parseFearGreed } from './lib/contrarian.mjs';
 import { fetchJSON, rocDate } from './lib/providers/common.mjs';
 import { nyseHolidays } from './lib/providers/nasdaq.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
-import { SCOPES, AI_INDEX, AI_CHAIN, US_AI_INDEX, US_AI_CHAIN } from './lib/aichain.mjs';
+import { SCOPES, AI_INDEX, AI_CHAIN, US_AI_INDEX, US_AI_CHAIN, TW_PEER_INDEX, TW_PEER_GROUPS } from './lib/aichain.mjs';
 import { PICKS_VERSION, heatStocks, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh } from './lib/picks.mjs';
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
@@ -1330,7 +1330,7 @@ async function shortsReport(id){
 }
 async function peersReport(id){
   const mk=deepMarket(),heat=heatStocks(latestHeat());
-  if(mk==='TW'){const value=read('value/inputs.json',null)?.rows||[];if(!value.length){void runScreen();return{id,available:false,reason:t('低估選股資料還沒取得，請稍候再試')};}return twPeers({id,value,heat,chainOf:AI_INDEX,chains:AI_CHAIN});}
+  if(mk==='TW'){const value=read('value/inputs.json',null)?.rows||[];if(!value.length){void runScreen();return{id,available:false,reason:t('低估選股資料還沒取得，請稍候再試')};}return twPeers({id,value,heat,chainOf:new Map([...AI_INDEX,...TW_PEER_INDEX]),chains:{...AI_CHAIN,...TW_PEER_GROUPS}});}
   const seg=US_AI_INDEX.get(id);if(seg)await peerFund(US_AI_CHAIN[seg]);
   const cache=read('zones/us-fund.json',{}),fund=new Map(Object.entries(cache).map(([k,v])=>[k,v.f]));const p=usPeers({id,heat,fund,chainOf:US_AI_INDEX,chains:US_AI_CHAIN});for(const r of p.rows||[])if(r.name===r.id)r.name=nameOf(r.id);return p;
 }

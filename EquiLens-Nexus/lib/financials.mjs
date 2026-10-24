@@ -162,6 +162,7 @@ export function buildRiver(points, { kind = 'pe', years = 5, asOf = null } = {})
   const weekly = w.filter((x, i) => i === w.length - 1 || new Date(x[0] + 'T00:00:00Z').getUTCDay() === 5 || (w[i + 1] && Date.parse(w[i + 1][0]) - Date.parse(x[0]) > 3 * DAY));
   const last = w.at(-1), now = last[1] / last[2], rank = mult.filter(v => v < now).length / mult.length * 100;
   const zone = rank < 30 ? '偏低' : rank > 70 ? '偏高' : '合理', spread = levels[0] > 0 ? levels[4] / levels[0] : null;
+  if (spread > 6) return { kind, unusable: '獲利起伏太大（景氣循環或曾接近虧損），歷史倍數高低相差超過 6 倍，河流圖參考性低', dropped, total: inWin.length, spread: r1(spread) };
   const warn = dropped / inWin.length > 0.1 || spread > 4 ? '獲利波動大，歷史倍數分散，河流圖僅供參考' : null;
   return { kind, warn, dropped, spread: r1(spread), years: r1((Date.parse(last[0]) - Date.parse(w[0][0])) / DAY / 365.25), levels, series: weekly.map(x => [x[0], r2(x[1]), r2(x[2]), ...levels.map(l => r2(x[2] * l))]),
     date: last[0], price: r2(last[1]), base: r2(last[2]), multiple: r1(now), percentile: r1(rank), zone, fair: r2(last[2] * levels[2]), cheap: r2(last[2] * levels[1]), rich: r2(last[2] * levels[3]) };
