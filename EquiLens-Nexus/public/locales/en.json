@@ -4029,5 +4029,17 @@
   "，已突破": ", broken out",
   "，已跌破": ", broken down",
   "白天淺色": "Light",
-  "白天淺色是預設；深色霓虹是原本的戰情室風格。": "Light is the default; Dark Neon is the original war-room style."
+  "白天淺色是預設；深色霓虹是原本的戰情室風格。": "Light is the default; Dark Neon is the original war-room style.",
+  "「{0}」的搜尋結果・{1} 檔": "Results for “{0}” · {1} stocks",
+  "不在「{scope}」範圍，可切換到「全市場」再查": "Not in “{scope}”; switch to All market and search again",
+  "不在型態分析範圍（ETF、權證、金融等產業不分析）": "Outside pattern analysis (ETFs, warrants, financials and similar are excluded)",
+  "找不到「{0}」：請確認名稱或代號。": "No match for “{0}”: check the name or ticker.",
+  "搜尋股票": "Search stocks",
+  "搜尋股票名稱或代號，看它在哪些型態": "Search a stock name or ticker to see its patterns",
+  "整體{0}": "Overall {0}",
+  "目前沒有型態資料": "No pattern data yet",
+  "目前沒有符合任何型態": "Currently matches no pattern",
+  "近 20 日平均成交量 {n} 張，低於 300 張不列入": "20-day average volume {n} lots, below the 300-lot minimum",
+  "近 90 日資料不足（新上市或停止交易）": "Not enough data in the last 90 days (new listing or suspended)",
+  "返回型態列表": "Back to patterns"
 }

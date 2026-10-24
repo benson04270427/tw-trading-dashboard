@@ -72,18 +72,29 @@ document.addEventListener('change', async e => {
   V.minTurnover = Number(e.target.value); try { V.info = await X.api(vq()); } catch (err) { V.error = err.message; } X.draw();
 });
 
-// 型態分頁的「型態分區」：台股科技股依技術型態分組，點型態看個股、點股票看報價與 K 線
-const SH = { info: null, detail: null, bias: '', scope: 'tech' };
+// 型態分頁的「型態分區」：台股科技股依技術型態分組，點型態看個股、點股票看報價與 K 線；上方搜尋股票看它在哪些型態
+const SH = { info: null, detail: null, bias: '', scope: 'tech', q: '', found: null, hl: null };
 export function shapesView() { return `<div class="rv-wrap">${shapesHTML(SH.info, SH, SH.detail)}</div>`; }
 export async function loadShapes() { try { SH.info = await X.api('api/shapes?scope=' + SH.scope); } catch (e) { SH.info = { available: false, reason: e.message }; } }
+const onShapes = () => X && X.S.tab === 'patterns' && X.S.patView === 'shapes';
+const afterOpen = () => { const el = SH.hl && document.querySelector('.sh-hl'); if (el) el.scrollIntoView({ block: 'center' }); else window.scrollTo(0, 0); };
+// 手機的返回手勢／上一頁：從型態個股回到型態列表
+window.addEventListener('popstate', e => { if (onShapes() && SH.detail && !e.state?.shDetail) { SH.detail = null; X.draw(); } });
+document.addEventListener('submit', async e => {
+  const f = e.target.closest?.('[data-sh-search]'); if (!f || !onShapes()) return; e.preventDefault();
+  f.querySelector('input')?.blur();
+  SH.q = String(new FormData(f).get('q') || '').trim(); if (!SH.q) { SH.found = null; return X.draw(); }
+  try { SH.found = await X.api(`api/shapes?scope=${SH.scope}&q=${encodeURIComponent(SH.q)}`); X.draw(); } catch (err) { X.toast(err.message); }
+});
 document.addEventListener('click', async e => {
-  if (!X || X.S.tab !== 'patterns' || X.S.patView !== 'shapes') return;
-  const b = e.target.closest('[data-sh-open],[data-sh-back],[data-sh-bias],[data-sh-scope]'); if (!b) return;
+  if (!onShapes()) return;
+  const b = e.target.closest('[data-sh-open],[data-sh-back],[data-sh-bias],[data-sh-scope],[data-sh-clear]'); if (!b) return;
   e.stopPropagation();
   try {
-    if (b.dataset.shOpen) { SH.detail = await X.api(`api/shapes?scope=${SH.scope}&shape=${encodeURIComponent(b.dataset.shOpen)}`); X.draw(); window.scrollTo(0, 0); return; }
-    if (b.hasAttribute('data-sh-back')) { SH.detail = null; return X.draw(); }
+    if (b.dataset.shOpen) { SH.hl = b.dataset.shHl || null; SH.detail = await X.api(`api/shapes?scope=${SH.scope}&shape=${encodeURIComponent(b.dataset.shOpen)}`); if (!history.state?.shDetail) history.pushState({ ...(history.state || {}), shDetail: 1 }, '', location.hash); X.draw(); afterOpen(); return; }
+    if (b.hasAttribute('data-sh-back')) { if (history.state?.shDetail) history.back(); else { SH.detail = null; X.draw(); } return; }
+    if (b.hasAttribute('data-sh-clear')) { SH.q = ''; SH.found = null; return X.draw(); }
     if (b.dataset.shBias != null) { SH.bias = b.dataset.shBias; return X.draw(); }
-    if (b.dataset.shScope) { SH.scope = b.dataset.shScope; SH.detail = null; SH.info = null; X.draw(); await loadShapes(); return X.draw(); }
+    if (b.dataset.shScope) { SH.scope = b.dataset.shScope; SH.detail = null; SH.info = null; SH.found = null; X.draw(); await loadShapes(); return X.draw(); }
   } catch (err) { X.toast(err.message); }
 });

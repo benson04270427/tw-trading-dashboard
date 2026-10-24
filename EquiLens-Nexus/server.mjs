@@ -1387,16 +1387,30 @@ function shapesReport(scope='tech'){
   const list=universe.filter(x=>patternPermitted(x,M())).filter(x=>scope==='all'||(scope==='ai'?AI_INDEX.has(x.id):TECH_SECTORS.has(x.sector)));
   const {raw,active}=patternBars(list.map(x=>x.id)),key=`${scope}|${active?.completedAt||''}|${list.length}|${today()}`;
   if(shapesCache?.key===key)return shapesCache.value;
-  const stocks=[];let thin=0,noData=0;
+  const stocks=[],skip=new Map();let thin=0,noData=0;
   for(const x of list){
     const r=raw[x.id]||{},src=(r.adjusted?.length>=60?r.adjusted:r.price)||[],b=priceBars(src);
-    if(b.length<60){noData++;continue;}
-    const vol=b.slice(-20).reduce((a,y)=>a+(y.Trading_Volume||0),0)/Math.min(20,b.length);if(vol<300000){thin++;continue;}
+    if(b.length<60){noData++;skip.set(x.id,t('近 90 日資料不足（新上市或停止交易）'));continue;}
+    const vol=b.slice(-20).reduce((a,y)=>a+(y.Trading_Volume||0),0)/Math.min(20,b.length);if(vol<300000){thin++;skip.set(x.id,t('近 20 日平均成交量 {n} 張，低於 300 張不列入',{n:Math.round(vol/1000)}));continue;}
     stocks.push({id:x.id,name:x.name,sector:x.sector,bars:b});
   }
   const v=buildShapes(stocks,{asOf:stocks.length?stocks.map(x=>x.bars.at(-1).date).sort().at(-1):null,scope});
   const value={...v,available:stocks.length>0,scopeName:t(SHAPE_SCOPES[scope]),scopes:Object.entries(SHAPE_SCOPES).map(([id,name])=>({id,name:t(name)})),universe:list.length,thin,noData,snapshotAt:active?.completedAt||null,reason:stocks.length?null:t('型態資料還沒準備好：請到「型態選股」按更新全市場型態資料（約 3～10 分鐘）')};
+  // 搜尋用：股票 → 它所屬的型態；沒列入的股票記下原因（不送給畫面）
+  const index=new Map();for(const sh of value.shapes||[])for(const x of sh.stocks){if(!index.has(x.id))index.set(x.id,{id:x.id,name:x.name,sector:x.sector,close:x.close,change:x.change,lean:x.lean,matches:[]});index.get(x.id).matches.push({id:sh.id,name:sh.name,bias:sh.bias,kind:sh.kind,group:sh.group,icon:sh.icon,score:x.score,note:x.note,level:x.level});}
+  for(const v2 of index.values())v2.matches.sort((a,b)=>b.score-a.score);
+  Object.defineProperty(value,'_index',{value:index});Object.defineProperty(value,'_skip',{value:skip});Object.defineProperty(value,'_scanned',{value:new Set(stocks.map(x=>x.id))});
   shapesCache={key,value};return value;
+}
+// 搜尋：代號開頭相符或名稱包含關鍵字（最多 20 檔）；不在結果中的股票說明原因
+function shapesSearch(r,q){
+  q=String(q||'').trim().slice(0,20);if(!q)return{query:'',results:[]};
+  const lq=q.toLowerCase(),hit=x=>x.id.startsWith(q)||String(x.name||'').toLowerCase().includes(lq);
+  const cand=universe.filter(hit).sort((a,b)=>(a.id===q?-1:0)-(b.id===q?-1:0)||a.id.localeCompare(b.id)).slice(0,20);
+  const results=cand.map(x=>{const f=r._index?.get(x.id);if(f)return{...f,status:'matched'};
+    const reason=r._skip?.get(x.id)||(r._scanned?.has(x.id)?t('目前沒有符合任何型態'):patternPermitted(x,M())?(r.scope==='all'?t('目前沒有型態資料'):t('不在「{scope}」範圍，可切換到「全市場」再查',{scope:r.scopeName})):t('不在型態分析範圍（ETF、權證、金融等產業不分析）'));
+    return{id:x.id,name:x.name,sector:x.sector,status:'none',reason,matches:[]};});
+  return{query:q,results};
 }
 
 /* ---------- 持股損益與健檢（.local/portfolio.json） ---------- */
@@ -2080,6 +2094,7 @@ const server = http.createServer(async (req,res) => {
       return json(res,200,{added:result.added,stockId:b.stockId,needsUpdate:!raw[b.stockId]?.price?.length});
     }
     if(route==='/api/patterns'&&req.method==='GET'){const snapshot=patternSnapshot(universe);return json(res,200,{...snapshot,stocks:snapshot.stocks.map(({bars,...s})=>s),scope:data.has('dailyAll')?'market':'local'});}
+    if(route==='/api/shapes'&&req.method==='GET'&&url.searchParams.get('q')!=null){const r=shapesReport(url.searchParams.get('scope')||'tech');return json(res,200,{scope:r.scope,scopeName:r.scopeName,asOf:r.asOf,...shapesSearch(r,url.searchParams.get('q'))});}
     if(route==='/api/shapes'&&req.method==='GET'){const r=shapesReport(url.searchParams.get('scope')||'tech'),sid=url.searchParams.get('shape');if(sid){const sh=r.shapes?.find(x=>x.id===sid);return json(res,200,{...r,shapes:undefined,shape:sh||null});}return json(res,200,{...r,shapes:(r.shapes||[]).map(({stocks,...x})=>({...x,top:stocks.slice(0,3).map(y=>y.name)}))});}
     if(route==='/api/pattern-detail'&&req.method==='GET'){const s=patternSnapshot(universe).stocks.find(x=>x.id===url.searchParams.get('id'));return s?json(res,200,s):json(res,404,{error:t('此股票目前沒有符合的型態')});}
     if(route==='/api/pattern-update'&&req.method==='POST'){

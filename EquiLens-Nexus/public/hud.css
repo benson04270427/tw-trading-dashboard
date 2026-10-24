@@ -994,3 +994,27 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 .sh-sc small { position: relative; padding-left: 6px; font-size: .74rem; line-height: 18px; }
 .sh-note { font-size: .82rem; }
 @media (max-width: 760px) { .sh-row { grid-template-columns: 1fr auto; } .sh-sc, .sh-note { grid-column: 1 / -1; } .sh-grid { grid-template-columns: 1fr; } }
+/* 型態分區：搜尋與返回 */
+.sh-search { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+.sh-search input { flex: 1; min-width: 0; font-size: 1rem; padding: 10px 12px; }
+.sh-search button[type=submit] { flex: none; }
+.sh-found { margin: 0 0 16px; padding: 12px; border: 1px solid var(--line2, var(--line)); border-radius: 10px; display: flex; flex-direction: column; gap: 12px; }
+.sh-found-h { font-size: .85rem; color: var(--muted, var(--soft)); }
+.sh-hit { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.sh-hit:last-child { padding-bottom: 0; border-bottom: 0; }
+.sh-hit-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.sh-hit-h i { font-style: normal; font-size: .8rem; }
+.sh-hit-nm { border: 0; background: none; padding: 0; font-weight: 700; font-size: 1rem; color: inherit; cursor: pointer; text-align: left; box-shadow: none; }
+.sh-hit-nm small { font-weight: 400; color: var(--muted, var(--soft)); }
+.sh-hit-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.sh-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line2, var(--line)); border-radius: 999px; background: transparent; color: inherit; font-size: .85rem; cursor: pointer; box-shadow: none; }
+.sh-chip .sh-ico { width: 30px; height: 12px; }
+.sh-chip i { font-style: normal; font-size: .75rem; }
+.sh-chip b { font-size: .78rem; color: var(--muted, var(--soft)); font-weight: 600; }
+.sh-hit-none { margin: 0; font-size: .85rem; }
+.sh-dbar { position: sticky; top: 0; z-index: 5; padding: 8px 0; margin: -8px 0 6px; background: var(--bg); }
+.sh-back { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; font-size: 1rem; font-weight: 600; border-radius: 10px; border: 1px solid var(--line2, var(--line)); background: var(--panel, var(--surface)); color: inherit; cursor: pointer; min-height: 44px; }
+.sh-back span { font-size: 1.15rem; line-height: 1; }
+.sh-dfoot { margin-top: 14px; }
+.sh-row.sh-hl { border-color: var(--cyan, var(--accent)); background: color-mix(in srgb, var(--cyan, var(--accent)) 10%, transparent); }
+.sh-dbar { top: 60px; }

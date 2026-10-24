@@ -39,18 +39,28 @@ document.addEventListener('click', async e => {
   } catch (err) { C.toast(err.message); }
 });
 
-// 型態分區：分組卡片 → 點開看個股（點股票開 K 線，由 live.js 的 data-alert-stock 處理）
-const SH = { info: null, detail: null, bias: '', scope: 'tech', error: '' };
+// 型態分區：分組卡片 → 點開看個股（點股票開 K 線，由 live.js 的 data-alert-stock 處理）；上方搜尋股票看它在哪些型態
+const SH = { info: null, detail: null, bias: '', scope: 'tech', error: '', q: '', found: null, hl: null };
 export function shapesPage() { return `${errBox(SH.error)}<section class="panel"><div class="contentpad rv-wrap" id="sh-box">${shapesHTML(SH.info, SH, SH.detail)}</div></section>`; }
 const paintS = () => repaint('shapes', 'sh-box', () => shapesHTML(SH.info, SH, SH.detail));
-export async function enterShapes() { try { SH.info = await C.api('shapes?scope=' + SH.scope); SH.error = ''; } catch (e) { SH.error = e.message; } paintS(); }
+export async function enterShapes() { SH.detail = null; try { SH.info = await C.api('shapes?scope=' + SH.scope); SH.error = ''; } catch (e) { SH.error = e.message; } paintS(); }
+// 開啟型態後：有指定股票就捲到那一列並標示，否則回到頁首
+const afterOpen = () => { const el = SH.hl && document.querySelector('#sh-box .sh-hl'); if (el) el.scrollIntoView({ block: 'center' }); else window.scrollTo(0, 0); };
+// 瀏覽器「上一頁」（或滑鼠側鍵）從型態個股回到型態列表
+window.addEventListener('popstate', e => { if (C?.page() === 'shapes' && SH.detail && !e.state?.shDetail) { SH.detail = null; paintS(); } });
+document.addEventListener('submit', async e => {
+  const f = e.target.closest?.('[data-sh-search]'); if (!f || !C) return; e.preventDefault();
+  SH.q = String(new FormData(f).get('q') || '').trim(); if (!SH.q) { SH.found = null; return paintS(); }
+  try { SH.found = await C.api(`shapes?scope=${SH.scope}&q=${encodeURIComponent(SH.q)}`); paintS(); document.querySelector('#sh-box .sh-found')?.scrollIntoView({ block: 'nearest' }); } catch (err) { C.toast(err.message); }
+});
 document.addEventListener('click', async e => {
   if (!C || C.page() !== 'shapes') return;
-  const b = e.target.closest('[data-sh-open],[data-sh-back],[data-sh-bias],[data-sh-scope]'); if (!b) return;
+  const b = e.target.closest('[data-sh-open],[data-sh-back],[data-sh-bias],[data-sh-scope],[data-sh-clear]'); if (!b) return;
   try {
-    if (b.dataset.shOpen) { SH.detail = await C.api(`shapes?scope=${SH.scope}&shape=${encodeURIComponent(b.dataset.shOpen)}`); paintS(); window.scrollTo(0, 0); return; }
-    if (b.hasAttribute('data-sh-back')) { SH.detail = null; return paintS(); }
+    if (b.dataset.shOpen) { SH.hl = b.dataset.shHl || null; SH.detail = await C.api(`shapes?scope=${SH.scope}&shape=${encodeURIComponent(b.dataset.shOpen)}`); if (!history.state?.shDetail) history.pushState({ ...(history.state || {}), shDetail: 1 }, '', location.hash); paintS(); afterOpen(); return; }
+    if (b.hasAttribute('data-sh-back')) { if (history.state?.shDetail) history.back(); else { SH.detail = null; paintS(); } return; }
+    if (b.hasAttribute('data-sh-clear')) { SH.q = ''; SH.found = null; return paintS(); }
     if (b.dataset.shBias != null) { SH.bias = b.dataset.shBias; return paintS(); }
-    if (b.dataset.shScope) { SH.scope = b.dataset.shScope; SH.detail = null; SH.info = null; paintS(); return enterShapes(); }
+    if (b.dataset.shScope) { SH.scope = b.dataset.shScope; SH.detail = null; SH.info = null; SH.found = null; paintS(); return enterShapes(); }
   } catch (err) { C.toast(err.message); }
 });
