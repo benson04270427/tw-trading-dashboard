@@ -40,11 +40,15 @@ export function bpChange(list, n = 20) { const out = []; for (let i = n; i < lis
 // 相對表現：a、b 各自 n 期報酬率的差（百分點）
 export function relative(a, b, n = 20) { const ca = new Map(change(a, n)); return series(new Map(change(b, n).filter(([d]) => ca.has(d)).map(([d, v]) => [d, r2(ca.get(d) - v)]))); }
 
-export function buildRiskUS(raw, { days = 120, now = new Date().toISOString() } = {}) {
+export function usSeries(raw) {
   const index = raw.spx || [];
   const s = { vix: raw.vix || [], term: ratio(raw.vixCboe || [], raw.vix3m || []), credit: raw.hy || [], rates: bpChange(raw.dgs10 || []), dollar: change(raw.usd || [], 20), breadth: relative(raw.rsp || [], raw.spy || []), trend: trendSeries(index) };
   // 評分日：S&P 500 或 VIX 最新的交易日
   const dates = [...new Set([...index.map(x => x[0]), ...s.vix.map(x => x[0])])].sort();
+  return { s, index, dates };
+}
+export function buildRiskUS(raw, { days = 120, now = new Date().toISOString() } = {}) {
+  const { s, index, dates } = usSeries(raw);
   return assemble(s, dates, index, raw, { days, now, defs: US_FACTORS, market: 'US', indexName: 'S&P 500' });
 }
 
@@ -52,16 +56,16 @@ export function buildRiskUS(raw, { days = 120, now = new Date().toISOString() } 
 const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', Accept: 'text/csv,application/json,*/*' };
 const NASDAQ = { ...UA, Accept: 'application/json, text/plain, */*', Origin: 'https://www.nasdaq.com', Referer: 'https://www.nasdaq.com/' };
 const minus = (date, n) => new Date(Date.parse(date + 'T00:00:00Z') - n * 864e5).toISOString().slice(0, 10);
-export const US_RISK_TASKS = date => {
-  const start = minus(date, 430), fred = id => ['fred', `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${start}`];
+export const US_RISK_TASKS = (date, days = 430) => {
+  const start = minus(date, days), fred = id => ['fred', `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${start}`];
   const cboe = id => ['cboe', `https://cdn.cboe.com/api/global/us_indices/daily_prices/${id}_History.csv`];
   const etf = id => ['nasdaq', `https://api.nasdaq.com/api/quote/${id}/historical?assetclass=etf&fromdate=${start}&todate=${date}&limit=9999`, id];
   return [['spx', ...fred('SP500')], ['vix', ...fred('VIXCLS')], ['hy', ...fred('BAMLH0A0HYM2')], ['dgs10', ...fred('DGS10')], ['usd', ...fred('DTWEXBGS')],
     ['vixCboe', ...cboe('VIX')], ['vix3m', ...cboe('VIX3M')], ['rsp', ...etf('RSP')], ['spy', ...etf('SPY')]];
 };
 const LABEL = { fred: 'FRED', cboe: 'Cboe', nasdaq: 'Nasdaq' };
-export async function fetchRiskInputsUS(date, { signal, onProgress = () => {}, fetcher = fetchJSON } = {}) {
-  const raw = { errors: {} }, tasks = US_RISK_TASKS(date), cut = minus(date, 430);
+export async function fetchRiskInputsUS(date, { signal, onProgress = () => {}, fetcher = fetchJSON, days = 430 } = {}) {
+  const raw = { errors: {} }, tasks = US_RISK_TASKS(date, days), cut = minus(date, days);
   for (const [i, [key, kind, url, sym]] of tasks.entries()) {
     onProgress(i, tasks.length, key);
     try {

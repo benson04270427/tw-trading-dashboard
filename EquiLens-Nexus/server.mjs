@@ -30,8 +30,9 @@ import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffs
 import { createHistoryLoader } from './lib/daytrade-history.mjs';
 import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
 import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs, get as twseGet } from './lib/providers/twse.mjs';
-import { buildRisk, fetchRiskInputs, riskContext } from './lib/riskgauge.mjs';
-import { buildRiskUS, fetchRiskInputsUS, parseFred } from './lib/riskgauge-us.mjs';
+import { buildRisk, fetchRiskInputs, riskContext, twSeries, FACTORS as TW_RISK_FACTORS } from './lib/riskgauge.mjs';
+import { backtestRecipes } from './lib/riskbacktest.mjs';
+import { buildRiskUS, fetchRiskInputsUS, parseFred, usSeries, US_FACTORS } from './lib/riskgauge-us.mjs';
 import { buildMacro } from './lib/macro.mjs';
 import { buildContrarian, parseFearGreed } from './lib/contrarian.mjs';
 import { fetchJSON, rocDate } from './lib/providers/common.mjs';
@@ -1006,6 +1007,23 @@ async function runRisk(){
     riskJob.error=errs.length?t('部分指標未取得：')+errs.join('；'):'';
   }catch(e){riskJob.error=e.message;}finally{riskJob.busy=false;}
 }
+// 風控配方回測：抓約 9 年（台股 7 個 FinMind 請求）／11 年（美股 9 個免金鑰請求）的歷史，比較不同權重配方
+let riskBtJob={busy:false,step:0,total:0,error:''};
+async function runRiskBacktest(){
+  if(riskBtJob.busy||!riskCapable())return;
+  riskBtJob={busy:true,step:0,total:0,error:''};
+  try{
+    const us=M().id==='US',progress=(i,n)=>{riskBtJob.step=i;riskBtJob.total=n;};
+    const raw=us?await fetchRiskInputsUS(today(),{onProgress:progress,days:365*11}):await fetchRiskInputs(today(),finmindRequest,fmOpt(),progress,365*9);
+    const {s,index,dates}=us?usSeries(raw):twSeries(raw);
+    const r=backtestRecipes({market:us?'US':'TW',s,index,dates,defs:us?US_FACTORS:TW_RISK_FACTORS});
+    r.errors=raw.errors||{};r.generatedAt=new Date().toISOString();
+    if(!r.available){riskBtJob.error=t(r.reason);return;}
+    fs.mkdirSync(path.join(LOCAL,'risk'),{recursive:true});write('risk/backtest.json',r);
+    const errs=[...new Set(Object.values(r.errors))];riskBtJob.error=errs.length?t('部分指標未取得：')+errs.join('；'):'';
+  }catch(e){riskBtJob.error=e.message;}finally{riskBtJob.busy=false;}
+}
+const riskBtInfo=()=>({job:riskBtJob,result:read('risk/backtest.json',null)});
 let riskExplainBusy=false;
 async function explainRisk(){
   const r=read('risk/latest.json',null);if(!r?.available)throw new UserError('請先更新風控水位');
@@ -1839,6 +1857,8 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/verdict'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`v:${id}`,()=>verdictReport(id)));}
     /* ----- 風控水位與低估選股 ----- */
     if(route==='/api/risk'&&req.method==='GET')return json(res,200,riskInfo());
+    if(route==='/api/risk/backtest'&&req.method==='GET')return json(res,200,riskBtInfo());
+    if(route==='/api/risk/backtest'&&req.method==='POST'){if(!riskCapable())throw new UserError('風控水位目前只支援台股與美股');if(riskBtJob.busy)throw new UserError('回測計算中，請稍候');void runRiskBacktest();await new Promise(r=>setTimeout(r,300));return json(res,202,riskBtInfo());}
     if(route==='/api/risk/query'&&req.method==='POST'){if(!riskCapable())throw new UserError('風控水位目前只支援台股與美股');if(riskJob.busy)throw new UserError('風控水位更新中，請稍候');runRisk();return json(res,202,riskInfo());}
     if(route==='/api/risk/explain'&&req.method==='POST'){const doc=await explainRisk();return json(res,200,{ok:true,explain:doc});}
     if(route==='/api/value'&&req.method==='GET')return json(res,200,screenInfo(Object.fromEntries(url.searchParams)));

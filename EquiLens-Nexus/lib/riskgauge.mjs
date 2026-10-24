@@ -96,11 +96,16 @@ export function scoreAt(seriesMap, date, opt, defs = FACTORS) {
   return { date, risk, exposure: exposure(risk), ...(risk == null ? { label: null, tone: null } : level(risk)), coverage: Math.round(w / defs.reduce((a, f) => a + f.weight, 0) * 100), factors };
 }
 // 完整結果：最新評分、近 days 個交易日的風險與指數走勢、與前一日／前一週比較
-export function buildRisk(raw, { days = 120, now = new Date().toISOString() } = {}) {
+// 原始資料 → 各指標每日序列、指數、評分日（風控水位與配方回測共用）
+export function twSeries(raw) {
   const index = indexSeries(raw.index);
   const s = { retail: retailSeries(raw.mtxInst, raw.mtxDaily), margin: marginSeries(raw.margin), foreignFut: foreignFutSeries(raw.txInst), foreignSpot: foreignSpotSeries(raw.spot), fx: fxSeries(raw.fx), trend: trendSeries(index) };
   // 以各指標最新日期中最晚者為評分日（期貨與匯率比融資早公布）
   const dates = [...new Set([...index.map(x => x[0]), ...s.retail.map(x => x[0])])].sort();
+  return { s, index, dates };
+}
+export function buildRisk(raw, { days = 120, now = new Date().toISOString() } = {}) {
+  const { s, index, dates } = twSeries(raw);
   return assemble(s, dates, index, raw, { days, now, defs: FACTORS, market: 'TW', indexName: '加權指數' });
 }
 // 共用：依評分日組成最新評分、近 days 日走勢與一日／一週變化（台股與美股共用）
@@ -122,7 +127,7 @@ export function summarize(x) {
 
 // ---- 資料取得（FinMind，7 個請求） ----
 const minus = (date, n) => new Date(Date.parse(date + 'T00:00:00Z') - n * 864e5).toISOString().slice(0, 10);
-export const RISK_TASKS = date => { const start = minus(date, 420); return [
+export const RISK_TASKS = (date, days = 420) => { const start = minus(date, days); return [
   ['index', 'TaiwanStockPrice', { data_id: 'TAIEX', start_date: start, end_date: date }],
   ['mtxInst', 'TaiwanFuturesInstitutionalInvestors', { data_id: 'MTX', start_date: start, end_date: date }],
   ['mtxDaily', 'TaiwanFuturesDaily', { data_id: 'MTX', start_date: start, end_date: date }],
@@ -132,8 +137,8 @@ export const RISK_TASKS = date => { const start = minus(date, 420); return [
   ['fx', 'TaiwanExchangeRate', { data_id: 'USD', start_date: start, end_date: date }],
 ]; };
 // request(dataset, params, options) 同 FinMind 佇列；遇到額度或金鑰問題（fatal）時停止其餘請求
-export async function fetchRiskInputs(date, request, options = {}, onProgress = () => {}) {
-  const raw = { errors: {} }, tasks = RISK_TASKS(date); let stop = null;
+export async function fetchRiskInputs(date, request, options = {}, onProgress = () => {}, days = 420) {
+  const raw = { errors: {} }, tasks = RISK_TASKS(date, days); let stop = null;
   for (const [i, [key, dataset, params]] of tasks.entries()) {
     onProgress(i, tasks.length, key);
     if (stop) { raw[key] = []; raw.errors[key] = stop; continue; }
