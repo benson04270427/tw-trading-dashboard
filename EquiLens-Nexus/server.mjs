@@ -1339,6 +1339,8 @@ function pfQuote(id,heatMap){
 }
 async function portfolioReport({deep=true}={}){
   const mk=M().id,pf=readPortfolio(),heat=heatStocks(latestHeat()),hm=new Map(heat.map(h=>[h.id,h])),quotes=new Map(),rs=new Map(),signals=new Map();
+  // 興櫃股票不在上市櫃收盤資料裡：改用櫃買「興櫃股票當日行情表」（免金鑰，10 分鐘快取）
+  let esb=new Map();if(mk==='TW'&&pf.holdings.some(h=>!hm.has(h.id))){try{esb=await cached('esb',10*60e3,async()=>new Map((await twseGet('https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics',{})).map(r=>[String(r.SecuritiesCompanyCode).trim(),{name:String(r.CompanyName||'').trim(),close:Number(r.LatestPrice)||null,prev:Number(r.PreviousAveragePrice)||null}])));}catch{}}
   const index=read('macro/index.json',null)?.closes||[];if(!index.length&&['TW','US'].includes(mk))void runMacro();
   for(const h of pf.holdings){
     const meta=uniIndex().meta.get(h.id)||{},q=pfQuote(h.id,hm);let rows=[];
@@ -1346,7 +1348,8 @@ async function portfolioReport({deep=true}={}){
     rows=raw[h.id]?.price||read(`stocks/${h.id}.json`,{}).price||signalCache.get(h.id)?.rows||[];
     if(!rows.length&&deep)void signalRows(h.id).catch(()=>{});
     const c=closesOf(rows),last=c.at(-1);
-    quotes.set(h.id,{...(q||(last?{close:last[1],prev:c.at(-2)?.[1]??null}:{})),name:meta.name||hm.get(h.id)?.name||h.id,sector:hm.get(h.id)?.sector||meta.sector||'',chain:mk==='TW'?AI_INDEX.get(h.id)||null:null});
+    const e=esb.get(h.id);
+    quotes.set(h.id,{...(q||(last?{close:last[1],prev:c.at(-2)?.[1]??null}:e?.close>0?{close:e.close,prev:e.prev}:{})),name:meta.name||hm.get(h.id)?.name||e?.name||h.id,sector:hm.get(h.id)?.sector||meta.sector||(e?'興櫃':''),chain:mk==='TW'?AI_INDEX.get(h.id)||null:null});
     if(c.length){const r=relative(c,index);if(r)rs.set(h.id,r);const s=signalOf(rows,M());if(s&&!s.stopped)signals.set(h.id,s.side);}
   }
   const z=read('zones/latest.json',null),pk=read('picks/latest.json',null),ideas=[...(z?.zones?.value||[]).map(x=>({...x,from:'value'})),...(z?.zones?.heat||[]).map(x=>({...x,from:'heat'})),...(pk?.picks||[]).map(x=>({...x,from:'picks'}))].map(x=>({id:x.id,name:x.name,sector:x.sector||hm.get(x.id)?.sector||'',chain:x.chain||null,from:x.from,names:z?.names||ZONE_NAMES[mk]}));
