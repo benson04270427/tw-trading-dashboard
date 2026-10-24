@@ -2151,6 +2151,13 @@ const server = http.createServer(async (req,res) => {
       const b = await body(req); if (!Array.isArray(b.ids) || b.ids.length > 2500 || !b.ids.every(watchable)) throw new UserError('股票代碼無效或不在股票清單中');
       watchlist = [...new Set(b.ids)]; saveWatch(); return json(res,200,{ ok:true });
     }
+    if (route === '/api/stock-search' && req.method === 'GET') { // 加入自選用：搜尋整個股票清單（代號開頭相符或名稱包含），最多 12 檔
+      const q = String(url.searchParams.get('q') || '').trim().slice(0, 20); if (!q) return json(res,200,{ query:'', results:[] });
+      const lq = q.toLowerCase(), up = q.toUpperCase(), g = watchGroups || { groups: [], assign: {} };
+      const list = uniIndex().list.filter(x => x.id.startsWith(up) || String(x.name || '').toLowerCase().includes(lq))
+        .sort((a, b) => (b.id === up) - (a.id === up) || (b.id.startsWith(up)) - (a.id.startsWith(up)) || a.id.length - b.id.length || a.id.localeCompare(b.id)).slice(0, 12);
+      return json(res,200,{ query:q, results:list.map(x => ({ id:x.id, name:x.name || x.id, sector:x.sector || '', market:x.market || '', watched:watchlist.includes(x.id), group:g.groups.find(y => y.id === g.assign[x.id])?.name || null })) });
+    }
     if (route === '/api/watch/set' && req.method === 'POST') { // 加入／移除單一自選股並指定分組
       const b = await body(req); if (!watchable(b.id) || typeof b.on !== 'boolean' || (b.group !== undefined && (typeof b.group !== 'string' || b.group.length > 8))) throw new UserError('股票代碼或自選分組格式錯誤');
       if (b.on && !watchlist.includes(b.id) && watchlist.length >= 2500) throw new UserError('自選股已達上限');

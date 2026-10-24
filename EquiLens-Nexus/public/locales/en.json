@@ -4050,5 +4050,16 @@
   "第一次準備美股型態資料（約 100 檔，每檔 1 個請求，約 3～5 分鐘）：{step}/{total}": "Preparing US pattern data for the first time (about 100 stocks, one request each, about 3–5 minutes): {step}/{total}",
   "美股日 K 取得失敗，請稍後再試": "Could not fetch US daily bars; try again later",
   "近 20 日平均成交量 {n} {unit}，低於 {min} {unit}不列入": "20-day average volume {n} {unit}, below the {min} {unit} minimum",
-  "用最近約 90 個交易日的日 K（還原權值）判斷，轉折點門檻依波動度調整；一檔股票可同時屬於多個型態，型態是常見的技術分析分類，同一段走勢常可有不同解讀，不是買賣建議。成交量過低（近 20 日平均不到 {0} {1}）的股票不列入。": "Based on about the last 90 trading days of adjusted daily bars, with the swing threshold scaled to volatility. A stock can belong to several patterns; patterns are common technical-analysis categories and the same move can often be read differently. Not trading advice. Stocks averaging under {0} {1} over 20 days are excluded."
+  "用最近約 90 個交易日的日 K（還原權值）判斷，轉折點門檻依波動度調整；一檔股票可同時屬於多個型態，型態是常見的技術分析分類，同一段走勢常可有不同解讀，不是買賣建議。成交量過低（近 20 日平均不到 {0} {1}）的股票不列入。": "Based on about the last 90 trading days of adjusted daily bars, with the swing threshold scaled to volatility. A stock can belong to several patterns; patterns are common technical-analysis categories and the same move can often be read differently. Not trading advice. Stocks averaging under {0} {1} over 20 days are excluded.",
+  "加入到哪個分組": "Add to which group",
+  "已加入自選：{0} {1}": "Added to watchlist: {0} {1}",
+  "已在自選{0}": "In watchlist{0}",
+  "已從自選移除 {0}": "Removed {0} from watchlist",
+  "打字就會列出符合的股票，按「＋ 加入」即可；在其他頁面也可以按股票旁的 ☆ 或「自選」選單加入。": "Start typing to list matching stocks and tap “+ Add”. On other pages you can also use the ☆ or the watchlist menu next to a stock.",
+  "找不到「{0}」，請確認名稱或代號。": "No match for “{0}”; check the name or ticker.",
+  "搜尋中…": "Searching…",
+  "未分組": "Ungrouped",
+  "輸入股票名稱或代號，例如：國巨、2327": "Type a stock name or ticker, e.g. Yageo, 2327",
+  "＋ 加入": "+ Add",
+  "＋ 加入自選股": "+ Add to watchlist"
 }

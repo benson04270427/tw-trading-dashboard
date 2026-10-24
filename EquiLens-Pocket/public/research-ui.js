@@ -182,3 +182,18 @@ function shapeDetailHTML(s, d, hl) {
   return `<div class="sh-detail"><div class="sh-dbar">${back}</div><div class="sh-dh">${shIcon(s.icon)}<b>${esc(s.name)}</b><i class="sh-${s.bias}">${esc(SH_BIAS[s.bias])}</i><span class="soft">${esc(s.kind)}・${fmt(s.count)} 檔・${esc(d?.asOf || '')}</span></div>
   ${rows ? `<div class="sh-list">${rows}</div>` : '<p class="ix-empty">目前沒有股票符合這個型態。</p>'}<div class="sh-dfoot">${back}</div><p class="ix-foot">分數是型態吻合程度（0～100），不是勝率；價位為型態的關鍵價（頸線、支撐、壓力等）。點股票看 K 線。</p></div>`;
 }
+
+// ---- 加入自選股（電腦版自選頁、手機版個股分頁共用）：輸入名稱或代號即時列出，按一下加入；可先選分組 ----
+// st：{ q, results, group }；groups：[{ id, name }]
+export function watchAddHTML(st = {}, groups = []) {
+  const opts = [['', '未分組'], ...groups.map(g => [g.id, g.name])].map(([v, l]) => `<option value="${esc(v)}" ${String(st.group || '') === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  return `<section class="wa"><form class="wa-form" data-wa-form autocomplete="off"><label for="wa-q" class="wa-label">＋ 加入自選股</label>
+  <div class="wa-row"><input id="wa-q" name="q" type="search" inputmode="search" placeholder="輸入股票名稱或代號，例如：國巨、2327" value="${esc(st.q || '')}"><select id="wa-group" name="group" aria-label="加入到哪個分組">${opts}</select></div></form>
+  <div class="wa-list" id="wa-list">${watchAddList(st)}</div></section>`;
+}
+export function watchAddList(st = {}) {
+  if (!st.q) return '<p class="wa-tip">打字就會列出符合的股票，按「＋ 加入」即可；在其他頁面也可以按股票旁的 ☆ 或「自選」選單加入。</p>';
+  if (!st.results) return '<p class="wa-tip">搜尋中…</p>';
+  if (!st.results.length) return `<p class="wa-tip">找不到「${esc(st.q)}」，請確認名稱或代號。</p>`;
+  return st.results.map(x => `<div class="wa-item"><button class="wa-nm" data-alert-stock="${esc(x.id)}" type="button">${esc(x.name)} <small>${esc(x.id)}${x.sector ? `・${esc(x.sector)}` : ''}</small></button>${x.watched ? `<span class="wa-on">已在自選${x.group ? `・${esc(x.group)}` : ''}</span><button class="wa-btn wa-rm" data-wa-remove="${esc(x.id)}" type="button">移除</button>` : `<button class="wa-btn" data-wa-add="${esc(x.id)}" data-wa-name="${esc(x.name)}" type="button">＋ 加入</button>`}</div>`).join('');
+}

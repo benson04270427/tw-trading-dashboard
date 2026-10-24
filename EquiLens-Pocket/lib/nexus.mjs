@@ -85,6 +85,7 @@ export const reportCard =date => call('report/card?' + qs({ date }), { timeout: 
 export const reportGenerate =date => call('report/generate', { body: date ? { date } : {} });
 export const setWatchlist = ids => call('watchlist', { body: { ids } }).finally(invalidate);
 export const watchSet = b => call('watch/set', { body: b }).finally(invalidate);
+export const stockSearch = q => call('stock-search?' + qs({ q }), { timeout: 8000 });
 // 風控水位與低估選股（台股）
 export const risk = () => call('risk');
 export const verdict = id => call('verdict?id=' + encodeURIComponent(id), { timeout: 60000 });

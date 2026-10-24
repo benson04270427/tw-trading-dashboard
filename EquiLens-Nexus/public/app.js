@@ -9,7 +9,29 @@ import { initChipwatch, chipPage, enterChips } from './chipwatch.js';
 import { initPortfolio, portfolioPage, backtestPage, enterPortfolio, enterBacktest, shapesPage, enterShapes } from './portfolio.js';
 import { initRiskValue, riskPage, valuePage, enterRisk, enterValue, homeRank, enterHome, zonesPage, enterZones, macroPage, enterMacro } from './riskvalue.js';
 import { setLanguage } from './i18n.js';
+import { watchAddHTML, watchAddList } from './research-ui.js';
 import * as MK from './market.js';
+// 加入自選股框：即時搜尋整個股票清單（不限研究名單），按「＋ 加入」放進選的分組
+const WA = { q: '', results: null, group: '' };
+let waTimer = null, waSeq = 0;
+async function waSearch() {
+  const seq = ++waSeq, q = WA.q; if (!q) { WA.results = null; return waPaint(); }
+  try { const r = await api('stock-search?q=' + encodeURIComponent(q)); if (seq !== waSeq) return; WA.results = r.results || []; } catch { WA.results = []; }
+  waPaint();
+}
+const waPaint = () => { const el = document.getElementById('wa-list'); if (el) el.innerHTML = watchAddList(WA); };
+document.addEventListener('input', e => { if (e.target.id !== 'wa-q') return; WA.q = e.target.value.trim(); WA.results = WA.q ? null : WA.results; waPaint(); clearTimeout(waTimer); waTimer = setTimeout(waSearch, 220); });
+document.addEventListener('change', e => { if (e.target.id === 'wa-group') WA.group = e.target.value; });
+document.addEventListener('submit', e => { const f = e.target.closest?.('[data-wa-form]'); if (!f) return; e.preventDefault(); const first = document.querySelector('#wa-list [data-wa-add]'); if (first) first.click(); });
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-wa-add],[data-wa-remove]'); if (!b) return; e.preventDefault(); e.stopPropagation(); b.disabled = true;
+  const id = b.dataset.waAdd || b.dataset.waRemove, on = !!b.dataset.waAdd, name = b.dataset.waName || id;
+  try {
+    await api('watch/set', on ? { id, on: true, group: WA.group } : { id, on: false });
+    toast(on ? `已加入自選：${name} ${id}` : `已從自選移除 ${id}`);
+    await load(true); await waSearch(); document.getElementById('wa-q')?.focus();
+  } catch (err) { toast(err.message); b.disabled = false; }
+});
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -213,8 +235,9 @@ function filtered() {
   return rows;
 }
 function overview() {
+  const top = page === 'watchlist' ? watchAddHTML(WA, wg().groups) : '';
   const available = state.stocks.filter(s => s.score != null), strong = available.filter(s => s.complete && s.score >= 75), validIndustry = state.sectors.filter(s => s.score != null), cover = state.stocks.length ? available.length / state.stocks.length * 100 : 0;
-  return `<section class="stats" aria-label="資料摘要">
+  return `${top}<section class="stats" aria-label="資料摘要">
   <article class="stat"><span class="label">名單研究範圍 <i>SCOPE</i></span><div class="value glow">${fmt(state.stocks.length)}<span class="unit">檔</span></div><p>${state.groups.length} 個自訂族群 · 名單外不研究</p><div class="minibar"><i style="width:100%"></i></div></article>
   <article class="stat"><span class="label">已有可用評分 <i>SCORED</i></span><div class="value">${fmt(available.length)}<span class="unit">檔 / ${fmt(cover, 1)}%</span></div><p>含暫評；未更新股票不納入強弱統計</p><div class="minibar"><i style="width:${cover}%"></i></div></article>
   <article class="stat"><span class="label">完整評分 · 強勢 <i>STRONG</i></span><div class="value amber">${fmt(strong.length)}<span class="unit">檔</span></div><p>四維資料齊備 · 綜合分數 ≥ 75</p><div class="minibar"><i style="width:${strong.length / (available.length || 1) * 100}%;background:var(--amber);box-shadow:0 0 8px var(--amber)"></i></div></article>
@@ -426,3 +449,4 @@ document.addEventListener('change', e => { const k = e.target.dataset?.prefSelec
 try { applyState(await api('state')); await setLanguage(state.config?.language || 'zh-TW'); draw(); if (page === 'patterns') loadPatterns(); if (page === 'home') enterHome(); if (page === 'zones') enterZones(); if (page === 'portfolio') enterPortfolio(); if (page === 'backtest') enterBacktest(); if (page === 'shapes') enterShapes(); if (page === 'macro') enterMacro(); if (page === 'live') enterLive(); if (page === 'grouprank') enterGroupRank(); if (page === 'chips') enterChips(); if (page === 'risk') enterRisk(); if (page === 'value') enterValue(); } catch (e) { $('#app').innerHTML = `<div class="boot"><b>NEXUS OFFLINE</b><p>暫時無法連接本機服務：${esc(e.message)}。請重新啟動衡析 Nexus 後重新整理。</p></div>`; }
 let pollBusy = false;
 setInterval(async () => { if (!state || document.hidden || pollBusy) return; pollBusy = true; try { const previous = state.job.running; await load(false); if (previous && !state.job.running && page === 'patterns') await loadPatterns(); if (previous || state.job.running) { if (['settings', 'topics', 'flows', 'heatmap'].includes(page) || document.querySelector('dialog[open]')) return; draw(); if (previous && !state.job.running && $('#detail-dialog').open && selectedId) await openStock(selectedId); } } catch { } finally { pollBusy = false; } }, 5000);
+

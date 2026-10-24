@@ -4,7 +4,29 @@ import { initChips, loadChips, brokersView, holdersView } from './chips.js';
 import { initRV, riskCard, valueView, loadRisk, loadValue, picksCard, moversCard, loadHomeRank, zonesView, loadZones, macroCard, loadMacro, portfolioCard, loadPortfolio, shapesView, loadShapes } from './rv.js';
 import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard, openQuote, openIndex } from './live.js';
 import { setLanguage, getLanguage, tx } from './i18n.js';
+import { watchAddHTML, watchAddList } from './research-ui.js';
 import * as MK from './market.js';
+// 加入自選股框：即時搜尋整個股票清單（不限研究名單），按「＋ 加入」放進選的分組
+const WA = { q: '', results: null, group: '' };
+let waTimer = null, waSeq = 0;
+async function waSearch() {
+  const seq = ++waSeq, q = WA.q; if (!q) { WA.results = null; return waPaint(); }
+  try { const r = await api('api/stock-search?q=' + encodeURIComponent(q)); if (seq !== waSeq) return; WA.results = r.results || []; } catch { WA.results = []; }
+  waPaint();
+}
+const waPaint = () => { const el = document.getElementById('wa-list'); if (el) el.innerHTML = watchAddList(WA); };
+document.addEventListener('input', e => { if (e.target.id !== 'wa-q') return; WA.q = e.target.value.trim(); WA.results = WA.q ? null : WA.results; waPaint(); clearTimeout(waTimer); waTimer = setTimeout(waSearch, 220); });
+document.addEventListener('change', e => { if (e.target.id === 'wa-group') WA.group = e.target.value; });
+document.addEventListener('submit', e => { const f = e.target.closest?.('[data-wa-form]'); if (!f) return; e.preventDefault(); const first = document.querySelector('#wa-list [data-wa-add]'); if (first) first.click(); });
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-wa-add],[data-wa-remove]'); if (!b) return; e.preventDefault(); e.stopPropagation(); b.disabled = true;
+  const id = b.dataset.waAdd || b.dataset.waRemove, on = !!b.dataset.waAdd, name = b.dataset.waName || id;
+  try {
+    await api('api/watch', on ? { id, on: true, group: WA.group } : { id, on: false });
+    toast(on ? `已加入自選：${name} ${id}` : `已從自選移除 ${id}`);
+    await (S.summary = null, loadStocks(true)); await waSearch(); document.getElementById('wa-q')?.focus();
+  } catch (err) { toast(err.message); b.disabled = false; }
+});
 
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
@@ -267,7 +289,7 @@ function stocksPage() {
   const extra = L.mode === 'watch' ? (d.watchExtra || []).filter(s => inWg(s.id) && (!L.q || `${s.id} ${s.name}`.toLowerCase().includes(L.q.toLowerCase()))) : [];
   let rows = d.stocks.filter(s => (L.mode !== 'watch' || (s.watch && inWg(s.id))) && (L.mode === 'watch' || !L.group || d.groups.find(g => g.id === L.group)?.stockIds.includes(s.id)) && (!L.q || `${s.id} ${s.name}`.toLowerCase().includes(L.q.toLowerCase())));
   rows.sort(L.sort === 'change' ? (a, b) => (b.change ?? -999) - (a.change ?? -999) : L.sort === 'code' ? (a, b) => a.id.localeCompare(b.id) : (a, b) => (b.score ?? -1) - (a.score ?? -1) || (b.change ?? -999) - (a.change ?? -999));
-  return `${errBox()}${S.job?.running ? '' : updBtns(d.stocks.filter(s => s.watch).length, d.stocks.length)}<div class="toolbar"><label class="search">${svg('<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>')}<input id="q" type="search" inputmode="search" placeholder="搜尋代碼或名稱" value="${esc(L.q)}" autocomplete="off"></label>
+  return `${errBox()}${L.mode === 'watch' ? watchAddHTML(WA, wgs.groups) : ''}${S.job?.running ? '' : updBtns(d.stocks.filter(s => s.watch).length, d.stocks.length)}<div class="toolbar"><label class="search">${svg('<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>')}<input id="q" type="search" inputmode="search" placeholder="搜尋代碼或名稱" value="${esc(L.q)}" autocomplete="off"></label>
     <div class="seg"><button class="${L.mode === 'watch' ? 'on' : ''}" data-mode="watch">自選 ${wl.length}</button><button class="${L.mode === 'all' ? 'on' : ''}" data-mode="all">研究名單 ${d.stocks.length}</button></div>
     ${L.mode === 'watch' ? watchGroupSelect(wgs, wl) : ''}${L.mode === 'all' ? `<div class="chips"><button class="chip ${!L.group ? 'on' : ''}" data-grp="">全部族群</button>${d.groups.map(g => `<button class="chip ${L.group === g.id ? 'on' : ''}" data-grp="${esc(g.id)}">${esc(g.name)}</button>`).join('')}</div>` : ''}
     <div class="seg"><button class="${L.sort === 'score' ? 'on' : ''}" data-sort="score">綜合分數</button><button class="${L.sort === 'change' ? 'on' : ''}" data-sort="change">漲跌幅</button><button class="${L.sort === 'code' ? 'on' : ''}" data-sort="code">代碼</button></div></div>
@@ -618,3 +640,4 @@ async function start() {
   shell(); setTab((location.hash || '#brief').slice(1), false); history.replaceState({ tab: S.tab }, '', '#' + S.tab);
 }
 start();
+
