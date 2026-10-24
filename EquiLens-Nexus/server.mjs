@@ -1126,11 +1126,14 @@ const targetCache=new Map();
 const targetBusy=new Set();
 // 每天研究更新後，先把持股、自選與研究名單（依序，最多 100 檔）的目標價、財報、河流圖、股利抓好存在磁碟，打開個股時就不用等
 let prefetchBusy=false;
+let prefetchState={done:0,total:0,current:'',startedAt:null,finishedAt:null};
+const prefetchInfo=()=>({busy:prefetchBusy,...prefetchState,lastDate:settings.lastPrefetchDate||null});
 async function prefetchDeep(){
   if(prefetchBusy||!['TW','US'].includes(M().id))return;prefetchBusy=true;
   try{const ids=[...new Set([...readPortfolio().holdings.map(h=>h.id),...watchlist,...scopeIds(researchScope)])].filter(validId).slice(0,100);
-    for(const id of ids){for(const f of [targetsReport,financialsReport,riverReport,dividendsReport]){try{await f(id);}catch{}}}}
-  finally{prefetchBusy=false;}
+    prefetchState={done:0,total:ids.length,current:'',startedAt:new Date().toISOString(),finishedAt:null};
+    for(const id of ids){prefetchState.current=id;for(const f of [targetsReport,financialsReport,riverReport,dividendsReport]){try{await f(id);}catch{}}prefetchState.done++;}}
+  finally{prefetchBusy=false;prefetchState.finishedAt=new Date().toISOString();prefetchState.current='';}
 }
 async function targetsReport(id){
   const mk=M().id;if(!['TW','US'].includes(mk))return{id,available:false,reason:t('目標價目前只支援台股與美股')};
@@ -2143,6 +2146,8 @@ const server = http.createServer(async (req,res) => {
       return json(res,200,{added:result.added,stockId:b.stockId,needsUpdate:!raw[b.stockId]?.price?.length});
     }
     if(route==='/api/patterns'&&req.method==='GET'){const snapshot=patternSnapshot(universe);return json(res,200,{...snapshot,stocks:snapshot.stocks.map(({bars,...s})=>s),scope:data.has('dailyAll')?'market':'local'});}
+    if(route==='/api/prefetch'&&req.method==='GET')return json(res,200,prefetchInfo());
+    if(route==='/api/prefetch'&&req.method==='POST'){void prefetchDeep();await new Promise(r=>setTimeout(r,300));return json(res,202,prefetchInfo());}
     if(route==='/api/shapes'&&req.method==='GET'&&url.searchParams.get('q')!=null){const r=shapesReport(url.searchParams.get('scope')||'tech');return json(res,200,{scope:r.scope,scopeName:r.scopeName,asOf:r.asOf,...shapesSearch(r,url.searchParams.get('q'))});}
     if(route==='/api/shapes'&&req.method==='GET'){const r=shapesReport(url.searchParams.get('scope')||'tech'),sid=url.searchParams.get('shape');if(sid){const sh=r.shapes?.find(x=>x.id===sid);return json(res,200,{...r,shapes:undefined,shape:sh||null});}return json(res,200,{...r,shapes:(r.shapes||[]).map(({stocks,...x})=>({...x,top:stocks.slice(0,3).map(y=>y.name)}))});}
     if(route==='/api/pattern-detail'&&req.method==='GET'){const s=patternSnapshot(universe).stocks.find(x=>x.id===url.searchParams.get('id'));return s?json(res,200,s):json(res,404,{error:t('此股票目前沒有符合的型態')});}
@@ -2228,6 +2233,8 @@ const server = http.createServer(async (req,res) => {
 });
 server.listen(PORT,'127.0.0.1',() => console.log(`EquiLens Nexus ready: ${ORIGIN}`));
 server.on('error',e => { console.error(e.code==='EADDRINUSE'?t('連接埠已使用；請開啟現有頁面，或以 PORT 環境變數設定其他連接埠'):t('本機服務啟動失敗')); process.exit(1); });
+// 半夜預載：每天（含週末）跑一次（台股凌晨 2:00～5:00；美股在美東收盤後 18:00～21:00，約台北早上 6～9 點）持股、自選、研究名單的個股資料（電腦要開著），快取有效的不重抓
+setInterval(() => { const x = clock(), [from, to] = M().id === 'US' ? ['18:00', '21:00'] : ['02:00', '05:00']; if (x.hm < from || x.hm > to || settings.lastPrefetchDate === x.date || prefetchBusy || job.running) return; settings = { ...settings, lastPrefetchDate: x.date }; saveSettings(); void prefetchDeep(); }, 60e3);
 let autoRetryAt=0,autoAttempts=0,autoAttemptDate='';
 setInterval(() => {
   if (!settings.autoUpdate || job.running || flowBusy || heatBusy || !data.has('daily')) return;
