@@ -147,3 +147,10 @@ test('財報：全年 EPS 已依分割重編、單季未重編時，推算的第
   const q = secQuarters({ facts: { 'us-gaap': { EarningsPerShareDiluted: { units: { 'USD/shares': eps } }, NetIncomeLoss: { units: { USD: ni } } } } });
   assert.equal(q.length, 4); assert.equal(q[3].eps, 0.06);
 });
+
+test('持股：成本 0（配股取得）也能保存，損益率不計算', () => {
+  const pf = normalizePortfolio({ holdings: [{ id: '3483', shares: 32, cost: 0 }, { id: '2330', shares: 1, cost: '' }] });
+  assert.deepEqual(pf.holdings.map(h => h.id), ['3483']);
+  const p = buildPortfolio({ holdings: pf.holdings, quotes: new Map([['3483', { close: 92.4, prev: 90, name: '力致' }]]) });
+  assert.equal(p.rows[0].pnl, 2956.8); assert.equal(p.rows[0].pnlPct, null);
+});

@@ -6,12 +6,12 @@ const r1 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 10) / 1
 const r2 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100;
 const num = v => { if (v == null || v === '') return null; const n = Number(String(v).replace(/,/g, '')); return Number.isFinite(n) ? n : null; };
 
-// 使用者輸入 → 正規化（無效的列略過）
+// 使用者輸入 → 正規化（無效的列略過；成本可為 0，例如配股或贈股取得）
 export function normalizeHoldings(list = []) {
   const out = [], seen = new Set();
   for (const h of Array.isArray(list) ? list : []) {
     const id = String(h?.id || '').trim().toUpperCase(), shares = num(h?.shares), cost = num(h?.cost);
-    if (!/^[0-9A-Z][0-9A-Z.\-]{0,9}$/.test(id) || !(shares > 0) || !(cost > 0) || seen.has(id)) continue;
+    if (!/^[0-9A-Z][0-9A-Z.\-]{0,9}$/.test(id) || !(shares > 0) || !(cost >= 0) || cost == null || seen.has(id)) continue;
     seen.add(id);
     const stop = num(h.stop), target = num(h.target);
     out.push({ id, shares, cost, stop: stop > 0 ? stop : null, target: target > 0 ? target : null, note: String(h.note || '').slice(0, 60), since: /^\d{4}-\d{2}-\d{2}$/.test(h.since || '') ? h.since : null });
@@ -33,7 +33,7 @@ export function buildPortfolio({ market = 'TW', holdings = [], cash = null, capi
   const rows = holdings.map(h => {
     const q = quotes.get(h.id) || {}, px = q.close ?? null, value = px != null ? px * h.shares : null, costValue = h.cost * h.shares;
     const pnl = value != null ? value - costValue : null, day = px != null && q.prev > 0 ? (px - q.prev) * h.shares : null;
-    return { ...h, name: q.name || h.id, sector: q.chain || q.sector || '未分類', chain: q.chain || null, close: px, change: q.prev > 0 && px != null ? r2((px / q.prev - 1) * 100) : null, value: r2(value), costValue: r2(costValue), pnl: r2(pnl), pnlPct: pnl != null ? r2(pnl / costValue * 100) : null, day: r2(day),
+    return { ...h, name: q.name || h.id, sector: q.chain || q.sector || '未分類', chain: q.chain || null, close: px, change: q.prev > 0 && px != null ? r2((px / q.prev - 1) * 100) : null, value: r2(value), costValue: r2(costValue), pnl: r2(pnl), pnlPct: pnl != null && costValue > 0 ? r2(pnl / costValue * 100) : null, day: r2(day),
       lots: lot > 1 ? r2(h.shares / lot) : null, hitStop: h.stop != null && px != null && px <= h.stop, hitTarget: h.target != null && px != null && px >= h.target,
       toStop: h.stop != null && px ? r1((h.stop / px - 1) * 100) : null, toTarget: h.target != null && px ? r1((h.target / px - 1) * 100) : null, rs: rs.get(h.id) || null, signal: signals.get(h.id) || null };
   });
