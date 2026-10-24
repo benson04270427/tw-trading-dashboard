@@ -1,9 +1,9 @@
-/* 衡析 Pocket — 手機優先：大字級、44px 觸控區、底部分頁列、安全區域、深／淺主題 */
+/* 衡析 Pocket — 手機優先：大字級、44px 觸控區、底部分頁列、安全區域、深／淺主題；摺疊手機與平板改為雙頁（見檔尾） */
 :root{
   --bg:#070b14;--surface:#0f1726;--surface2:#15203a;--line:rgba(130,180,255,.13);--line2:rgba(130,180,255,.26);
   --text:#e9f1fc;--muted:#97a8c0;--soft:#62748f;--accent:#2ee6ff;--accent-ink:#021219;--accent-soft:rgba(46,230,255,.12);
   --up:#ff4d67;--down:#20d98b;--up-soft:rgba(255,77,103,.14);--down-soft:rgba(32,217,139,.14);--amber:#ffc34d;--violet:#a495ff;
-  --shadow:0 10px 30px rgba(0,0,0,.45);--r:14px;--top:56px;--tab:62px;
+  --shadow:0 10px 30px rgba(0,0,0,.45);--r:14px;--top:56px;--tab:62px;--rail:72px;
   --font:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
   color-scheme:dark;font-family:var(--font);font-size:16px;line-height:1.5;color:var(--text);background:var(--bg);
   -webkit-text-size-adjust:100%;
@@ -75,7 +75,7 @@ main{padding:12px 12px calc(var(--tab) + env(safe-area-inset-bottom) + 20px);max
 .row .nm small{font-size:.76rem;color:var(--soft);font-weight:500;margin-left:6px}
 .row .sub{grid-column:1;font-size:.76rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .rt{grid-row:1/3;grid-column:2;display:flex;align-items:center;gap:10px;text-align:right}
-@media (max-width:370px){.row .spark{display:none}}
+@container (max-width:370px){.row .spark{display:none}}
 .px{font-size:1rem;font-weight:700}
 .pc{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .pc .chg{min-width:0;padding:2px 7px;font-size:.84rem}
@@ -267,7 +267,8 @@ button.bf-chip{min-height:30px}
 .ev.earn .ev-t{color:var(--down);font-weight:600}
 .tab span{white-space:nowrap}
 
-@media (min-width:760px){main{padding-inline:20px}.kpis{grid-template-columns:repeat(4,1fr)}}
+@media (min-width:760px){html[data-layout=phone] main{padding-inline:20px}}
+@container (min-width:700px){.kpis{grid-template-columns:repeat(4,1fr)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ---------- 手機端資料更新 ---------- */
@@ -305,7 +306,8 @@ button.bf-chip{min-height:30px}
 .dt-bar{display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(127,127,127,.15)}.dt-bar i{display:block;height:100%}
 .dt-px{display:grid;justify-items:end;gap:1px}.dt-px small{font-size:.72rem}.dt-px em{font-style:normal;font-size:.74rem;color:var(--muted)}
 .dt-rv{display:flex;justify-content:space-between;gap:8px;font-size:.8rem;padding:4px 0;border-bottom:1px solid var(--line)}
-@media (min-width:640px){.lv-grid{grid-template-columns:repeat(3,1fr)}}
+@container (min-width:600px){.lv-grid{grid-template-columns:repeat(3,1fr)}}
+@container (min-width:900px){.lv-grid{grid-template-columns:repeat(4,1fr)}}
 /* 自選分組選單 */
 select.watchsel{flex:1;width:100%;font-weight:700}select.watchsel.on{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 55%,transparent)}
 /* 看板族群切換列 */
@@ -472,3 +474,62 @@ a.ix-alert{color:inherit;text-decoration:none}
 button.rank{width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);color:inherit;font:inherit;cursor:pointer}
 button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:pointer;width:100%}
 .ix-card em{white-space:nowrap}
+
+/* ---------- 摺疊手機、平板、橫向：版面由 layout.js 決定（html[data-layout] 與 [data-pane]） ----------
+   phone：單頁；split：左右雙頁（左＝側邊分頁列＋清單，右＝副頁）；stack：上下雙頁（上＝副頁，下＝清單＋底部分頁列）
+   副頁就是單頁時從下方滑出的個股視窗，雙頁時改為停靠；--left-w／--right-w／--top-h／--gap 依摺痕或寬高計算 */
+main,.sheet-b{container-type:inline-size}
+#pane-toggle{display:none}
+html:not([data-layout=phone]) #pane-toggle{display:grid}
+#pane-toggle[aria-pressed=true]{color:var(--accent)}
+html[data-layout=stack] #pane-toggle svg{transform:rotate(90deg)}
+/* 短螢幕（摺疊手機的封面螢幕、小手機）：上下列精簡，多留空間給內容 */
+@media (max-height:720px){
+  html[data-layout=phone]{--top:48px;--tab:54px}
+  html[data-layout=phone] .appbar h1{font-size:1.05rem}
+  html[data-layout=phone] .tab{gap:1px;font-size:.62rem}
+  html[data-layout=phone] .tab svg{width:20px;height:20px}
+  html[data-layout=phone] #hm{min-height:300px}
+}
+/* 副頁停靠（雙頁共用） */
+html[data-pane=on] .sheet{visibility:visible;transform:none;transition:none;max-width:none;max-height:none;height:auto;margin:0;border-radius:0;box-shadow:none;z-index:45}
+html[data-pane=on] .sheet-backdrop,html[data-pane=on] .grab{display:none}
+html[data-pane=on] .sheet:not(.open) [data-close-sheet]{visibility:hidden}
+html[data-pane=on] .sheet-h h2{padding-top:4px}
+html[data-pane=on] .hm-pick{display:none}
+html[data-pane=on] .is-sel{background:var(--accent-soft)!important;box-shadow:inset 3px 0 0 var(--accent)}
+html[data-pane=on] .lv-card.is-sel,html[data-pane=on] .dt-card.is-sel{border-color:var(--accent)}
+/* 左頁較窄時（例如 Galaxy Z Fold 展開）：看板卡片的價格與漲跌改為上下排列 */
+@container (max-width:340px){.lv-px{flex-wrap:wrap;gap:2px 6px}.lv-px .big{font-size:1.15rem}}
+.pane-hint{font-size:.8rem;color:var(--muted);text-align:center;line-height:1.6;padding:6px 10px 10px}
+.ix-switch{display:flex;gap:8px;margin-bottom:10px}.ix-switch .seg{flex:1}
+/* 左右雙頁：分頁列移到左側，清單在左頁、副頁在右頁 */
+html[data-layout=split]{--tab:0px}
+html[data-layout=split] body:has(>.tabbar){padding-left:calc(var(--rail) + env(safe-area-inset-left))}
+html[data-layout=split][data-pane=on] body:has(>.tabbar){padding-right:var(--right-w)}
+html[data-layout=split] .tabbar{top:0;right:auto;width:calc(var(--rail) + env(safe-area-inset-left));height:auto;display:flex;flex-direction:column;gap:2px;padding:calc(env(safe-area-inset-top) + 8px) 0 calc(env(safe-area-inset-bottom) + 8px) env(safe-area-inset-left);border-top:0;border-right:1px solid var(--line);overflow-y:auto;scrollbar-width:none}
+html[data-layout=split] .tabbar::-webkit-scrollbar{display:none}
+html[data-layout=split] .tab{flex:1 1 0;max-height:64px;min-height:46px}
+html[data-layout=split] .tab.active::before{top:22%;bottom:22%;left:0;right:auto;width:3px;height:auto;border-radius:0 3px 3px 0}
+html[data-layout=split] main{max-width:760px}
+html[data-layout=split][data-pane=off] main{max-width:1100px}
+html[data-layout=split][data-pane=on] .sheet{top:0;bottom:0;left:calc(var(--left-w) + var(--gap));right:0;border-left:1px solid var(--line2)}
+html[data-layout=split][data-pane=on] .sheet-h{padding-top:calc(env(safe-area-inset-top) + 6px);padding-right:calc(8px + env(safe-area-inset-right));min-height:calc(var(--top) + env(safe-area-inset-top))}
+html[data-layout=split][data-pane=on] .sheet-b{padding-right:calc(12px + env(safe-area-inset-right))}
+html[data-layout=split] #toast{left:calc(var(--rail) + 16px)}
+/* 上下雙頁：副頁在上（半摺立在桌上時朝向自己），清單與分頁列在下 */
+html[data-layout=stack][data-pane=on] body:has(>.tabbar){padding-top:calc(var(--top-h) + var(--gap))}
+html[data-layout=stack][data-pane=on] .appbar{top:calc(var(--top-h) + var(--gap));padding-top:0;min-height:var(--top)}
+html[data-layout=stack][data-pane=on] .jobbar{top:calc(var(--top-h) + var(--gap) + var(--top) + 6px)}
+html[data-layout=stack][data-pane=on] .sheet{top:0;left:0;right:0;bottom:auto;height:var(--top-h);border-bottom:1px solid var(--line2)}
+html[data-layout=stack][data-pane=on] .sheet-h{padding-top:calc(env(safe-area-inset-top) + 2px);padding-bottom:4px}
+html[data-layout=stack][data-pane=on] .sheet-b{padding-top:8px;padding-bottom:12px}
+html[data-layout=stack][data-pane=on] #hm{height:calc(100dvh - var(--top-h) - var(--gap) - var(--top) - var(--tab) - env(safe-area-inset-bottom) - 150px);min-height:260px}
+/* 上頁精簡：價格、漲跌與開高低排成兩行，讓走勢圖完整顯示 */
+html[data-layout=stack][data-pane=on] .sheet-b .hero{padding:0 4px 6px}
+html[data-layout=stack][data-pane=on] .sheet-b .hero>div:first-child{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px}
+html[data-layout=stack][data-pane=on] .sheet-b .hero .big{font-size:1.45rem}
+html[data-layout=stack][data-pane=on] .sheet-b .hero .meta{width:100%;margin-top:0;font-size:.74rem}
+html[data-layout=stack][data-pane=on] .sheet-b .hero .meta br{display:none}
+.m-sep{display:none}html[data-layout=stack][data-pane=on] .sheet-b .m-sep{display:inline}
+html[data-layout=stack][data-pane=on] .sheet-b [data-chart]>.statusline,html[data-layout=stack][data-pane=on] .sheet-b [data-index-view]>.statusline{margin-bottom:6px}

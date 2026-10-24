@@ -73,6 +73,15 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
 
 ![Mobile: brief and AI report, live board, day trade, heatmap, stocks, broker branches](docs/images/mobile-overview.webp)
 
+**Foldables and tablets** – the layout follows the screen shape. Regular phones and foldable cover screens keep a single
+page. An unfolded foldable (for example iPhone Duo in landscape), a tablet or a phone in landscape splits into two
+pages: tab rail and list on the left, the selected stock's chart, order book and trades on the right, and the TAIEX chart
+when nothing is selected. Unfolded in portrait or half-folded on a desk, the chart sits on the top page and the list on
+the bottom page. Where the browser reports the fold (Viewport Segments API), the split follows the hinge exactly
+([details, zh-TW](docs/features/foldable.md)).
+
+![iPhone Duo unfolded: live board on the left, chart and order book on the right](docs/images/foldable-split.webp)
+
 ## Markets and data sources
 
 One EquiLens instance researches one market at a time. Trading hours (including lunch breaks), time zone, tick

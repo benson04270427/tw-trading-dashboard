@@ -19,4 +19,5 @@ cd ../EquiLens-Nexus && PLAYWRIGHT=$(npm root -g)/playwright/index.mjs node tool
 ```
 
 PNG 轉成 WebP（品質 82）後放進 `docs/images/`；手機版六張合成一張 `mobile-overview.webp`。
+摺疊手機（`capture.mjs <資料夾> foldable`）以 iPhone Duo 的 CSS 尺寸截取 `foldable-split`／`foldable-idle`（展開橫向 890 × 626）、`foldable-stack`（直向 626 × 890）、`foldable-cover`（封面 466 × 678）；示意資料沒有指數分時資料，大盤走勢以合成資料取代 `/m/api/index` 的回應。
 當沖觀察名單在盤中才有內容，`capture.mjs` 以示意的掃描結果取代 `/api/daytrade` 的回應。
