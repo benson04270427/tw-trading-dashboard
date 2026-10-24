@@ -11,14 +11,15 @@ const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 // 配方：權重沒列到的指標為 0。source 說明配方的出處或想法。
 export const RECIPES = {
   TW: [
-    { key: 'current', name: '目前權重', source: '衡析現行設定', weights: { retail: 20, margin: 15, foreignFut: 20, foreignSpot: 15, fx: 10, trend: 20 } },
+    { key: 'current', name: '目前權重', source: '衡析現行設定（2026-10-24 依權重最佳化調整）', weights: { margin: 29, fx: 14, trend: 14, foreignFutChg: 14, foreignOpt: 29 } },
+    { key: 'v1', name: '舊權重', source: '2026-10-24 以前的設定', weights: { retail: 20, margin: 15, foreignFut: 20, foreignSpot: 15, fx: 10, trend: 20 } },
     { key: 'equal', name: '等權重', source: 'CNN 恐懼與貪婪指數的做法：每個指標一樣重', weights: { retail: 1, margin: 1, foreignFut: 1, foreignSpot: 1, fx: 1, trend: 1 } },
     { key: 'trendLed', name: '趨勢為主', source: '均線擇時（Faber）：趨勢 50%，其餘平分', weights: { retail: 10, margin: 10, foreignFut: 10, foreignSpot: 10, fx: 10, trend: 50 } },
     { key: 'trendOnly', name: '只看趨勢', source: '單純均線擇時，作為對照', weights: { trend: 1 } },
     { key: 'foreign', name: '外資主導', source: '外資風險胃納對台股月報酬較有解釋力（政大碩論 2011）', weights: { foreignFut: 35, foreignSpot: 35, trend: 30 } },
     { key: 'retail', name: '散戶反指標', source: '小台散戶多空比、融資增減當反指標', weights: { retail: 40, margin: 30, trend: 30 } },
     { key: 'noTrend', name: '只看籌碼', source: '拿掉趨勢，只用籌碼與匯率', weights: { retail: 20, margin: 15, foreignFut: 20, foreignSpot: 15, fx: 10 } },
-    { key: 'smooth', name: '目前權重＋平滑', source: '目前權重，分數取近 5 日平均，減少持股建議來回跳動', weights: { retail: 20, margin: 15, foreignFut: 20, foreignSpot: 15, fx: 10, trend: 20 }, smooth: 5 },
+    { key: 'smooth', name: '目前權重＋平滑', source: '目前權重，分數取近 10 日平均（風控水位實際採用）', weights: { margin: 29, fx: 14, trend: 14, foreignFutChg: 14, foreignOpt: 29 }, smooth: 10 },
   ],
   US: [
     { key: 'current', name: '目前權重', source: '衡析現行設定', weights: { vix: 20, term: 10, credit: 20, rates: 10, dollar: 10, breadth: 10, trend: 20 } },
@@ -57,7 +58,9 @@ function rankCorr(a, b) {
 }
 
 // 主函式：s／index／dates 來自 twSeries 或 usSeries；horizon＝訊號檢驗的天數（交易日）
-export function backtestRecipes({ market, s, index, dates, defs, recipes = RECIPES[market], horizon = 20, warmup = 250 }) {
+// cost：換檔成本（調整的持股比例 × cost）；台股手續費 0.1425% × 2 ＋ 證交稅 0.3% ≈ 0.585%，美股約 0.1%（ETF 價差與規費）
+export const COST = { TW: 0.00585, US: 0.001 };
+export function backtestRecipes({ market, s, index, dates, defs, recipes = RECIPES[market], horizon = 20, warmup = 250, cost = COST[market] ?? 0 }) {
   const fr = factorRisks(s, dates, defs, { warmup });
   const px = d => { const i = at(index, d); return i < 0 ? null : index[i]; };
   // 對齊：評分日 → 指數位置
@@ -74,7 +77,7 @@ export function backtestRecipes({ market, s, index, dates, defs, recipes = RECIP
     const inv = new Set(rc.invert || []);
     let sc = rows.map(x => ({ ...x, score: combine(inv.size ? Object.fromEntries(Object.entries(x.f).map(([k, v]) => [k, v != null && inv.has(k) ? 100 - v : v])) : x.f, rc.weights) })).filter(x => x.score != null);
     if (rc.smooth > 1) sc = sc.map((x, k) => ({ ...x, score: avg(sc.slice(Math.max(0, k - rc.smooth + 1), k + 1).map(y => y.score)) }));
-    const daily = sc.filter(x => next(x.i) != null).map(x => exposure(x.score) / 100 * next(x.i));
+    const daily = sc.filter(x => next(x.i) != null).map((x, k, a) => exposure(x.score) / 100 * next(x.i) - (k ? Math.abs(exposure(x.score) - exposure(a[k - 1].score)) / 100 * cost : 0));
     const exAvg = avg(sc.map(x => exposure(x.score))), p = perf(daily);
     // 同樣平均持股、但固定不動的對照組：看「調整時機」有沒有加分
     const fixed = perf(usable.map(x => exAvg / 100 * next(x.i)));
@@ -91,7 +94,51 @@ export function backtestRecipes({ market, s, index, dates, defs, recipes = RECIP
   results.forEach((r, i) => { r.rank = r1(avg(ranks.map(x => x[i]))); });
   const order = [...results].sort((a, b) => a.rank - b.rank).map(r => r.key);
   const first = rows[0].date, end = rows.at(-1).date;
-  return { version: RISK_BT_VERSION, market, available: true, from: first, to: end, days: rows.length, years: r1((Date.parse(end) - Date.parse(first)) / 864e5 / 365.25), horizon,
+  return { version: RISK_BT_VERSION, market, available: true, cost, from: first, to: end, days: rows.length, years: r1((Date.parse(end) - Date.parse(first)) / 864e5 / 365.25), horizon,
     buyHold: bh, baseDown: r1(baseDown * 100), baseUp: r1((1 - baseDown) * 100), results, best: order[0], order,
     coverage: Object.fromEntries(defs.map(f => { const l = s[f.key] || []; return [f.key, l.length ? l[0][0] : null]; })) };
+}
+
+// ---- 台股權重最佳化（含外資期貨與選擇權） ----
+// 排名（同值給平均名次）
+function ranks(v) {
+  const idx = v.map((x, i) => [x, i]).sort((a, b) => a[0] - b[0]), r = new Float64Array(v.length);
+  for (let k = 0; k < idx.length;) { let e = k; while (e + 1 < idx.length && idx[e + 1][0] === idx[k][0]) e++; const m = (k + e) / 2; for (let j = k; j <= e; j++) r[idx[j][1]] = m; k = e + 1; }
+  return r;
+}
+function corr(a, b) { const n = a.length, ma = avg([...a]), mb = avg([...b]); let s = 0, da = 0, db = 0; for (let i = 0; i < n; i++) { s += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; } return da && db ? s / Math.sqrt(da * db) : 0; }
+// 一組分數在一段期間的表現：相關係數、高／低風險命中率與相對平常的優勢，J＝綜合預測力
+function judge(score, fwd, rankF, base) {
+  const ic = corr(ranks(score), rankF); let hn = 0, hd = 0, ln = 0, lu = 0;
+  for (let i = 0; i < score.length; i++) { if (score[i] >= 60) { hn++; if (fwd[i] < 0) hd++; } else if (score[i] < 40) { ln++; if (fwd[i] > 0) lu++; } }
+  const n = score.length, hiHit = hn ? hd / hn * 100 : null, loHit = ln ? lu / ln * 100 : null;
+  const edgeHi = hn >= n * 0.05 ? (hiHit - base.down) / 100 : -0.1, edgeLo = ln >= n * 0.05 ? (loHit - base.up) / 100 : -0.1;
+  return { ic: r2(ic), hiHit: r1(hiHit), hiShare: r1(hn / n * 100), loHit: r1(loHit), loShare: r1(ln / n * 100), edgeHi: r1(edgeHi * 100), edgeLo: r1(edgeLo * 100), J: r2((-ic + edgeHi + edgeLo) * 100) };
+}
+// s：指標序列（含額外指標）；keys：參與搜尋的指標；grid：每個指標可選的權重；split：之前用來挑權重、之後用來驗證
+export function optimizeWeights({ s, index, dates, defs, keys, grid = [0, 1, 2], horizon = 20, split = '2024-01-01', warmup = 250, current = null, top = 12 }) {
+  const fr = factorRisks(s, dates, defs, { warmup }), close = index.map(x => x[1]);
+  const rows = fr.map(x => ({ ...x, i: at(index, x.date) })).filter(x => x.i >= 0 && x.i + horizon <= index.length - 1);
+  const fwdOf = x => close[x.i + horizon] / close[x.i] - 1;
+  const sets = { train: rows.filter(x => x.date < split), test: rows.filter(x => x.date >= split) };
+  if (sets.train.length < 250 || sets.test.length < 120) return { available: false, reason: '歷史資料不足（至少需要約 2 年）' };
+  const prep = Object.fromEntries(Object.entries(sets).map(([k, list]) => { const fwd = list.map(fwdOf), down = avg(fwd.map(v => v < 0 ? 1 : 0)) * 100;
+    return [k, { list, fwd, rankF: ranks(fwd), base: { down, up: 100 - down }, cols: Object.fromEntries(keys.map(q => [q, list.map(x => x.f[q] ?? NaN)])) }]; }));
+  const scoreOf = (p, w) => { const n = p.list.length, out = new Array(n); for (let i = 0; i < n; i++) { let a = 0, b = 0; for (const q of keys) { const wt = w[q] || 0, v = p.cols[q][i]; if (wt && !Number.isNaN(v)) { a += v * wt; b += wt; } } out[i] = b ? a / b : 50; } return out; };
+  const evalW = w => ({ train: judge(scoreOf(prep.train, w), prep.train.fwd, prep.train.rankF, prep.train.base), test: judge(scoreOf(prep.test, w), prep.test.fwd, prep.test.rankF, prep.test.base) });
+  // 單一指標的預測力
+  const single = keys.map(q => ({ key: q, name: defs.find(d => d.key === q)?.name || q, ...evalW({ [q]: 1 }) }));
+  // 全部組合
+  const combos = []; const walk = (k, w) => { if (k === keys.length) { if (Object.values(w).some(v => v > 0)) combos.push({ ...w }); return; } for (const g of grid) { w[keys[k]] = g; walk(k + 1, w); } };
+  walk(0, {});
+  const scored = combos.map(w => ({ w, train: judge(scoreOf(prep.train, w), prep.train.fwd, prep.train.rankF, prep.train.base) })).sort((a, b) => b.train.J - a.train.J);
+  const head = scored.slice(0, 200).map(x => ({ ...x, test: judge(scoreOf(prep.test, x.w), prep.test.fwd, prep.test.rankF, prep.test.base) }));
+  // 穩健的選擇：挑權重期間和驗證期間都好的（兩者較差的那個最大）
+  const robust = [...head].sort((a, b) => Math.min(b.train.J, b.test.J) - Math.min(a.train.J, a.test.J))[0];
+  const norm = w => { const t = Object.values(w).reduce((a, b) => a + b, 0); return Object.fromEntries(Object.entries(w).filter(([, v]) => v > 0).map(([k, v]) => [k, Math.round(v / t * 100)])); };
+  const fmt = x => ({ weights: norm(x.w), train: x.train, test: x.test });
+  return { version: RISK_BT_VERSION, available: true, horizon, split, keys, combos: combos.length,
+    train: { from: sets.train[0].date, to: sets.train.at(-1).date, days: sets.train.length, baseDown: r1(prep.train.base.down) },
+    test: { from: sets.test[0].date, to: sets.test.at(-1).date, days: sets.test.length, baseDown: r1(prep.test.base.down) },
+    single, top: head.slice(0, top).map(fmt), robust: fmt(robust), current: current ? { weights: norm(current), ...evalW(current) } : null };
 }

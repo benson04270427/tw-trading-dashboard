@@ -6,7 +6,7 @@ import { mergeInputs, screen, STRATEGIES } from '../lib/valuescreen.mjs';
 // ---- 風控水位 ----
 const days = n => { const out = []; let d = Date.parse('2025-06-02T00:00:00Z'); while (out.length < n) { const w = new Date(d).getUTCDay(); if (w > 0 && w < 6) out.push(new Date(d).toISOString().slice(0, 10)); d += 864e5; } return out; };
 function rawData(n = 320, { hot = false } = {}) {
-  const D = days(n), raw = { index: [], mtxInst: [], mtxDaily: [], txInst: [], spot: [], margin: [], fx: [], errors: {} };
+  const D = days(n), raw = { index: [], mtxInst: [], mtxDaily: [], txInst: [], spot: [], margin: [], fx: [], txo: [], errors: {} };
   D.forEach((d, i) => {
     const late = i > n - 15 && hot; // 最後幾天：散戶大幅偏多、外資大賣、融資暴增、台幣急貶、指數跌破均線
     raw.index.push({ date: d, close: late ? 20000 - (i - (n - 15)) * 300 : 20000 + Math.sin(i / 9) * 400 + i * 2 });
@@ -17,6 +17,9 @@ function rawData(n = 320, { hot = false } = {}) {
     raw.txInst.push({ date: d, institutional_investors: '外資', long_open_interest_balance_volume: 20000, short_open_interest_balance_volume: late ? 80000 : 40000 + Math.round(Math.sin(i / 11) * 8000) });
     raw.spot.push({ date: d, name: 'Foreign_Investor', buy: 2e10, sell: late ? 6e10 : 2e10 + Math.sin(i / 5) * 5e9 });
     raw.margin.push({ date: d, name: 'MarginPurchaseMoney', TodayBalance: late ? 3.2e11 + i * 3e9 : 3e11 + Math.sin(i / 13) * 5e9, YesBalance: 3e11 });
+    const opt = late ? -9e6 : Math.round(Math.sin(i / 8) * 2e6);
+    raw.txo.push({ date: d, institutional_investors: '外資', call_put: '買權', long_open_interest_balance_amount: 5e6 + Math.max(0, opt), short_open_interest_balance_amount: 5e6 });
+    raw.txo.push({ date: d, institutional_investors: '外資', call_put: '賣權', long_open_interest_balance_amount: 5e6 + Math.max(0, -opt), short_open_interest_balance_amount: 5e6 });
     raw.fx.push({ date: d, currency: 'USD', spot_buy: late ? 31 + (i - (n - 15)) * 0.15 : 31 + Math.sin(i / 17) * 0.3, cash_buy: 0 });
   });
   return raw;
@@ -47,7 +50,8 @@ test('risk gauge: calm vs stressed market', () => {
   assert.ok(hot.risk > 75, `stressed risk ${hot.risk}`);
   assert.ok(hot.risk > calm.risk + 20);
   assert.ok(hot.exposure <= 30);
-  assert.equal(hot.history.length, 120);
+  assert.equal(hot.history.length, 120); assert.equal(hot.smooth, 10); assert.ok(hot.riskAvg != null);
+  assert.equal(hot.factors.find(f => f.key === 'foreignOpt').value, -90);
   assert.ok(hot.risk > hot.history.at(-20)[1]); assert.equal(typeof hot.change5, "number");
   assert.ok(hot.summary.some(s => s.tone === 'risk'));
   for (const f of hot.factors) assert.ok(f.risk == null || (f.risk >= 0 && f.risk <= 100), f.key);
@@ -64,7 +68,7 @@ test('risk gauge: not enough history leaves factors unscored', () => {
 test('risk gauge: fetch stops after a fatal error', async () => {
   let calls = 0; const req = async () => { calls++; if (calls === 2) throw Object.assign(new Error('quota'), { fatal: true }); return [{ date: '2026-01-02' }]; };
   const raw = await fetchRiskInputs('2026-10-21', req);
-  assert.equal(calls, 2); assert.equal(RISK_TASKS('2026-10-21').length, 7);
+  assert.equal(calls, 2); assert.equal(RISK_TASKS('2026-10-21').length, 8);
   assert.equal(raw.errors.mtxInst, 'quota'); assert.equal(raw.errors.fx, 'quota'); assert.equal(raw.index.length, 1);
 });
 

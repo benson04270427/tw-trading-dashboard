@@ -26,12 +26,12 @@ export function riskHistorySVG(history = [], indexName = '加權指數') {
   <div class="rv-hist-axis"><span>${esc(h[0][0])}</span><span><i class="rv-key rv-rkey"></i>風險分數 <i class="rv-key rv-ikey"></i>${esc(indexName)}</span><span>${esc(h.at(-1)[0])}</span></div>`;
 }
 
-const factorValue = f => f.value == null ? '—' : f.unit === 'bp' ? sign(f.value, 0) + ' bp' : f.show === 'plain' ? fmt(f.value, 2) + (f.unit || '') : f.key === 'foreignFut' ? sign(f.value, 0) + ' 口' : f.key === 'foreignSpot' ? sign(f.value, 0) + ' 億' : f.key === 'retail' ? sign(f.value, 2) + '%' : sign(f.value, 2) + '%';
+const factorValue = f => f.value == null ? '—' : f.unit === 'bp' ? sign(f.value, 0) + ' bp' : f.show === 'plain' ? fmt(f.value, 2) + (f.unit || '') : f.key === 'foreignFut' || f.key === 'foreignFutChg' ? sign(f.value, 0) + ' 口' : f.key === 'foreignOpt' ? sign(f.value, 2) + ' 億' : f.key === 'foreignSpot' ? sign(f.value, 0) + ' 億' : f.key === 'retail' ? sign(f.value, 2) + '%' : sign(f.value, 2) + '%';
 function factorRow(f) {
   const t = toneOf(f.risk), w = f.risk == null ? 0 : Math.max(3, f.risk);
   return `<div class="rv-factor"><div class="rv-fhead"><b>${esc(f.name)}</b><span class="rv-fval num">${factorValue(f)}</span></div>
   <div class="rv-bar"><i class="rv-${t}" style="width:${w}%"></i></div>
-  <div class="rv-fmeta"><span>${f.risk == null ? '資料不足' : `風險 ${fmt(f.risk)}`}${f.pct != null ? (f.dir > 0 ? ` · 高於一年中 ${fmt(f.pct)}% 的日子` : ` · 低於一年中 ${fmt(100 - f.pct)}% 的日子`) : ''}${f.key === 'trend' && f.detail ? ` · 20 日線${f.detail.up ? '在' : '跌破'} 60 日線${f.detail.up ? '之上' : ''}` : ''}</span><span class="soft">權重 ${f.weight}%</span></div>
+  <div class="rv-fmeta"><span>${f.risk == null ? '資料不足' : `風險 ${fmt(f.risk)}`}${f.pct != null ? (f.dir > 0 ? ` · 高於一年中 ${fmt(f.pct)}% 的日子` : ` · 低於一年中 ${fmt(100 - f.pct)}% 的日子`) : ''}${f.key === 'trend' && f.detail ? ` · 20 日線${f.detail.up ? '在' : '跌破'} 60 日線${f.detail.up ? '之上' : ''}` : ''}</span><span class="soft">${f.weight ? `權重 ${f.weight}%` : '參考，不計分'}</span></div>
   <p class="rv-fdesc">${esc(f.desc)}</p></div>`;
 }
 
@@ -56,7 +56,7 @@ export function riskHTML(info, { compact = false } = {}) {
   const t = toneOf(d.risk), chg = (v, label) => v == null ? '' : `<span class="${v > 0 ? 'up' : v < 0 ? 'down' : 'muted'}">${label} ${sign(v)}</span>`;
   const head = `<div class="rv-head"><div class="rv-dial">${gaugeSVG(d.risk)}<div class="rv-score num">${fmt(d.risk)}<small>風險分數</small></div></div>
     <div class="rv-main"><div class="rv-level rv-t-${t}">${esc(d.label)}</div>
-      <div class="rv-expo"><span>建議持股</span><b class="num">${fmt(d.exposure)}%</b><span class="soft">現金 ${fmt(100 - d.exposure)}%</span></div>
+      <div class="rv-expo"><span>建議持股</span><b class="num">${fmt(d.exposure)}%</b><span class="soft">現金 ${fmt(100 - d.exposure)}%${d.smooth ? ` · 依近 ${d.smooth} 日平均分數 ${fmt(d.riskAvg, 1)}` : ''}</span></div>
       <div class="rv-split"><i style="width:${d.exposure}%"></i></div>
       <div class="rv-meta"><span>${esc(d.date)}</span>${chg(d.change1, '較前日')}${chg(d.change5, '較一週前')}${d.coverage < 100 ? `<span class="amber">指標涵蓋 ${d.coverage}%</span>` : ''}</div></div></div>`;
   const tags = d.summary?.length ? `<div class="rv-tags">${d.summary.map(s => `<span class="rv-tag ${s.tone === 'risk' ? 'rv-tag-risk' : 'rv-tag-calm'}">${s.tone === 'risk' ? '▲' : '▼'} ${esc(s.name)} ${fmt(s.risk)}</span>`).join('')}</div>` : '';

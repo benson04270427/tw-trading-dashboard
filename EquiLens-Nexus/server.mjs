@@ -31,7 +31,7 @@ import { createHistoryLoader } from './lib/daytrade-history.mjs';
 import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
 import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs, get as twseGet } from './lib/providers/twse.mjs';
 import { buildRisk, fetchRiskInputs, riskContext, twSeries, FACTORS as TW_RISK_FACTORS } from './lib/riskgauge.mjs';
-import { backtestRecipes } from './lib/riskbacktest.mjs';
+import { backtestRecipes, optimizeWeights, RECIPES as RISK_RECIPES } from './lib/riskbacktest.mjs';
 import { buildRiskUS, fetchRiskInputsUS, parseFred, usSeries, US_FACTORS } from './lib/riskgauge-us.mjs';
 import { buildMacro } from './lib/macro.mjs';
 import { buildContrarian, parseFearGreed } from './lib/contrarian.mjs';
@@ -1023,7 +1023,23 @@ async function runRiskBacktest(){
     const errs=[...new Set(Object.values(r.errors))];riskBtJob.error=errs.length?t('部分指標未取得：')+errs.join('；'):'';
   }catch(e){riskBtJob.error=e.message;}finally{riskBtJob.busy=false;}
 }
-const riskBtInfo=()=>({job:riskBtJob,result:read('risk/backtest.json',null)});
+const riskBtInfo=()=>({job:riskBtJob,result:read('risk/backtest.json',null),optimize:read('risk/optimize.json',null)});
+// 台股權重最佳化：8 個指標（含外資台指期 5 日增減、外資選擇權淨部位），每個權重 0／1／2 全部組合，2024 年前挑、2024 年後驗證
+async function runRiskOptimize(){
+  if(riskBtJob.busy||M().id!=='TW')return;
+  riskBtJob={busy:true,step:0,total:8,error:''};
+  try{
+    const progress=(i,n)=>{riskBtJob.step=i;riskBtJob.total=n;};
+    const raw=await fetchRiskInputs(today(),finmindRequest,fmOpt(),progress,365*9);
+    const {s,index,dates}=twSeries(raw),defs=TW_RISK_FACTORS,keys=defs.map(f=>f.key).filter(k=>(s[k]||[]).length);
+    const r=optimizeWeights({s,index,dates,defs,keys,current:Object.fromEntries(defs.filter(f=>f.weight>0).map(f=>[f.key,f.weight]))});
+    if(!r.available){riskBtJob.error=t(r.reason);return;}
+    // 用穩健組合與目前權重各跑一次完整績效
+    const full=backtestRecipes({market:'TW',s,index,dates,defs,recipes:[{key:'current',name:'目前權重',source:'衡析現行設定',weights:r.current.weights},{key:'robust',name:'最佳化（穩健）',source:'2024 年前挑權重、2024 年後驗證',weights:r.robust.weights},{key:'robustSmooth',name:'最佳化＋平滑',source:'最佳化權重，分數取近 5 日平均',weights:r.robust.weights,smooth:5},{key:'robustSmooth10',name:'最佳化＋平滑 10 日',source:'最佳化權重，分數取近 10 日平均',weights:r.robust.weights,smooth:10},{key:'currentSmooth',name:'目前權重＋平滑',source:'目前權重，分數取近 10 日平均（風控水位實際採用）',weights:r.current.weights,smooth:10},RISK_RECIPES.TW.find(x=>x.key==='v1'),...r.top.slice(0,3).map((x,k)=>({key:'top'+(k+1),name:t('挑權重期間第 {n} 名',{n:k+1}),source:'只看 2024 年前的表現',weights:x.weights}))]});
+    r.full=full;r.coverage=Object.fromEntries(keys.map(k=>[k,s[k][0]?.[0]||null]));r.errors=raw.errors;r.generatedAt=new Date().toISOString();
+    fs.mkdirSync(path.join(LOCAL,'risk'),{recursive:true});write('risk/optimize.json',r);
+  }catch(e){riskBtJob.error=e.message;}finally{riskBtJob.busy=false;}
+}
 let riskExplainBusy=false;
 async function explainRisk(){
   const r=read('risk/latest.json',null);if(!r?.available)throw new UserError('請先更新風控水位');
@@ -1857,6 +1873,7 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/verdict'&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`v:${id}`,()=>verdictReport(id)));}
     /* ----- 風控水位與低估選股 ----- */
     if(route==='/api/risk'&&req.method==='GET')return json(res,200,riskInfo());
+    if(route==='/api/risk/optimize'&&req.method==='POST'){if(M().id!=='TW')throw new UserError('權重最佳化目前只支援台股');if(riskBtJob.busy)throw new UserError('回測計算中，請稍候');void runRiskOptimize();await new Promise(r=>setTimeout(r,300));return json(res,202,riskBtInfo());}
     if(route==='/api/risk/backtest'&&req.method==='GET')return json(res,200,riskBtInfo());
     if(route==='/api/risk/backtest'&&req.method==='POST'){if(!riskCapable())throw new UserError('風控水位目前只支援台股與美股');if(riskBtJob.busy)throw new UserError('回測計算中，請稍候');void runRiskBacktest();await new Promise(r=>setTimeout(r,300));return json(res,202,riskBtInfo());}
     if(route==='/api/risk/query'&&req.method==='POST'){if(!riskCapable())throw new UserError('風控水位目前只支援台股與美股');if(riskJob.busy)throw new UserError('風控水位更新中，請稍候');runRisk();return json(res,202,riskInfo());}

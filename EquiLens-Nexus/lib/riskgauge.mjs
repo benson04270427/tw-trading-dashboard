@@ -3,7 +3,7 @@
 // 每次更新 7 個請求，各取約 400 天，用來計算每個指標在過去一年中的相對位置（百分位）。
 import { institutionNet, totalOI } from './market-card.mjs';
 
-export const RISK_VERSION = '1.0';
+export const RISK_VERSION = '2.0';
 const num = v => { if (v == null || v === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 const r1 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 10) / 10;
 const r2 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100;
@@ -11,12 +11,14 @@ const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
 
 // 指標：risk 越高代表市場風險越高。dir：+1 數值越高風險越高，-1 數值越低風險越高；rule：以規則換算（不用百分位）
 export const FACTORS = [
-  { key: 'retail', name: '散戶多空比', weight: 20, dir: 1, unit: '%', group: '散戶情緒', desc: '小台指散戶淨部位 ÷ 全市場未平倉。散戶越偏多，越常是短線過熱的反向訊號' },
-  { key: 'margin', name: '融資增減（20 日）', weight: 15, dir: 1, unit: '%', group: '散戶情緒', desc: '上市櫃融資餘額 20 個交易日的變化率。融資快速增加代表散戶槓桿升高' },
-  { key: 'foreignFut', name: '外資台指期淨部位', weight: 20, dir: -1, unit: '口', group: '外資動向', desc: '外資在台指期（大台）的多空未平倉淨口數。淨空單越大，代表外資避險或看空越強' },
-  { key: 'foreignSpot', name: '外資現貨（20 日累計）', weight: 15, dir: -1, unit: '億', group: '外資動向', desc: '外資及陸資近 20 個交易日的上市櫃買賣超金額合計' },
-  { key: 'fx', name: '新台幣匯率（20 日）', weight: 10, dir: 1, unit: '%', group: '外資動向', desc: '美元兌新台幣 20 日變化率。新台幣貶值（數值為正）常伴隨熱錢流出' },
-  { key: 'trend', name: '大盤趨勢', weight: 20, dir: -1, unit: '%', group: '大盤', rule: true, desc: '加權指數與 60 日均線的乖離，以及 20 日均線是否在 60 日均線之上' },
+  { key: 'retail', name: '散戶多空比', weight: 0, dir: 1, unit: '%', group: '散戶情緒', desc: '小台指散戶淨部位 ÷ 全市場未平倉。散戶越偏多，越常是短線過熱的反向訊號' },
+  { key: 'margin', name: '融資增減（20 日）', weight: 29, dir: 1, unit: '%', group: '散戶情緒', desc: '上市櫃融資餘額 20 個交易日的變化率。融資快速增加代表散戶槓桿升高' },
+  { key: 'foreignFut', name: '外資台指期淨部位', weight: 0, dir: -1, unit: '口', group: '外資動向', desc: '外資在台指期（大台）的多空未平倉淨口數。淨空單越大，代表外資避險或看空越強' },
+  { key: 'foreignSpot', name: '外資現貨（20 日累計）', weight: 0, dir: -1, unit: '億', group: '外資動向', desc: '外資及陸資近 20 個交易日的上市櫃買賣超金額合計' },
+  { key: 'fx', name: '新台幣匯率（20 日）', weight: 14, dir: 1, unit: '%', group: '外資動向', desc: '美元兌新台幣 20 日變化率。新台幣貶值（數值為正）常伴隨熱錢流出' },
+  { key: 'foreignFutChg', name: '外資台指期 5 日增減', weight: 14, dir: -1, unit: '口', group: '外資動向', desc: '外資台指期（大台）淨未平倉口數近 5 個交易日的增減。外資快速加空或減多（數值為負）時風險升高' },
+  { key: 'foreignOpt', name: '外資選擇權淨部位', weight: 29, dir: -1, unit: '億', group: '外資動向', desc: '外資台指選擇權未平倉契約金額：（買權買方 − 買權賣方）−（賣權買方 − 賣權賣方）。越偏空（數值越低）風險越高' },
+  { key: 'trend', name: '大盤趨勢', weight: 14, dir: -1, unit: '%', group: '大盤', rule: true, desc: '加權指數與 60 日均線的乖離，以及 20 日均線是否在 60 日均線之上' },
 ];
 // 風險分數 → 等級與建議持股水位（股票占可投資資金的比例，介於 20%～90%，以 10% 為單位）
 export const LEVELS = [[25, '低風險', 'low'], [40, '偏低', 'lowish'], [60, '中性', 'mid'], [75, '偏高', 'highish'], [101, '高風險', 'high']];
@@ -47,6 +49,19 @@ export function foreignFutSeries(rows = []) {
   const m = new Map();
   for (const r of rows) { if (r.institutional_investors !== '外資' && r.institutional_investors !== '外資及陸資') continue; const l = num(r.long_open_interest_balance_volume), s = num(r.short_open_interest_balance_volume); if (l != null && s != null) m.set(r.date, l - s); }
   return series(m);
+}
+// 外資台指期淨未平倉的 n 日增減（口）：外資加空或減多時為負
+export function foreignFutChgSeries(rows = [], n = 5) { const l = foreignFutSeries(rows), out = []; for (let i = n; i < l.length; i++) out.push([l[i][0], l[i][1] - l[i - n][1]]); return out; }
+// 外資台指選擇權淨部位（億元；FinMind 金額單位為千元）：（買權買方 − 買權賣方）−（賣權買方 − 賣權賣方）的未平倉契約金額；越大越偏多
+export function foreignOptSeries(rows = []) {
+  const m = new Map();
+  for (const r of rows) {
+    if (r.institutional_investors !== '外資' && r.institutional_investors !== '外資及陸資') continue;
+    const l = num(r.long_open_interest_balance_amount), s = num(r.short_open_interest_balance_amount); if (l == null || s == null) continue;
+    const side = r.call_put === '買權' || r.call_put === 'call' ? 1 : r.call_put === '賣權' || r.call_put === 'put' ? -1 : 0; if (!side) continue;
+    m.set(r.date, (m.get(r.date) || 0) + side * (l - s) / 1e5);
+  }
+  return series(new Map([...m].map(([d, v]) => [d, r2(v)])));
 }
 // 外資現貨買賣超（億元／日），再取 20 日累計
 export function foreignSpotSeries(rows = []) {
@@ -99,20 +114,23 @@ export function scoreAt(seriesMap, date, opt, defs = FACTORS) {
 // 原始資料 → 各指標每日序列、指數、評分日（風控水位與配方回測共用）
 export function twSeries(raw) {
   const index = indexSeries(raw.index);
-  const s = { retail: retailSeries(raw.mtxInst, raw.mtxDaily), margin: marginSeries(raw.margin), foreignFut: foreignFutSeries(raw.txInst), foreignSpot: foreignSpotSeries(raw.spot), fx: fxSeries(raw.fx), trend: trendSeries(index) };
+  const s = { retail: retailSeries(raw.mtxInst, raw.mtxDaily), margin: marginSeries(raw.margin), foreignFut: foreignFutSeries(raw.txInst), foreignFutChg: foreignFutChgSeries(raw.txInst), foreignOpt: foreignOptSeries(raw.txo), foreignSpot: foreignSpotSeries(raw.spot), fx: fxSeries(raw.fx), trend: trendSeries(index) };
   // 以各指標最新日期中最晚者為評分日（期貨與匯率比融資早公布）
   const dates = [...new Set([...index.map(x => x[0]), ...s.retail.map(x => x[0])])].sort();
   return { s, index, dates };
 }
 export function buildRisk(raw, { days = 120, now = new Date().toISOString() } = {}) {
   const { s, index, dates } = twSeries(raw);
-  return assemble(s, dates, index, raw, { days, now, defs: FACTORS, market: 'TW', indexName: '加權指數' });
+  return assemble(s, dates, index, raw, { days, now, defs: FACTORS, market: 'TW', indexName: '加權指數', smooth: 10 });
 }
 // 共用：依評分日組成最新評分、近 days 日走勢與一日／一週變化（台股與美股共用）
-export function assemble(s, dates, index, raw, { days = 120, now = new Date().toISOString(), defs = FACTORS, market = 'TW', indexName = '' } = {}) {
+// smooth：建議持股用近 smooth 個交易日風險分數的平均（台股 10 日，回測顯示可大幅減少換檔、扣成本後績效較好）
+export function assemble(s, dates, index, raw, { days = 120, now = new Date().toISOString(), defs = FACTORS, market = 'TW', indexName = '', smooth = 1 } = {}) {
   if (!dates.length) return { version: RISK_VERSION, market, indexName, available: false, updatedAt: now, errors: raw.errors || {} };
   const latest = dates.at(-1), current = scoreAt(s, latest, undefined, defs);
-  const hist = dates.slice(-days).map(d => { const x = scoreAt(s, d, undefined, defs), ix = index[at(index, d)]; return [d, x.risk, x.exposure, ix ? ix[1] : null]; });
+  const hist = dates.slice(-days - smooth + 1).map(d => { const x = scoreAt(s, d, undefined, defs), ix = index[at(index, d)]; return [d, x.risk, x.exposure, ix ? ix[1] : null]; });
+  if (smooth > 1) { for (let k = hist.length - 1; k >= 0; k--) { const w = hist.slice(Math.max(0, k - smooth + 1), k + 1).map(h => h[1]).filter(v => v != null); if (w.length) hist[k][2] = exposure(w.reduce((a, b) => a + b, 0) / w.length); } hist.splice(0, Math.max(0, hist.length - days)); }
+  if (smooth > 1 && current.risk != null) { const w = hist.slice(-smooth).map(h => h[1]).filter(v => v != null); current.riskAvg = r1(w.reduce((a, b) => a + b, 0) / w.length); current.exposure = exposure(current.riskAvg); current.smooth = smooth; }
   const prev = hist.length > 1 ? hist.at(-2)[1] : null, week = hist.length > 5 ? hist.at(-6)[1] : null;
   return { version: RISK_VERSION, market, indexName, available: current.risk != null, updatedAt: now, ...current, change1: prev == null || current.risk == null ? null : r1(current.risk - prev), change5: week == null || current.risk == null ? null : r1(current.risk - week),
     history: hist, summary: summarize(current), errors: raw.errors || {} };
@@ -125,7 +143,7 @@ export function summarize(x) {
   return [...hot.map(f => ({ tone: 'risk', key: f.key, name: f.name, risk: f.risk })), ...cool.map(f => ({ tone: 'calm', key: f.key, name: f.name, risk: f.risk }))];
 }
 
-// ---- 資料取得（FinMind，7 個請求） ----
+// ---- 資料取得（FinMind，8 個請求） ----
 const minus = (date, n) => new Date(Date.parse(date + 'T00:00:00Z') - n * 864e5).toISOString().slice(0, 10);
 export const RISK_TASKS = (date, days = 420) => { const start = minus(date, days); return [
   ['index', 'TaiwanStockPrice', { data_id: 'TAIEX', start_date: start, end_date: date }],
@@ -135,6 +153,7 @@ export const RISK_TASKS = (date, days = 420) => { const start = minus(date, days
   ['spot', 'TaiwanStockTotalInstitutionalInvestors', { start_date: start, end_date: date }],
   ['margin', 'TaiwanStockTotalMarginPurchaseShortSale', { start_date: start, end_date: date }],
   ['fx', 'TaiwanExchangeRate', { data_id: 'USD', start_date: start, end_date: date }],
+  ['txo', 'TaiwanOptionInstitutionalInvestors', { data_id: 'TXO', start_date: start, end_date: date }],
 ]; };
 // request(dataset, params, options) 同 FinMind 佇列；遇到額度或金鑰問題（fatal）時停止其餘請求
 export async function fetchRiskInputs(date, request, options = {}, onProgress = () => {}, days = 420) {
