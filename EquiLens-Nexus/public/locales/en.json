@@ -4027,5 +4027,7 @@
   "高低點階梯上升": "Higher highs, higher lows",
   "高低點階梯下降": "Lower highs, lower lows",
   "，已突破": ", broken out",
-  "，已跌破": ", broken down"
+  "，已跌破": ", broken down",
+  "白天淺色": "Light",
+  "白天淺色是預設；深色霓虹是原本的戰情室風格。": "Light is the default; Dark Neon is the original war-room style."
 }

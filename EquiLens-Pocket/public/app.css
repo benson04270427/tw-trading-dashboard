@@ -9,11 +9,13 @@
   -webkit-text-size-adjust:100%;
 }
 :root[data-theme=light]{
-  --bg:#f2f5f9;--surface:#ffffff;--surface2:#eef2f7;--line:#e1e7ef;--line2:#cfd8e4;
-  --text:#101828;--muted:#566479;--soft:#8190a5;--accent:#0a7fc2;--accent-ink:#ffffff;--accent-soft:rgba(10,127,194,.1);
-  --up:#d11f3b;--down:#07884d;--up-soft:rgba(209,31,59,.09);--down-soft:rgba(7,136,77,.09);--amber:#b77900;--violet:#5b4bd6;
-  --shadow:0 8px 24px rgba(16,24,40,.12);color-scheme:light
+  --bg:#f5f6f8;--surface:#ffffff;--surface2:#f1f3f6;--line:#e3e6ea;--line2:#d3d8de;
+  --text:#1b1f24;--muted:#5b6472;--soft:#7d8692;--accent:#1a5fd0;--accent-ink:#ffffff;--accent-soft:rgba(31,111,235,.09);
+  --up:#d92d20;--down:#12855b;--up-soft:rgba(217,45,32,.08);--down-soft:rgba(18,133,91,.08);--amber:#b06c00;--violet:#1a5fd0;
+  --shadow:0 1px 3px rgba(16,24,40,.08);color-scheme:light
 }
+:root[data-theme=light] *{text-shadow:none!important}
+:root[data-theme=light] .tab.active::before{box-shadow:none}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;min-height:100%;background:var(--bg)}
 body{overscroll-behavior-y:contain}

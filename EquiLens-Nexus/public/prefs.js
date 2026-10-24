@@ -1,15 +1,17 @@
 // 介面與使用偏好（存在這台電腦的瀏覽器）：主題、字型大小、霓虹效果、動畫、彈窗提示、桌面通知、預設頁面。
 const KEY = 'nexus.prefs';
-export const DEFAULTS = { theme: 'dark', font: 17, glow: 'full', motion: true, toast: true, toastSec: 5.5, start: 'home' };
+export const DEFAULTS = { theme: 'light', font: 17, glow: 'full', motion: true, toast: true, toastSec: 5.5, start: 'home' };
 export const START_PAGES = [['home', '今日焦點'], ['heatmap', '資金熱浪'], ['live', '盤中雷達'], ['overview', '研究總覽'], ['watchlist', '自選追蹤']];
 let prefs = load();
 // 字型 v2：整體放大一級（舊的 13／15／17／19 依序變成 15／17／19／21），已存的設定只轉換一次
 function load() {
   try {
     const p = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') };
+    // 主題 v2：預設改為白天淺色，原本的預設深色（霓虹）轉換一次
+    if (!p.themeV2) { if (p.theme === 'dark') p.theme = 'light'; p.themeV2 = 1; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { } }
     if (!p.fontV2) { if (localStorage.getItem(KEY) && [13, 15, 17, 19].includes(Number(p.font))) p.font = Number(p.font) + 2; p.fontV2 = 1; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { } }
     return p;
-  } catch { return { ...DEFAULTS, fontV2: 1 }; }
+  } catch { return { ...DEFAULTS, fontV2: 1, themeV2: 1 }; }
 }
 export const getPrefs = () => prefs;
 export function setPrefs(patch) { prefs = { ...prefs, ...patch }; try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch { } applyPrefs(); return prefs; }
@@ -28,7 +30,7 @@ export function prefsPanel(esc) {
   const p = prefs, seg = (key, opts) => `<div class="segmented" role="group">${opts.map(([v, l]) => `<button type="button" data-pref="${key}" data-value="${v}" class="${String(p[key]) === String(v) ? 'selected' : ''}" aria-pressed="${String(p[key]) === String(v)}">${l}</button>`).join('')}</div>`;
   const row = (title, desc, ctl) => `<div class="pref-row"><div><b>${title}</b><small>${desc}</small></div><div class="pref-ctl">${ctl}</div></div>`;
   return `<section class="panel contentpad prefs"><h2>介面與使用偏好 <span class="tag cyan">只存在這台電腦的瀏覽器</span></h2><p>變更立即生效。字型大小會同時放大表格與面板文字；熱浪圖維持深色底以保留色階辨識度。</p>
-  ${row('主題', '深色霓虹適合長時間盯盤；淺色適合白天或明亮環境。', seg('theme', [['dark', '深色霓虹'], ['light', '淺色'], ['system', '跟隨系統']]))}
+  ${row('主題', '白天淺色是預設；深色霓虹是原本的戰情室風格。', seg('theme', [['light', '白天淺色'], ['dark', '深色霓虹'], ['system', '跟隨系統']]))}
   ${row('字型大小', '整體介面文字大小。', seg('font', [[15, '小'], [17, '標準'], [19, '大'], [21, '特大']]))}
   ${row('霓虹效果', '柔和模式會關閉發光與掃描線，閱讀更舒適。', seg('glow', [['full', '完整'], ['soft', '柔和']]))}
   ${row('動畫效果', '關閉後頁面切換與載入不播放動畫。', seg('motion', [[true, '開啟'], [false, '關閉']]))}

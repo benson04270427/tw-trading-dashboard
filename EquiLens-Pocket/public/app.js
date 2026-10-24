@@ -34,7 +34,7 @@ const S = { tab: 'brief', brief: { news: { 0: null, 1: null }, offset: 0, sectio
   list: { mode: 'watch', group: '', sort: 'score', q: '', limit: 40 }, moverSide: 'up', flows: { view: 'inst', data: null, date: '', loading: false, error: '', market: '上市', inv: 'total', side: 'buy', contract: null, page: 0 }, loading: false };
 
 /* ---------- theme ---------- */
-function applyTheme() { let t = null; try { t = localStorage.getItem('pocket.theme'); } catch { } if (!t) t = 'dark'; /* 預設深色主題（可在設定或右上角切換） */ document.documentElement.dataset.theme = t; document.querySelector('meta[name=theme-color]')?.setAttribute('content', t === 'light' ? '#f2f5f9' : '#070b14'); }
+function applyTheme() { let t = null; try { if (localStorage.getItem('pocket.themeV2') !== '1') { localStorage.setItem('pocket.theme', 'light'); localStorage.setItem('pocket.themeV2', '1'); } t = localStorage.getItem('pocket.theme'); } catch { } if (!t) t = 'light'; /* 預設白天淺色（2026-10-24 起；深色霓虹可在設定或右上角切換） */ document.documentElement.dataset.theme = t; document.querySelector('meta[name=theme-color]')?.setAttribute('content', t === 'light' ? '#f5f6f8' : '#070b14'); }
 applyTheme();
 /* ---------- 字型大小（存在這支手機） ---------- */
 const FONT_SIZES = [[14, '小'], [16, '標準'], [18, '大'], [20, '特大']];
@@ -579,7 +579,7 @@ function openSettings() {
   const push = liveState.push?.state;
   openSheet('設定', `<section class="card"><div class="card-b" style="padding-top:14px">
       <div class="lv-rule"><label class="lv-sw"><input type="checkbox" id="wake-toggle" ${wakePref() ? 'checked' : ''} ${wakeSupported() ? '' : 'disabled'}><span></span></label><div><b>螢幕恆亮</b><small>開著衡析時螢幕不會自動熄滅，適合盤中盯看板或熱浪圖；切到其他 App 或鎖定後自動恢復正常。較耗電。${IOS ? '從主畫面圖示開啟時需 iOS 18.4 以上才有效。' : ''}</small><small>狀態：<span id="wake-status"></span></small></div></div>
-      <div class="lv-rule"><div style="flex:1"><b>外觀</b><div class="seg" style="margin-top:8px">${[['dark', '深色'], ['light', '淺色']].map(([v, l]) => `<button class="${theme === v ? 'on' : ''}" data-set-theme="${v}">${l}</button>`).join('')}</div></div></div>
+      <div class="lv-rule"><div style="flex:1"><b>外觀</b><div class="seg" style="margin-top:8px">${[['light', '白天淺色'], ['dark', '深色霓虹']].map(([v, l]) => `<button class="${theme === v ? 'on' : ''}" data-set-theme="${v}">${l}</button>`).join('')}</div></div></div>
       <div class="lv-rule"><div style="flex:1"><b>字型大小</b><small>調整整個 App 的文字大小，立即套用。</small><div class="seg" style="margin-top:8px">${FONT_SIZES.map(([v, l]) => `<button class="${fontSize() === v ? 'on' : ''}" data-set-font="${v}">${l}</button>`).join('')}</div></div></div>
     </div></section>
     ${newsSettingsCard()}
