@@ -155,7 +155,7 @@ const SH_BIAS = { bull: '偏多', bear: '偏空', neutral: '中性' };
 const shIcon = icon => `<svg class="sh-ico" viewBox="-1 -1 42 14" aria-hidden="true">${String(icon || '').split(' M').map(s => `<polyline points="${esc(s.replace(/^M/, ''))}"/>`).join('')}</svg>`;
 // d：/api/shapes（列表）；st：{ bias, scope }；detail：/api/shapes?shape=（單一型態的個股）
 // st：{ bias, scope, q, found（搜尋結果）, hl（要標示的股票） }
-const shSearch = st => `<form class="sh-search" data-sh-search role="search"><input id="sh-q" name="q" type="search" inputmode="search" autocomplete="off" placeholder="搜尋股票名稱或代號，看它在哪些型態" value="${esc(st.q || '')}" aria-label="搜尋股票"><button type="submit">搜尋</button>${st.found ? '<button type="button" class="textbtn" data-sh-clear>清除</button>' : ''}</form>`;
+const shSearch = (st, us) => `<form class="sh-search" data-sh-search role="search"><input id="sh-q" name="q" type="search" inputmode="search" autocomplete="off" placeholder="${us ? '搜尋代號或公司名稱，例如：COHR、NVDA' : '搜尋股票名稱或代號，例如：國巨、2327'}" value="${esc(st.q || '')}" aria-label="搜尋股票"><button type="submit">搜尋</button>${st.found ? '<button type="button" class="textbtn" data-sh-clear>清除</button>' : ''}</form>`;
 function shFoundHTML(f) {
   if (!f) return '';
   if (!f.results?.length) return `<div class="sh-found"><p class="ix-empty">找不到「${esc(f.query)}」：請確認名稱或代號。</p></div>`;
@@ -167,7 +167,7 @@ export function shapesHTML(d, st = {}, detail = null) {
   const e = empty(d); if (e) return e;
   const scopes = `<div class="rv-strats">${(d.scopes || []).map(s => `<button data-sh-scope="${esc(s.id)}" class="${d.scope === s.id ? 'selected' : ''}" aria-pressed="${d.scope === s.id}">${esc(s.name)}</button>`).join('')}</div>`;
   if (detail?.shape) return shapeDetailHTML(detail.shape, d, st.hl);
-  const top = shSearch(st) + shFoundHTML(st.found);
+  const top = shSearch(st, d.scope === 'us') + shFoundHTML(st.found);
   const bias = st.bias || '', filt = `<div class="rv-strats">${[['', '全部'], ['bull', '偏多'], ['bear', '偏空'], ['neutral', '中性']].map(([v, l]) => `<button data-sh-bias="${v}" class="${bias === v ? 'selected' : ''}" aria-pressed="${bias === v}">${l}</button>`).join('')}</div>`;
   const head = tiles([['掃描', `${fmt(d.scanned)} 檔`, `${esc(d.scopeName || '')}・${esc(d.asOf || '')}`], ['有型態', `${fmt(d.matched)} 檔`, `偏多 ${fmt(d.leans?.bull)}・偏空 ${fmt(d.leans?.bear)}・中性 ${fmt(d.leans?.neutral)}`], ['偏多型態', `<span class="sh-bull">${fmt(d.totals?.bull)}</span>`, '筆'], ['偏空型態', `<span class="sh-bear">${fmt(d.totals?.bear)}</span>`, '筆']]);
   const groups = (d.groups || []).map(g => {
@@ -188,7 +188,7 @@ function shapeDetailHTML(s, d, hl) {
 export function watchAddHTML(st = {}, groups = []) {
   const opts = [['', '未分組'], ...groups.map(g => [g.id, g.name])].map(([v, l]) => `<option value="${esc(v)}" ${String(st.group || '') === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
   return `<section class="wa"><form class="wa-form" data-wa-form autocomplete="off"><label for="wa-q" class="wa-label">＋ 加入自選股</label>
-  <div class="wa-row"><input id="wa-q" name="q" type="search" inputmode="search" placeholder="輸入股票名稱或代號，例如：國巨、2327" value="${esc(st.q || '')}"><select id="wa-group" name="group" aria-label="加入到哪個分組">${opts}</select></div></form>
+  <div class="wa-row"><input id="wa-q" name="q" type="search" inputmode="search" placeholder="${st.market === 'US' ? '輸入代號或公司名稱，例如：NVDA、Coherent' : '輸入股票名稱或代號，例如：國巨、2327'}" value="${esc(st.q || '')}"><select id="wa-group" name="group" aria-label="加入到哪個分組">${opts}</select></div></form>
   <div class="wa-list" id="wa-list">${watchAddList(st)}</div></section>`;
 }
 export function watchAddList(st = {}) {

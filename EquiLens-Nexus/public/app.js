@@ -235,7 +235,7 @@ function filtered() {
   return rows;
 }
 function overview() {
-  const top = page === 'watchlist' ? watchAddHTML(WA, wg().groups) : '';
+  const top = page === 'watchlist' ? watchAddHTML({ ...WA, market: state.marketProfile?.id || state.config?.market }, wg().groups) : '';
   const available = state.stocks.filter(s => s.score != null), strong = available.filter(s => s.complete && s.score >= 75), validIndustry = state.sectors.filter(s => s.score != null), cover = state.stocks.length ? available.length / state.stocks.length * 100 : 0;
   return `${top}<section class="stats" aria-label="資料摘要">
   <article class="stat"><span class="label">名單研究範圍 <i>SCOPE</i></span><div class="value glow">${fmt(state.stocks.length)}<span class="unit">檔</span></div><p>${state.groups.length} 個自訂族群 · 名單外不研究</p><div class="minibar"><i style="width:100%"></i></div></article>
