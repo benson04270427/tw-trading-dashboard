@@ -35,6 +35,17 @@ function factorRow(f) {
   <p class="rv-fdesc">${esc(f.desc)}</p></div>`;
 }
 
+// ---- 逆勢布局（和風控水位相反的看法：越恐慌建議持股越高） ----
+const miniGauge = v => { const a = Math.PI * (1 - (v ?? 0) / 100), x = 40 + 26 * Math.cos(a), y = 38 - 26 * Math.sin(a); return `<svg class="ct-mini" viewBox="0 0 80 44"><path class="ct-arc" d="M8 38A32 32 0 0 1 72 38"/><path class="ct-arc-on" d="M8 38A32 32 0 0 1 72 38" pathLength="100" stroke-dasharray="${v ?? 0} 100"/>${v == null ? '' : `<line class="ct-needle" x1="40" y1="38" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/><circle class="ct-hub" cx="40" cy="38" r="3.2"/>`}</svg>`; };
+export function contraHTML(c, { compact = false, riskExposure = null } = {}) {
+  if (!c?.available) return c ? '<p class="ix-empty">逆勢布局資料不足（需要風控水位與總經大地圖的指數資料）。</p>' : '';
+  const ring = `<div class="ct-ring" style="--p:${c.exposure}"><div><small>逆勢持股建議</small><b class="num">${fmt(c.exposure)}<span>%</span></b><em class="ct-t-${c.tone}">${esc(c.label)} · ${fmt(c.score, 1)}</em></div></div>`;
+  if (compact) return `<div class="ct-line"><span>逆勢布局</span><b class="num">${fmt(c.exposure)}%</b><em class="ct-t-${c.tone}">${esc(c.label)}</em>${c.fearGreed ? `<small class="soft">恐懼與貪婪 ${fmt(c.fearGreed.score, 0)}</small>` : ''}</div>`;
+  const gauges = `<div class="ct-gauges">${c.factors.map(f => `<div title="${esc(f.desc)}">${miniGauge(f.fear)}<b class="num">${f.fear == null ? '—' : fmt(f.fear, 0)}</b><span>${esc(f.name)}</span></div>`).join('')}</div>`;
+  const fg = c.fearGreed ? `<p class="ct-fg">CNN 恐懼與貪婪指數 <b class="num">${fmt(c.fearGreed.score, 0)}</b>（${esc(c.fearGreed.rating || '')}）· 前日 ${fmt(c.fearGreed.prev1d, 0)} · 一週前 ${fmt(c.fearGreed.prev1w, 0)} · 一個月前 ${fmt(c.fearGreed.prev1m, 0)}${c.ret5 != null ? ` · 指數近 5 日 ${sign(c.ret5, 1)}%` : ''}</p>` : '';
+  const vs = riskExposure != null ? `<p class="ct-vs">風控水位建議持股 <b class="num">${riskExposure}%</b>（市場過熱就降部位）；逆勢布局建議 <b class="num">${c.exposure}%</b>（市場恐慌就加部位）。${Math.abs(riskExposure - c.exposure) >= 40 ? '兩者差很多，代表市場正處在「價格仍在高檔、但情緒已轉恐慌」的拉扯，' : ''}可依自己的操作方式擇一參考，或取兩者之間分批進出。</p>` : '';
+  return `<section class="ct"><h4 class="ct-h">逆勢布局 <small class="soft">別人恐懼時貪婪</small></h4><div class="ct-top">${ring}${gauges}</div>${fg}${vs}<p class="ix-foot">逆勢分數＝五個指標的恐慌程度（0～100，越高越恐慌）加權平均：全球散戶 25%、外資情緒 20%、恐慌指標 20%、位階降溫 15%、短線跌深 20%；逆勢持股建議＝分數取 10% 為單位，介於 20%～90%。全球散戶取自 CNN 恐懼與貪婪指數（每小時更新），其餘來自風控水位的指標與指數日線。逆勢操作在空頭趨勢中可能越買越套，這是研究參考，不是買賣建議。</p></section>`;
+}
 export function riskHTML(info, { compact = false } = {}) {
   if (!info) return '<p class="ix-empty">讀取中…</p>';
   if (!info.capable) return '<p class="ix-empty">風控水位目前只支援台股與美股。</p>';
@@ -49,12 +60,12 @@ export function riskHTML(info, { compact = false } = {}) {
       <div class="rv-split"><i style="width:${d.exposure}%"></i></div>
       <div class="rv-meta"><span>${esc(d.date)}</span>${chg(d.change1, '較前日')}${chg(d.change5, '較一週前')}${d.coverage < 100 ? `<span class="amber">指標涵蓋 ${d.coverage}%</span>` : ''}</div></div></div>`;
   const tags = d.summary?.length ? `<div class="rv-tags">${d.summary.map(s => `<span class="rv-tag ${s.tone === 'risk' ? 'rv-tag-risk' : 'rv-tag-calm'}">${s.tone === 'risk' ? '▲' : '▼'} ${esc(s.name)} ${fmt(s.risk)}</span>`).join('')}</div>` : '';
-  if (compact) return `<div class="rv-compact">${head}</div>${tags}<div class="rv-actions"><button class="rv-btn" data-rv="risk-open">看完整分析 ›</button>${busy}</div>${err}`;
+  if (compact) return `<div class="rv-compact">${head}</div>${contraHTML(info.contra, { compact: true })}${tags}<div class="rv-actions"><button class="rv-btn" data-rv="risk-open">看完整分析 ›</button>${busy}</div>${err}`;
   const groups = [...new Set(d.factors.map(f => f.group))].map(g => `<div class="rv-group"><h4>${esc(g)}</h4>${d.factors.filter(f => f.group === g).map(factorRow).join('')}</div>`).join('');
   const ex = info.explain && info.explain.date === d.date ? info.explain : null;
   const ai = `<div class="rv-ai"><div class="rv-ai-head"><b>AI 解讀</b>${info.llm ? `<button class="rv-btn" data-rv="risk-explain" ${info.explainBusy ? 'disabled' : ''}>${info.explainBusy ? '<i class="spinner"></i>產生中…' : ex ? '重新產生' : '產生解讀'}</button>` : '<span class="soft">需先在電腦版「資料與設定」設定推理模型</span>'}</div>
     ${ex ? `<p class="rv-ai-title">${esc(ex.headline)}</p><ul>${ex.points.map(p => `<li>${esc(p)}</li>`).join('')}</ul>${ex.watch.length ? `<p class="rv-ai-sub">下週觀察</p><ul>${ex.watch.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}${ex.stance ? `<p class="rv-ai-stance">${esc(ex.stance)}</p>` : ''}<p class="soft rv-small">${esc(ex.model || '')} · ${esc(String(ex.createdAt || '').slice(0, 16).replace('T', ' '))}</p>` : info.llm ? '<p class="soft rv-small">讓 AI 根據下方指標寫出風險來源、相互印證的訊號與下週觀察重點。</p>' : ''}</div>`;
-  return `${head}${tags}<div class="rv-actions">${btn}${busy}</div>${err}${ai}
+  return `${head}${tags}<div class="rv-actions">${btn}${busy}</div>${err}${contraHTML(info.contra, { riskExposure: d.exposure })}${ai}
     <div class="rv-sect"><h4>近 ${d.history.length} 個交易日</h4>${riskHistorySVG(d.history, d.indexName || '加權指數')}</div>
     <div class="rv-factors">${groups}</div>
     <p class="ix-foot">風險分數＝各指標與自己過去一年相比的位置（百分位）加權平均，0 最安全、100 最危險；建議持股＝100 − 分數，取 10% 為單位，介於 20%～90%。${d.market === 'US' ? '資料來自 FRED、Cboe 與 Nasdaq（免金鑰），每天台北時間 08:40 與 20:40 自動更新' : '平日 15:40 與 21:40 自動更新（融資約晚上公布）'}，等級改變時推播。這是依公開資料計算的參考指標，不是買賣建議。</p>`;
@@ -295,7 +306,7 @@ export function macroHTML(info) {
   const d = info.data, err = info.error ? `<p class="rv-err">${esc(info.error)}</p>` : '';
   if (!d?.available) return `${err}<div class="rv-empty"><p>${info.busy ? '正在取得指數十年日線…' : '尚無指數資料。'}</p><button class="rv-btn" data-rv="macro-query" ${info.busy ? 'disabled' : ''}>⟳ 取得資料</button></div>`;
   const ex = info.explain, exOf = m => ex?.months?.find(x => x.month === m.m);
-  const head = `<div class="tg-sum"><div><small>${esc(d.indexName)}（${esc(d.date.slice(5).replace('-', '/'))}）</small><b class="num">${fmt(d.close, 2)}</b></div><div><small>一年位階</small><b class="num">${d.position != null ? fmt(d.position, 1) + '%' : '—'}</b></div><div><small>未來 ${d.horizon} 日歷史同期</small><b class="num ${d.endMedian > 0 ? 'up' : d.endMedian < 0 ? 'down' : ''}">${sign(d.endMedian, 2)}%</b></div><div><small>上漲機率（${d.years} 年）</small><b class="num">${d.upProb != null ? fmt(d.upProb, 1) + '%' : '—'}</b></div>${d.risk != null ? `<div><small>風控分數／建議持股</small><b class="num">${fmt(d.risk)}${d.exposure != null ? ` <span class="amber">${d.exposure}%</span>` : ''}</b></div>` : ''}</div>`;
+  const head = `<div class="tg-sum"><div><small>${esc(d.indexName)}（${esc(d.date.slice(5).replace('-', '/'))}）</small><b class="num">${fmt(d.close, 2)}</b></div><div><small>一年位階</small><b class="num">${d.position != null ? fmt(d.position, 1) + '%' : '—'}</b></div><div><small>未來 ${d.horizon} 日歷史同期</small><b class="num ${d.endMedian > 0 ? 'up' : d.endMedian < 0 ? 'down' : ''}">${sign(d.endMedian, 2)}%</b></div><div><small>上漲機率（${d.years} 年）</small><b class="num">${d.upProb != null ? fmt(d.upProb, 1) + '%' : '—'}</b></div>${d.risk != null ? `<div><small>風控分數／建議持股</small><b class="num">${fmt(d.risk)}${d.exposure != null ? ` <span class="amber">${d.exposure}%</span>` : ''}</b></div>` : ''}${d.contra ? `<div><small>逆勢布局</small><b class="num">${d.contra.exposure}% <small class="soft">${esc(d.contra.label)}</small></b></div>` : ''}</div>`;
   const legend = '<div class="tg-legend"><span><i class="tg-k-price"></i>指數</span><span><i class="tg-k-mean"></i>預估指數（歷史同期中位數）</span><span><i class="mc-k-band"></i>25%～75% 區間</span></div>';
   const ai = `<div class="rv-ai-head mc-ai"><b>AI 月度展望</b>${info.llm ? `<button class="rv-btn" data-rv="macro-explain" ${info.explainBusy ? 'disabled' : ''}>${info.explainBusy ? '<i class="spinner"></i>產生中…' : ex ? '重新產生' : '產生展望'}</button>` : '<span class="soft">在「資料與設定」設定推理模型後，可讓 AI 依統計與事件寫出每月展望</span>'}</div>`;
   const cards = d.months.map(m => { const e = exOf(m); return `<div class="mc-card"><div class="mc-mon"><b>${MONTHS[m.m - 1]}</b>${m.trend ? `<span class="mc-trend ${/走高|偏多/.test(m.trend) ? 'up' : /走低|偏弱|回檔/.test(m.trend) ? 'down' : ''}">${esc(m.trend)}</span>` : ''}${m.years ? `<span class="num ${m.avg > 0 ? 'up' : 'down'}">${sign(m.avg, 2)}%</span><small class="soft">上漲 ${fmt(m.up, 0)}%</small>` : ''}</div><div class="mc-body">${e ? `<h4>${esc(e.title)}</h4><ol>${e.points.map(p => `<li>${esc(p)}</li>`).join('')}</ol>` : ''}

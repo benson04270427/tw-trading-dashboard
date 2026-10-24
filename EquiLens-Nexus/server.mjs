@@ -33,6 +33,7 @@ import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs, get as tws
 import { buildRisk, fetchRiskInputs, riskContext } from './lib/riskgauge.mjs';
 import { buildRiskUS, fetchRiskInputsUS, parseFred } from './lib/riskgauge-us.mjs';
 import { buildMacro } from './lib/macro.mjs';
+import { buildContrarian, parseFearGreed } from './lib/contrarian.mjs';
 import { fetchJSON, rocDate } from './lib/providers/common.mjs';
 import { nyseHolidays } from './lib/providers/nasdaq.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
@@ -980,7 +981,18 @@ const newsInfo=()=>({...normalizeNews(settings.news),capable:data.has('marketNew
 let riskJob={busy:false,step:0,total:7,error:'',slots:{}};
 // 風控水位支援台股與美股；低估選股只支援台股
 const riskCapable=()=>['TW','US'].includes(M().id),screenCapable=()=>M().id==='TW';
-function riskInfo(){return{capable:riskCapable(),data:read('risk/latest.json',null),explain:read('risk/explain.json',null),busy:riskJob.busy,step:riskJob.step,total:riskJob.total,error:riskJob.error,llm:llmConfigured(),explainBusy:!!riskExplainBusy};}
+// 逆勢布局：CNN 恐懼與貪婪指數每小時最多取一次（存 risk/feargreed.json），配合風控指標百分位與指數日線
+let fgBusy=false;
+async function refreshFearGreed(){
+  if(fgBusy)return;const c=read('risk/feargreed.json',null);if(c&&Date.now()-Date.parse(c.at)<3600e3)return;fgBusy=true;
+  try{const r=await fetchJSON('https://production.dataviz.cnn.io/index/fearandgreed/graphdata',{headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',Accept:'application/json',Referer:'https://edition.cnn.com/'},label:'CNN',timeout:20000});const fg=r.ok?parseFearGreed(r.body):null;if(fg){fs.mkdirSync(path.join(LOCAL,'risk'),{recursive:true});write('risk/feargreed.json',{at:new Date().toISOString(),fg});}}
+  catch{}finally{fgBusy=false;}
+}
+function contraInfo(){
+  if(!['TW','US'].includes(M().id))return null;void refreshFearGreed();
+  return buildContrarian({market:M().id,fg:read('risk/feargreed.json',null)?.fg||null,risk:read('risk/latest.json',null),closes:read('macro/index.json',null)?.closes||[]});
+}
+function riskInfo(){return{capable:riskCapable(),contra:contraInfo(),data:read('risk/latest.json',null),explain:read('risk/explain.json',null),busy:riskJob.busy,step:riskJob.step,total:riskJob.total,error:riskJob.error,llm:llmConfigured(),explainBusy:!!riskExplainBusy};}
 async function runRisk(){
   if(riskJob.busy||!riskCapable())return;
   riskJob={...riskJob,busy:true,step:0,error:''};
@@ -1171,7 +1183,7 @@ function macroInfo(){
   const mk=M().id,idx=read('macro/index.json',null);if(!['TW','US'].includes(mk))return{capable:false};
   if(!macroJob.busy&&(!idx||idx.at<today()||(mk==='TW'&&!idx.holidays)))void runMacro();
   const hol=new Set(),names=new Map();if(mk==='US'){const y=Number(today().slice(0,4));for(const yy of [y,y+1])for(const d of nyseHolidays(yy))hol.add(d);}else for(const h of idx?.holidays||[]){hol.add(h.date);names.set(h.date,h.name);}
-  const rk=read('risk/latest.json',null),data=idx?buildMacro({market:mk,closes:idx.closes,today:today(),holidays:hol,holidayNames:names,risk:rk?.risk??null,exposure:rk?.exposure??null}):null,ex=read('macro/explain.json',null);
+  const rk=read('risk/latest.json',null),data=idx?buildMacro({market:mk,closes:idx.closes,today:today(),holidays:hol,holidayNames:names,risk:rk?.risk??null,exposure:rk?.exposure??null,contra:contraInfo()}):null,ex=read('macro/explain.json',null);
   return{capable:true,data,busy:macroJob.busy,error:macroJob.error,llm:llmConfigured(),explain:ex&&data&&ex.date===data.date&&ex.market===mk?ex:null,explainBusy:macroJob.explainBusy};
 }
 async function explainMacro(){

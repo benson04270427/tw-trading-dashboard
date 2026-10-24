@@ -80,7 +80,7 @@ export function monthTrend(stat, pathChange = null) {
   return wide ? '震盪走低' : '修正回檔';
 }
 // 組成畫面資料
-export function buildMacro({ market, closes, today, holidays = new Set(), holidayNames = new Map(), horizon = 40, risk = null, exposure = null }) {
+export function buildMacro({ market, closes, today, holidays = new Set(), holidayNames = new Map(), horizon = 40, risk = null, exposure = null, contra = null }) {
   const c = closes.filter(x => x[1] > 0);
   if (c.length < 300) return { market, available: false };
   const last = c.at(-1), s = seasonal(c, { horizon }), dates = nextSessions(last[0], horizon, holidays);
@@ -92,7 +92,7 @@ export function buildMacro({ market, closes, today, holidays = new Set(), holida
   const notes = [...reopenNotes(dates, holidays, holidayNames, last[0]), ...evs].sort((a, b) => a.date.localeCompare(b.date));
   // 每月在推估路徑上的漲跌（月初前一個點到月底最後一點）
   const pathChange = (y, m) => { const key = `${y}-${String(m).padStart(2, '0')}`, idx = projection.map((p, i) => p[0].startsWith(key) ? i : -1).filter(i => i >= 0); if (idx.length < 5) return null; const a = idx[0] ? projection[idx[0] - 1][1] : last[1], b = projection[idx.at(-1)][1]; return r2((b / a - 1) * 100); };
-  return { version: MACRO_VERSION, market, available: true, indexName: market === 'US' ? 'S&P 500' : '加權指數', date: last[0], close: last[1], position: position(c), risk, exposure,
+  return { version: MACRO_VERSION, market, available: true, indexName: market === 'US' ? 'S&P 500' : '加權指數', date: last[0], close: last[1], position: position(c), risk, exposure, contra: contra?.available ? { score: contra.score, exposure: contra.exposure, label: contra.label } : null,
     recent: c.slice(-90), projection, notes, horizon, years: s?.years || 0, upProb: s?.upProb ?? null, endMedian: s ? r2(s.median.at(-1) * 100) : null,
     months: months.map((x, i) => { const pc = pathChange(x.y, x.m); return { ...x, ...stats[i], pathChange: pc, trend: monthTrend(stats[i], pc), events: monthEvents(market, x.y, x.m) }; }) };
 }

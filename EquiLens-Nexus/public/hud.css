@@ -951,3 +951,16 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 .mc-cursor{stroke:color-mix(in srgb,var(--text,var(--ink)) 70%,transparent);stroke-width:1.2}.mc-dot-on{fill:var(--amber);stroke:var(--bg,#0b1220);stroke-width:2}
 .mc-tip{fill:color-mix(in srgb,var(--bg,#0b1220) 88%,transparent);stroke:var(--line2)}.mc-tip-t{fill:var(--text,var(--ink));font-size:11.5px}.mc-tip-n{fill:var(--amber)}
 .mc-trend{font-size:.82rem;font-weight:700;letter-spacing:.05em}
+/* 逆勢布局 */
+.ct{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;display:flex;flex-direction:column;gap:8px}.ct-h{margin:0}
+.ct-top{display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:center}
+.ct-ring{width:160px;height:160px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--amber) calc(var(--p)*1%),color-mix(in srgb,var(--line) 70%,transparent) 0);position:relative}
+.ct-ring>div{width:136px;height:136px;border-radius:50%;background:var(--panel,var(--surface));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.ct-ring small{color:var(--muted);font-size:.74rem}.ct-ring b{font-size:2.1rem;line-height:1}.ct-ring b span{font-size:.9rem}.ct-ring em{font-style:normal;font-size:.74rem}
+.ct-gauges{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;text-align:center}.ct-gauges>div{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:.76rem}.ct-gauges span{color:var(--muted)}
+.ct-mini{width:100%;max-width:84px}.ct-arc,.ct-arc-on{fill:none;stroke-width:6;stroke-linecap:round}.ct-arc{stroke:color-mix(in srgb,var(--line) 80%,transparent)}.ct-arc-on{stroke:var(--amber)}
+.ct-needle{stroke:var(--text,var(--ink));stroke-width:2.2;stroke-linecap:round}.ct-hub{fill:var(--text,var(--ink))}
+.ct-fg,.ct-vs{margin:0;font-size:.84rem;color:var(--muted)}.ct-vs b{color:var(--text,var(--ink))}
+.ct-t-low{color:var(--amber)}.ct-t-lowish{color:var(--amber)}.ct-t-mid{color:var(--muted)}.ct-t-highish,.ct-t-high{color:var(--cyan,var(--accent))}
+.ct-line{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:.86rem;margin:6px 0}.ct-line em{font-style:normal}
+@media (max-width:560px){.ct-top{grid-template-columns:1fr;justify-items:center}.ct-gauges{width:100%}}
