@@ -123,7 +123,7 @@ loadMarketState();
 
 // 換市場：把目前市場的資料（股票清單、族群、自選、行情、紀錄）收進 .local/markets/<市場>/，再把目標市場先前收起來的資料搬回來
 const MARKET_FILE=/^(universe|groups|watchlist|watch-groups|evidence|last-job|news-seen|pattern-active|pattern-calendar|pattern-ledger|bulk-ledger|daytrade-prep|price-alerts|portfolio|portfolio-alerts|backtest)\.json$|^(heatmap|flows|grouprank|alerts|index|card)-\d{4}-\d{2}-\d{2}\.json$/;
-const MARKET_DIRS=['stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history','insiders'];
+const MARKET_DIRS=['cache','stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history','insiders'];
 function switchMarket(next){
   const cur=config().market;if(next===cur)return;
   if(job.running||flowBusy||heatBusy||reportBusy||livePending)throw new UserError('請等待更新完成或停止後，再切換市場');
@@ -634,6 +634,8 @@ async function tradingDates(){
 // 台股在地模組（券商分點、股權分散、期貨、融資、法人總覽）目前只有 FinMind 提供
 function finmind(cap){const fm=data.finmind();if(!fm||(cap&&!supports(PROVIDERS.finmind,cap)))throw new UserError('此功能需要台股 FinMind 資料源（{cap}）',{cap:t(CAPABILITIES[cap]||cap)});return fm;}
 const fmOpt=()=>({interval:settings.interval});
+// 使用者打開的個股資料（財報、河流圖、股利、目標價等）優先於背景工作
+const fmOptHi=()=>({interval:settings.interval,priority:'high'});
 const insightPending=new Map();
 function once(key,fn){if(!insightPending.has(key))insightPending.set(key,fn().finally(()=>insightPending.delete(key)));return insightPending.get(key);}
 async function brokerReport(id,n){
@@ -1119,19 +1121,28 @@ async function signalReport(id,{live=true}={}){
 }
 // 目標價：台股鉅亨網（FactSet 共識）、美股 Nasdaq；每檔快取 12 小時
 const targetCache=new Map();
+const targetBusy=new Set();
+// 每天研究更新後，先把持股與自選（最多 40 檔）的目標價、財報、河流圖、股利抓好存在磁碟，打開個股時就不用等
+let prefetchBusy=false;
+async function prefetchDeep(){
+  if(prefetchBusy||!['TW','US'].includes(M().id))return;prefetchBusy=true;
+  try{const ids=[...new Set([...readPortfolio().holdings.map(h=>h.id),...watchlist])].filter(validId).slice(0,40);
+    for(const id of ids){for(const f of [targetsReport,financialsReport,riverReport,dividendsReport]){try{await f(id);}catch{}}}}
+  finally{prefetchBusy=false;}
+}
 async function targetsReport(id){
   const mk=M().id;if(!['TW','US'].includes(mk))return{id,available:false,reason:t('目標價目前只支援台股與美股')};
   let c=targetCache.get(id);
   const name=uniIndex().meta.get(id)?.name||id;
-  if(!c||Date.now()-c.at>12*3600e3){
-    let raw=null,news=[],error='';
-    try{raw=mk==='TW'?await twTargets(id):await usTargets(id);}catch(e){error=e.message;raw=c?.raw||null;}
-    try{news=await newsTargets({market:mk,id,name});}catch(e){news=c?.news||[];error=error||e.message;}
-    c={at:Date.now(),raw,news,error};targetCache.set(id,c);
-  }
+  if(!c){const d=read(`cache/targets/${id}.json`,null);if(d?.at){c=d;targetCache.set(id,c);}}
+  // 共識與新聞並行抓取；有舊資料時先顯示舊的、背景更新（12 小時）
+  const refresh=async()=>{const [a,b]=await Promise.allSettled([mk==='TW'?twTargets(id):usTargets(id),newsTargets({market:mk,id,name})]);
+    const prev=targetCache.get(id),n={at:Date.now(),raw:a.status==='fulfilled'?a.value:prev?.raw||null,news:b.status==='fulfilled'?b.value:prev?.news||[],error:a.status==='rejected'?a.reason.message:b.status==='rejected'?b.reason.message:''};
+    targetCache.set(id,n);try{fs.mkdirSync(path.join(LOCAL,'cache/targets'),{recursive:true});write(`cache/targets/${id}.json`,n);}catch{}return n;};
+  if(!c)c=await refresh();else if(Date.now()-c.at>12*3600e3&&!targetBusy.has(id)){targetBusy.add(id);void refresh().finally(()=>targetBusy.delete(id));}
   // 近一年股價：本機日 K 不足一年時，台股向 FinMind 取 400 天（每檔每 6 小時最多 1 次）
   let rows=await signalRows(id);
-  if(rows.length<200&&mk==='TW'&&data.finmind()){const k='tp:'+id,h=signalCache.get(k);if(h&&Date.now()-h.at<6*3600e3)rows=h.rows;else{try{const r=await finmindRequest('TaiwanStockPrice',{data_id:id,start_date:minusDays(today(),400),end_date:today()},fmOpt());if(r.length>rows.length)rows=r;}catch{}signalCache.set(k,{at:Date.now(),rows});}}
+  if(rows.length<200&&mk==='TW'&&data.finmind()){const k='tp:'+id,h=signalCache.get(k);if(h&&Date.now()-h.at<6*3600e3)rows=h.rows;else{try{const r=await finmindRequest('TaiwanStockPrice',{data_id:id,start_date:minusDays(today(),400),end_date:today()},fmOptHi());if(r.length>rows.length)rows=r;}catch{}signalCache.set(k,{at:Date.now(),rows});}}
   const closes=rows.map(r=>[String(r.date).slice(0,10),Number(r.close)]).filter(x=>x[1]>0).slice(-250),live=liveRow(id,today());
   const price=Number(live?.close)>0?Number(live.close):closes.at(-1)?.[1]??null;
   const brokers=brokerTargets(c.news||[],{market:mk,name,id,price,today:today()});
@@ -1281,13 +1292,21 @@ setTimeout(()=>{if(!read('picks/latest.json',null)&&latestHeat())runPicks({push:
 /* ---------- 個股深入：財報、河流圖、股利、內部人、借券／放空、同業（K 線視窗分頁） ---------- */
 const deepCache=new Map();
 // 快取：同一個 key 在 ttl 內重用；失敗時沿用舊資料
-async function cached(key,ttl,fn){const c=deepCache.get(key);if(c&&Date.now()-c.at<ttl)return c.v;try{const v=await fn();deepCache.set(key,{at:Date.now(),v});if(deepCache.size>600)deepCache.delete(deepCache.keys().next().value);return v;}catch(e){if(c)return c.v;throw e;}}
+const deepBusy=new Set(),deepFile=key=>`cache/deep/${key.replace(/[^\w.-]/g,'_').slice(0,120)}.json`;
+// 也存到磁碟（重新啟動後不用重抓）；過期時先回傳舊資料、在背景更新（stale-while-revalidate）
+async function cached(key,ttl,fn){
+  let c=deepCache.get(key);if(!c){const d=read(deepFile(key),null);if(d?.at){c=d;deepCache.set(key,c);}}
+  if(c&&Date.now()-c.at<ttl)return c.v;
+  const run=async()=>{const v=await fn(),n={at:Date.now(),v};deepCache.set(key,n);if(deepCache.size>600)deepCache.delete(deepCache.keys().next().value);if(!(v instanceof Map||v instanceof Set))try{fs.mkdirSync(path.join(LOCAL,'cache/deep'),{recursive:true});write(deepFile(key),n);}catch{}return v;};
+  if(c){if(!deepBusy.has(key)){deepBusy.add(key);run().catch(()=>{}).finally(()=>deepBusy.delete(key));}return c.v;}
+  return run();
+}
 const nameOf=id=>uniIndex().meta.get(id)?.name||id;
 const sevenYears=()=>minusDays(today(),365*6+30);
 // 長期日 K（約 6 年，河流圖與填息用）：台股 FinMind、美股 Nasdaq；每檔每 12 小時最多 1 次
 async function longRows(id){
   return cached('long:'+id,12*3600e3,async()=>{
-    if(M().id==='TW'&&data.finmind())return finmindRequest('TaiwanStockPrice',{data_id:id,start_date:sevenYears(),end_date:today()},fmOpt());
+    if(M().id==='TW'&&data.finmind())return finmindRequest('TaiwanStockPrice',{data_id:id,start_date:sevenYears(),end_date:today()},fmOptHi());
     if(data.has('daily'))return(await data.daily(id,sevenYears(),today(),{})).price||[];
     return signalRows(id);
   });
@@ -1301,7 +1320,7 @@ async function finRaw(id){
   return cached('fin:'+id,24*3600e3,async()=>{
     if(mk==='TW'){
       if(!data.finmind())throw new UserError('需要 FinMind 才能取得台股財報');
-      const start=minusDays(today(),365*3+120),o=fmOpt();
+      const start=minusDays(today(),365*3+120),o=fmOptHi();
       const statements=await finmindRequest('TaiwanStockFinancialStatements',{data_id:id,start_date:start},o),balance=await finmindRequest('TaiwanStockBalanceSheet',{data_id:id,start_date:start},o),cashflow=await finmindRequest('TaiwanStockCashFlowsStatement',{data_id:id,start_date:start},o);
       const per=await finmindRequest('TaiwanStockPER',{data_id:id,start_date:sevenYears()},o);
       return{quarters:twQuarters({statements,balance,cashflow}),per,source:'FinMind（公開資訊觀測站財報）'};
@@ -1327,7 +1346,7 @@ async function riverReport(id){
 async function dividendsReport(id){
   const mk=deepMarket(),h=readPortfolio().holdings.find(x=>x.id===id);
   const raw=await cached('div:'+id,12*3600e3,async()=>{
-    if(mk==='TW'){if(!data.finmind())throw new UserError('需要 FinMind 才能取得台股股利資料');const o=fmOpt();return{events:twEvents(await finmindRequest('TaiwanStockDividend',{data_id:id,start_date:sevenYears()},o)),results:await finmindRequest('TaiwanStockDividendResult',{data_id:id,start_date:sevenYears()},o)};}
+    if(mk==='TW'){if(!data.finmind())throw new UserError('需要 FinMind 才能取得台股股利資料');const o=fmOptHi();return{events:twEvents(await finmindRequest('TaiwanStockDividend',{data_id:id,start_date:sevenYears()},o)),results:await finmindRequest('TaiwanStockDividendResult',{data_id:id,start_date:sevenYears()},o)};}
     const d=await nasdaqGet(`/quote/${encodeURIComponent(id)}/dividends?assetclass=stocks`,{});return{events:usEvents(d),results:[],header:{annual:Number(d?.annualizedDividend)||null,yield:Number(String(d?.yield||'').replace('%',''))||null}};
   });
   const closes=closesOf(await longRows(id));
@@ -1360,7 +1379,7 @@ async function insidersReport(id){
 }
 async function shortsReport(id){
   const mk=deepMarket();
-  if(mk==='TW'){if(!data.finmind())throw new UserError('需要 FinMind 才能取得借券賣出資料');const rows=await cached('sbl:'+id,6*3600e3,()=>finmindRequest('TaiwanDailyShortSaleBalances',{data_id:id,start_date:minusDays(today(),200)},fmOpt()));return buildTwShorts({id,name:nameOf(id),rows,price:await signalRows(id)});}
+  if(mk==='TW'){if(!data.finmind())throw new UserError('需要 FinMind 才能取得借券賣出資料');const rows=await cached('sbl:'+id,6*3600e3,()=>finmindRequest('TaiwanDailyShortSaleBalances',{data_id:id,start_date:minusDays(today(),200)},fmOptHi()));return buildTwShorts({id,name:nameOf(id),rows,price:await signalRows(id)});}
   const d=await cached('si:'+id,12*3600e3,()=>nasdaqGet(`/quote/${encodeURIComponent(id)}/short-interest?assetClass=stocks`,{})),f=read('zones/us-fund.json',{})[id]?.f,px=nowPrice(id,closesOf(await signalRows(id)));
   return buildUsShorts({id,name:nameOf(id),data:d,shares:f?.mcap>0&&px>0?f.mcap*1e6/px:null});
 }
@@ -1678,7 +1697,7 @@ async function refresh(scope, ids) {
     }
     job.message = controller.signal.aborted ? t('更新已停止，資料已保留') : t('已完成 {n} 檔更新', { n:job.done }) + (job.errors.length ? t('，部分資料未取得') : '');
   } catch (e) { job.message = e.message; job.errors.push({ message:e.message }); }
-  finally { job.running = false; job.finishedAt = new Date().toISOString(); job.dataset = null; write('last-job.json', job); invalidate(); void scanSignals().then(()=>runPicks()).then(()=>runZones()); }
+  finally { job.running = false; job.finishedAt = new Date().toISOString(); job.dataset = null; write('last-job.json', job); invalidate(); void scanSignals().then(()=>runPicks()).then(()=>runZones()).then(()=>prefetchDeep()); }
 }
 async function refreshPatternMarket(){
   controller=new AbortController();job={running:true,done:0,total:0,current:t('股票清單'),errors:[],message:t('準備全市場型態資料'),startedAt:new Date().toISOString()};write('last-job.json',job);

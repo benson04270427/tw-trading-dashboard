@@ -7,6 +7,8 @@ const r2 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 
 const num = v => { const n = Number(String(v ?? '').replace(/[$,\s]/g, '')); return Number.isFinite(n) && n > 0 ? n : null; };
 const strip = s => String(s || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
 
+// 股票名稱去掉證交所的標註（例如「國巨*」的 *、「-KY」），新聞標題才比對得到
+export const cleanName = n => String(n || '').replace(/[*＊]/g, '').replace(/[-－]KY$/i, '').trim();
 // 鉅亨網外資評等表格 → [{ date, broker, rating, change, eps, epsYear, target }]（新到舊）
 export function parseCnyesRatings(html) {
   const s = String(html || ''), i = s.indexOf('財測EPS'); if (i < 0) return [];
@@ -31,7 +33,7 @@ export function summarize(history, price, today = new Date().toISOString().slice
 }
 
 export async function twTargets(id, { signal } = {}) {
-  const r = await fetchJSON(`https://www.cnyes.com/twstock/foreignrating.aspx?code=${encodeURIComponent(id)}`, { headers: UA, signal, label: '鉅亨網', timeout: 20000, text: true });
+  const r = await fetchJSON(`https://www.cnyes.com/twstock/foreignrating.aspx?code=${encodeURIComponent(id)}`, { headers: UA, signal, label: '鉅亨網', timeout: 10000, text: true });
   if (!r.ok) throw new DataError('鉅亨網：資料服務回應 {status}', { status: r.status });
   return { source: '鉅亨網（FactSet 共識、外資券商）', history: parseCnyesRatings(r.body) };
 }
@@ -90,6 +92,7 @@ export function targetFromTitle(title, { market = 'TW', price = null } = {}) {
 }
 export function brokerTargets(items, { market = 'TW', name = '', id = '', price = null, today, days = 90 } = {}) {
   const list = market === 'US' ? BROKERS_US : BROKERS_TW, cut = new Date(Date.parse(today + 'T00:00:00Z') - days * 864e5).toISOString().slice(0, 10), best = new Map();
+  name = cleanName(name);
   const about = t => market === 'US' ? new RegExp(`\\b${id}\\b`, 'i').test(t) || (name && t.toLowerCase().includes(name.split(/\s+/)[0].toLowerCase())) : (name && t.includes(name)) || t.includes(id);
   const kw = market === 'US' ? /price target|target price|\bPT\b/i : /目標價/;
   for (const it of [...items].sort((a, b) => b.date.localeCompare(a.date))) {
@@ -101,10 +104,15 @@ export function brokerTargets(items, { market = 'TW', name = '', id = '', price 
   return [...best.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 export async function newsTargets({ market, id, name, signal }) {
-  const q = market === 'US' ? `${id} price target when:60d` : `${name || id} 目標價 when:60d`, loc = market === 'US' ? 'hl=en-US&gl=US&ceid=US%3Aen' : 'hl=zh-TW&gl=TW&ceid=TW%3Azh-Hant';
-  const r = await fetchJSON(`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${loc}`, { headers: UA, signal, label: 'Google 新聞', timeout: 20000, text: true });
-  if (!r.ok) throw new DataError('Google 新聞：資料服務回應 {status}', { status: r.status });
-  return parseRss(r.body);
+  // 多組關鍵字並行查詢（近 90 天），合併去除重複：名稱、代號、外資券商
+  const n = cleanName(name), loc = market === 'US' ? 'hl=en-US&gl=US&ceid=US%3Aen' : 'hl=zh-TW&gl=TW&ceid=TW%3Azh-Hant';
+  const qs = market === 'US' ? [`${id} price target when:90d`, `${id} analyst price target raised OR lowered when:90d`] : [...new Set([`${n || id} 目標價 when:90d`, `${id} 目標價 when:90d`, `${n || id} 外資 目標價 when:90d`])];
+  const res = await Promise.allSettled(qs.map(q => fetchJSON(`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${loc}`, { headers: UA, signal, label: 'Google 新聞', timeout: 12000, text: true })));
+  const ok = res.filter(r => r.status === 'fulfilled' && r.value.ok);
+  if (!ok.length) { const r = res.find(x => x.status === 'fulfilled')?.value; throw new DataError('Google 新聞：資料服務回應 {status}', { status: r?.status ?? '逾時' }); }
+  const seen = new Set(), out = [];
+  for (const r of ok) for (const it of parseRss(r.value.body)) { const k = it.link || it.title; if (seen.has(k)) continue; seen.add(k); out.push(it); }
+  return out;
 }
 
 // 組成畫面資料：price＝目前價格，closes＝近一年 [[date, close]]，brokers＝各家券商最新目標價（新聞）

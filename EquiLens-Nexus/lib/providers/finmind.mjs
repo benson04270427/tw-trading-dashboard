@@ -7,15 +7,17 @@ import { DataError, stopped, sleep, addDays } from './common.mjs';
 
 export const DATASETS = { price: 'TaiwanStockPrice', adjusted: 'TaiwanStockPriceAdj', institutions: 'TaiwanStockInstitutionalInvestorsBuySell', revenue: 'TaiwanStockMonthRevenue', valuation: 'TaiwanStockPER' };
 const tokenOf = t => t ?? getSecret('finmind', 'FINMIND_API_TOKEN');
-let lastRequest = 0, requestTail = Promise.resolve();
-
-// 所有 FinMind 請求共用一條佇列（含金鑰驗證），避免瞬間大量請求
+let lastRequest = 0;
+// 所有 FinMind 請求共用一條佇列（含金鑰驗證），避免瞬間大量請求；priority: 'high'（使用者正在看的畫面）排在背景工作前面
+const queue = { high: [], low: [] }; let pumping = false;
+async function pump() {
+  if (pumping) return; pumping = true;
+  try { while (queue.high.length || queue.low.length) { const job = (queue.high.length ? queue.high : queue.low).shift(); try { job.resolve(await job.run()); } catch (e) { job.reject(e); } } }
+  finally { pumping = false; }
+}
 // timeout：大型資料集（例如權證標的對照表約需 1 分鐘）可延長
-export async function request(dataset, params = {}, { interval = 7000, token, signal, timeout = 45000 } = {}) {
-  const previous = requestTail; let release;
-  requestTail = new Promise(r => release = r);
-  await previous;
-  try {
+export function request(dataset, params = {}, { interval = 7000, token, signal, timeout = 45000, priority } = {}) {
+  const run = async () => {
     const delay = Math.max(0, lastRequest + interval - Date.now());
     if (delay) await sleep(delay, signal);
     if (signal?.aborted) throw stopped();
@@ -25,7 +27,8 @@ export async function request(dataset, params = {}, { interval = 7000, token, si
     url.search = new URLSearchParams(path ? params : { dataset, ...params }).toString();
     lastRequest = Date.now();
     return await fetchData(url, secret, signal, dataset, timeout);
-  } finally { release(); }
+  };
+  return new Promise((resolve, reject) => { queue[priority === 'high' ? 'high' : 'low'].push({ run, resolve, reject }); void pump(); });
 }
 async function fetchData(url, secret, signal, label, timeout) {
   let response;

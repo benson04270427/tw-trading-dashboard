@@ -70,3 +70,9 @@ K 線視窗的兩個分頁：
 - `EquiLens-Nexus/lib/providers/sec.mjs`：`companyFacts`
 - `EquiLens-Nexus/server.mjs`：`/api/financials`、`/api/river`（`finRaw`、`longRows`）
 - `EquiLens-Nexus/public/research-ui.js`（與 Pocket 共用）：`financialsHTML`、`riverHTML`、`riverSVG`
+
+## 讀取速度
+
+- 財報、河流圖、股利、借券等資料存在磁碟（`cache/deep/`），重新啟動後不用重抓；超過有效期限（財報 24 小時、股價與股利 12 小時）時先顯示上次的結果，在背景更新。
+- FinMind 請求共用一條佇列（每次間隔依設定，預設 7 秒）；你打開的個股資料排在背景工作前面。
+- 每天研究更新完成後，會先替持股與自選（最多 40 檔）抓好目標價、財報、河流圖與股利。

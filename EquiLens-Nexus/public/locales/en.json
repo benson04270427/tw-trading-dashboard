@@ -4065,5 +4065,13 @@
   "搜尋失敗：{0}（剛更新程式的話，請先重新啟動衡析）": "Search failed: {0} (if the app was just updated, restart EquiLens first)",
   "搜尋代號或公司名稱，例如：COHR、NVDA": "Search a ticker or company name, e.g. COHR, NVDA",
   "搜尋股票名稱或代號，例如：國巨、2327": "Search a stock name or ticker, e.g. Yageo, 2327",
-  "輸入代號或公司名稱，例如：NVDA、Coherent": "Type a ticker or company name, e.g. NVDA, Coherent"
+  "輸入代號或公司名稱，例如：NVDA、Coherent": "Type a ticker or company name, e.g. NVDA, Coherent",
+  "{0} 外資 目標價 when:90d": "{0} foreign target price when:90d",
+  "{0} 目標價 when:90d": "{0} target price when:90d",
+  "逾時": "timed out",
+  "平均目標價{0}": "Average target{0}",
+  "最低目標價": "Lowest target",
+  "最高目標價": "Highest target",
+  "目前只有一個目標價來源（多半是 FactSet 共識，也就是多家分析師的平均），所以沒有最高、最低；近 90 天新聞出現個別券商的目標價時會自動列出。": "Only one target source is available (usually the FactSet consensus, an average of several analysts), so there is no high or low; individual broker targets appear automatically when they show up in news from the last 90 days.",
+  "（{0} 家）": " ({0} sources)"
 }

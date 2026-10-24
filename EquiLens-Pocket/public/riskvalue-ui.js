@@ -225,7 +225,8 @@ export function targetsHTML(d) {
   if (!d) return '<p class="ix-empty">讀取中…</p>';
   if (!d.available) return `<p class="ix-empty">${esc(d.reason || '這檔股票沒有目標價資料。')}${d.error ? `<br><small class="soft">${esc(d.error)}</small>` : ''}</p>`;
   const nd = v => fmt(v, v < 100 ? 2 : 0), up = v => v == null ? '—' : `<b class="num ${v > 0 ? 'up' : v < 0 ? 'down' : ''}">${sign(v, 2)}%</b>`, ymd = s => esc(String(s || '').slice(5).replace('-', '/'));
-  const head = `<div class="tg-top"><div><small>平均目標價</small><b class="num amber">${nd(d.mean)}</b></div><div><small>上漲空間</small>${up(d.upside)}</div></div>`;
+  const pct = v => v && d.price ? (v / d.price - 1) * 100 : null, single = !(d.count >= 2) || d.high === d.low;
+  const head = `<div class="tg-top"><div><small>平均目標價${d.count ? `（${d.count} 家）` : ''}</small><b class="num amber">${nd(d.mean)}</b></div><div><small>上漲空間</small>${up(d.upside)}</div>${single ? '' : `<div><small>最高目標價</small><b class="num">${nd(d.high)}</b>${up(pct(d.high))}</div><div><small>最低目標價</small><b class="num">${nd(d.low)}</b>${up(pct(d.low))}</div>`}</div>${single ? '<p class="soft tg-note">目前只有一個目標價來源（多半是 FactSet 共識，也就是多家分析師的平均），所以沒有最高、最低；近 90 天新聞出現個別券商的目標價時會自動列出。</p>' : ''}`;
   const legend = '<div class="tg-legend"><span><i class="tg-k-price"></i>股價</span><span><i class="tg-k-mean"></i>目標價</span></div>';
   const brokers = (d.brokers || []).length ? `<table class="tg-table tg-brokers"><thead><tr><th>券商名稱</th><th>目標價</th><th>上漲空間</th><th>發布日</th></tr></thead><tbody>${d.brokers.map(b => `<tr><td>${b.link ? `<a href="${esc(b.link)}" target="_blank" rel="noopener" title="${esc(b.title || '')}">${esc(b.broker)}</a>` : esc(b.broker)}${b.consensus ? ' <small class="soft">（多家平均）</small>' : ''}</td><td class="num">${nd(b.target)}</td><td>${up(b.upside)}</td><td class="num">${ymd(b.date)}</td></tr>`).join('')}</tbody></table>`
     : '<p class="ix-empty">近 90 天的新聞標題中沒有找到具名券商的目標價。</p>';
