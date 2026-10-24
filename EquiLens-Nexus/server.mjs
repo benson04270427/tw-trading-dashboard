@@ -1342,7 +1342,9 @@ async function portfolioReport({deep=true}={}){
   const index=read('macro/index.json',null)?.closes||[];if(!index.length&&['TW','US'].includes(mk))void runMacro();
   for(const h of pf.holdings){
     const meta=uniIndex().meta.get(h.id)||{},q=pfQuote(h.id,hm);let rows=[];
-    if(deep||!q){try{rows=await signalRows(h.id);}catch{}}
+    // 日 K：只用已有的（研究名單本機資料或快取），沒有的在背景下載，下次開啟就會有相對強弱與追蹤線
+    rows=raw[h.id]?.price||read(`stocks/${h.id}.json`,{}).price||signalCache.get(h.id)?.rows||[];
+    if(!rows.length&&deep)void signalRows(h.id).catch(()=>{});
     const c=closesOf(rows),last=c.at(-1);
     quotes.set(h.id,{...(q||(last?{close:last[1],prev:c.at(-2)?.[1]??null}:{})),name:meta.name||hm.get(h.id)?.name||h.id,sector:hm.get(h.id)?.sector||meta.sector||'',chain:mk==='TW'?AI_INDEX.get(h.id)||null:null});
     if(c.length){const r=relative(c,index);if(r)rs.set(h.id,r);const s=signalOf(rows,M());if(s&&!s.stopped)signals.set(h.id,s.side);}
