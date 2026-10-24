@@ -92,6 +92,10 @@ test('借券與放空、同業比較', () => {
   assert.equal(twPeers({ id: '2454', value }).rows.length, 3);
   const up = usPeers({ id: 'NVDA', heat: [{ id: 'NVDA', name: 'NVIDIA', sector: '科技', close: 200, money: 9 }, { id: 'AMD', name: 'AMD', sector: '科技', close: 100, money: 5 }], fund: new Map([['AMD', { pe: 40, revGrowth: 20, high52: 120 }]]) });
   assert.equal(up.rows.length, 2); assert.equal(up.rows[1].offHigh, -16.7);
+  // 美股有供應鏈分類時，用同一個位置的公司（矽光子 COHR → LITE、AAOI），不是整個大產業
+  const heat = [{ id: 'COHR', name: 'Coherent', sector: '科技', close: 200, money: 9 }, { id: 'MSFT', name: 'Microsoft', sector: '科技', close: 500, money: 99 }, { id: 'LITE', name: 'Lumentum', sector: '科技', close: 300, money: 5 }];
+  const cp = usPeers({ id: 'COHR', heat, fund: new Map([['MSFT', { pe: 30 }], ['AAOI', { pe: 50 }]]), chainOf: new Map([['COHR', '矽光子'], ['LITE', '矽光子'], ['AAOI', '矽光子']]), chains: { 矽光子: ['COHR', 'LITE', 'AAOI'] } });
+  assert.equal(cp.kind, 'chain'); assert.equal(cp.group, '矽光子'); assert.deepEqual(cp.rows.map(r => r.id), ['COHR', 'LITE', 'AAOI']);
 });
 
 test('回測：訊號交易、持有天數交易、組合權益與最大回撤', () => {
@@ -153,4 +157,22 @@ test('持股：成本 0（配股取得）也能保存，損益率不計算', () 
   assert.deepEqual(pf.holdings.map(h => h.id), ['3483']);
   const p = buildPortfolio({ holdings: pf.holdings, quotes: new Map([['3483', { close: 92.4, prev: 90, name: '力致' }]]) });
   assert.equal(p.rows[0].pnl, 2956.8); assert.equal(p.rows[0].pnlPct, null);
+});
+
+test('河流圖：獲利接近 0 的失真倍數不畫，波動大時提示', () => {
+  const days = []; for (let i = 0; i < 900; i++) days.push(new Date(Date.UTC(2023, 0, 2) + i * 86400000).toISOString().slice(0, 10));
+  // 前 60% 期間 EPS 接近 0（倍數上千），之後正常
+  const bad = days.map((d, i) => [d, 100, i < 540 ? 0.1 : 4]);
+  const r = buildRiver(bad, { kind: 'pe' });
+  assert.ok(r.unusable); assert.match(r.unusable, /獲利不穩定/);
+  // 少量失真點：剔除後照畫，但加上提示
+  const some = days.map((d, i) => [d, 100 + (i % 50), i % 6 === 0 ? 0.3 : 4 + (i % 7) / 10]);
+  const s = buildRiver(some, { kind: 'pe' });
+  assert.ok(!s.unusable); assert.ok(s.levels[4] < 150); assert.ok(s.warn); assert.ok(s.dropped > 0);
+  // 正常情況沒有提示
+  const ok = days.map((d, i) => [d, 100 + (i % 30), 5]);
+  const o = buildRiver(ok, { kind: 'pe' }); assert.equal(o.warn, null);
+  // 目前倍數就失真 → 不畫
+  const now = days.map((d, i) => [d, 100, i > 880 ? 0.2 : 5]);
+  assert.ok(buildRiver(now, { kind: 'pe' }).unusable);
 });

@@ -16,6 +16,18 @@ export const AI_CHAIN = {
   '光通訊與網通': ['3081', '4979', '3363', '3450', '4908', '6442', '2345', '5388', '4977', '3163'],
   '通路': ['3036', '3702'],
 };
+// 美股 AI 與周邊供應鏈：同業比較優先用這份分類（找不到才用 Nasdaq 產業）。人工整理，不是投資建議。
+export const US_AI_CHAIN = {
+  '矽光子與光通訊': ['COHR', 'LITE', 'AAOI', 'FN', 'CIEN', 'CRDO', 'MRVL', 'TSEM', 'GLW', 'POET', 'IPGP', 'NOK', 'CSCO', 'ANET'],
+  'AI 晶片與 IC 設計': ['NVDA', 'AMD', 'AVGO', 'INTC', 'QCOM', 'ARM', 'ALAB', 'MPWR', 'TXN', 'ADI', 'NXPI', 'ON', 'MCHP', 'SNPS', 'CDNS'],
+  '晶圓代工': ['TSM', 'GFS', 'UMC'],
+  '記憶體與儲存': ['MU', 'WDC', 'STX', 'SNDK', 'PSTG', 'NTAP'],
+  '半導體設備': ['ASML', 'AMAT', 'LRCX', 'KLAC', 'TER', 'ONTO', 'ENTG', 'AMKR', 'COHU', 'FORM', 'ACMR'],
+  '伺服器與網通設備': ['SMCI', 'DELL', 'HPE', 'JNPR', 'CLS', 'JBL', 'FLEX', 'APH'],
+  '電力與散熱': ['VRT', 'ETN', 'GEV', 'PWR', 'VST', 'CEG', 'MOD', 'NVT', 'HUBB', 'OKLO', 'BE', 'TLN'],
+  '雲端與 AI 平台': ['MSFT', 'GOOGL', 'AMZN', 'META', 'ORCL', 'CRWV', 'NBIS', 'PLTR', 'SNOW', 'NET'],
+};
+export const US_AI_INDEX = new Map(Object.entries(US_AI_CHAIN).flatMap(([chain, ids]) => ids.map(id => [id, chain])));
 // 代號 → 供應鏈位置
 export const AI_INDEX = new Map(Object.entries(AI_CHAIN).flatMap(([chain, ids]) => ids.map(id => [id, chain])));
 // 電子科技類產業（證交所／櫃買產業別）

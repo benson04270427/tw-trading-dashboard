@@ -3871,5 +3871,16 @@
  "（{0}）· 前日 {1}": "({0}) · previous {1}",
  "（{0}）· 前日 {1} · 一週前 {2} · 一個月前 {3}{4}": "({0}) · previous {1} · 1 week ago {2} · 1 month ago {3}{4}",
  "（市場恐慌就加部位）。{0}可依自己的操作方式擇一參考，或取兩者之間分批進出。": "(add when the market panics). {0}Use whichever fits your style, or scale in and out between the two.",
- "（市場過熱就降部位）；逆勢布局建議": "(cut when the market overheats); contrarian suggests"
+ "（市場過熱就降部位）；逆勢布局建議": "(cut when the market overheats); contrarian suggests",
+  "獲利不穩定（曾虧損或獲利接近 0），歷史倍數失真，河流圖參考性低": "Earnings unstable (past losses or near-zero EPS); historical multiples are distorted, so the river chart is not meaningful",
+  "獲利波動大，歷史倍數分散，河流圖僅供參考": "Earnings are volatile and historical multiples widely dispersed; use the river chart with caution",
+  "本益比河流圖不顯示：": "P/E river hidden: ",
+  "興櫃": "Emerging Stock",
+  "AI 晶片與 IC 設計": "AI chips & IC design",
+  "伺服器與網通設備": "Servers & networking hardware",
+  "半導體設備": "Semiconductor equipment",
+  "晶圓代工": "Foundry",
+  "矽光子與光通訊": "Silicon photonics & optical",
+  "電力與散熱": "Power & cooling",
+  "雲端與 AI 平台": "Cloud & AI platforms"
 }

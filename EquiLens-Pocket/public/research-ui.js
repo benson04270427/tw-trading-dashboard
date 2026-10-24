@@ -50,7 +50,7 @@ export function riverHTML(d, { kind = 'pe' } = {}) {
   const k = kind === 'pb' && d.pb ? 'pb' : d.pe ? 'pe' : 'pb', r = d[k], name = k === 'pe' ? '本益比' : '股價淨值比', base = k === 'pe' ? '近四季 EPS' : '每股淨值';
   const tabs = d.pb && d.pe ? `<div class="rv-strats">${[['pe', '本益比河流'], ['pb', '股價淨值比河流']].map(([v, l]) => `<button data-dd-river="${v}" class="${k === v ? 'selected' : ''}" aria-pressed="${k === v}">${l}</button>`).join('')}</div>` : '';
   const zone = `<b class="${r.zone === '偏低' ? 'cyan' : r.zone === '偏高' ? 'amber' : 'muted'}">${esc(r.zone)}</b>`;
-  const head = tiles([['目前' + name, `${fmt(r.multiple, 1)}×`, `${esc(r.years)} 年百分位 ${fmt(r.percentile, 0)}`], ['位置', zone], ['合理價（中位倍數）', px(r.fair), `${fmt(r.levels[2], 1)}× ${esc(base)} ${fmt(r.base, 2)}`], ['偏低／偏高價', `${px(r.cheap)}／${px(r.rich)}`, `${fmt(r.levels[1], 1)}×／${fmt(r.levels[3], 1)}×`]]);
+  const head = (d.note ? `<p class="dd-warn">⚠️ ${esc(d.note)}</p>` : '') + (r.warn ? `<p class="dd-warn">⚠️ ${esc(r.warn)}</p>` : '') + tiles([['目前' + name, `${fmt(r.multiple, 1)}×`, `${esc(r.years)} 年百分位 ${fmt(r.percentile, 0)}`], ['位置', zone], ['合理價（中位倍數）', px(r.fair), `${fmt(r.levels[2], 1)}× ${esc(base)} ${fmt(r.base, 2)}`], ['偏低／偏高價', `${px(r.cheap)}／${px(r.rich)}`, `${fmt(r.levels[1], 1)}×／${fmt(r.levels[3], 1)}×`]]);
   return `<div class="dd">${tabs}${head}<div class="tg-legend"><span><i class="tg-k-price"></i>股價</span><span><i class="dd-k-river"></i>${esc(name)}倍數通道</span></div>${riverSVG(r)}<p class="ix-foot">通道為過去 ${esc(r.years)} 年${esc(name)}的 10%、30%、50%、70%、90% 分位倍數，乘上當時的${esc(base)}（每週一點）。股價在下緣附近代表以自己的歷史來看偏便宜，反之偏貴；獲利大幅變動或產業轉型時，歷史倍數的參考性會下降。不是買賣建議。資料來源：${esc(d.source || '')}</p></div>`;
 }
 

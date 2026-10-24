@@ -130,16 +130,24 @@ export function nasdaqQuarters(data) {
 
 // ---- 估價河流圖 ----
 const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); if (!s.length) return null; const i = (s.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return s[lo] + (s[hi] - s[lo]) * (i - lo); };
+// 倍數上限：超過視為獲利接近 0 的失真點
+export const RIVER_CAP = { pe: 150, pb: 50 };
 // points：[[date, close, base]]（base＝近四季 EPS 或每股淨值，> 0），每週取一點
 export function buildRiver(points, { kind = 'pe', years = 5 } = {}) {
-  const p = points.filter(x => x[1] > 0 && x[2] > 0).sort((a, b) => a[0].localeCompare(b[0]));
-  if (p.length < 120) return null;
-  const cut = new Date(Date.parse(p.at(-1)[0]) - years * 365.25 * DAY).toISOString().slice(0, 10), w = p.filter(x => x[0] >= cut);
+  const all = points.filter(x => x[1] > 0 && x[2] > 0).sort((a, b) => a[0].localeCompare(b[0]));
+  if (all.length < 120) return null;
+  const cut = new Date(Date.parse(all.at(-1)[0]) - years * 365.25 * DAY).toISOString().slice(0, 10), inWin = all.filter(x => x[0] >= cut);
+  // 獲利接近 0 時倍數會爆掉（例如 EPS 0.17、本益比上千倍），這些點不算進通道；剩下太少或倍數分散太大就不畫
+  const cap = RIVER_CAP[kind] ?? Infinity, w = inWin.filter(x => x[1] / x[2] <= cap), dropped = inWin.length - w.length;
+  const why = '獲利不穩定（曾虧損或獲利接近 0），歷史倍數失真，河流圖參考性低';
+  if (w.length < 120 || dropped / inWin.length > 0.4) return { kind, unusable: why, dropped, total: inWin.length };
+  if (Math.abs(w.at(-1)[1] / w.at(-1)[2]) > cap || w.at(-1)[0] !== inWin.at(-1)[0]) return { kind, unusable: why, dropped, total: inWin.length };
   const mult = w.map(x => x[1] / x[2]), levels = [0.1, 0.3, 0.5, 0.7, 0.9].map(k => q(mult, k)).map(v => v < 10 ? r1(v) : Math.round(v));
   const weekly = w.filter((x, i) => i === w.length - 1 || new Date(x[0] + 'T00:00:00Z').getUTCDay() === 5 || (w[i + 1] && Date.parse(w[i + 1][0]) - Date.parse(x[0]) > 3 * DAY));
   const last = w.at(-1), now = last[1] / last[2], rank = mult.filter(v => v < now).length / mult.length * 100;
-  const zone = rank < 30 ? '偏低' : rank > 70 ? '偏高' : '合理';
-  return { kind, years: r1((Date.parse(last[0]) - Date.parse(w[0][0])) / DAY / 365.25), levels, series: weekly.map(x => [x[0], r2(x[1]), r2(x[2]), ...levels.map(l => r2(x[2] * l))]),
+  const zone = rank < 30 ? '偏低' : rank > 70 ? '偏高' : '合理', spread = levels[0] > 0 ? levels[4] / levels[0] : null;
+  const warn = dropped / inWin.length > 0.1 || spread > 4 ? '獲利波動大，歷史倍數分散，河流圖僅供參考' : null;
+  return { kind, warn, dropped, spread: r1(spread), years: r1((Date.parse(last[0]) - Date.parse(w[0][0])) / DAY / 365.25), levels, series: weekly.map(x => [x[0], r2(x[1]), r2(x[2]), ...levels.map(l => r2(x[2] * l))]),
     date: last[0], price: r2(last[1]), base: r2(last[2]), multiple: r1(now), percentile: r1(rank), zone, fair: r2(last[2] * levels[2]), cheap: r2(last[2] * levels[1]), rich: r2(last[2] * levels[3]) };
 }
 // 台股：TaiwanStockPER（PER、PBR）→ EPS＝收盤÷本益比、每股淨值＝收盤÷股價淨值比

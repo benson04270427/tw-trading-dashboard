@@ -37,7 +37,7 @@ import { buildContrarian, parseFearGreed } from './lib/contrarian.mjs';
 import { fetchJSON, rocDate } from './lib/providers/common.mjs';
 import { nyseHolidays } from './lib/providers/nasdaq.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
-import { SCOPES, AI_INDEX, AI_CHAIN } from './lib/aichain.mjs';
+import { SCOPES, AI_INDEX, AI_CHAIN, US_AI_INDEX, US_AI_CHAIN } from './lib/aichain.mjs';
 import { PICKS_VERSION, heatStocks, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh } from './lib/picks.mjs';
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
@@ -1279,9 +1279,13 @@ async function finRaw(id){
 async function financialsReport(id){const raw=await finRaw(id);return buildFinancials({id,name:nameOf(id),market:M().id,quarters:raw.quarters,source:raw.source,note:raw.note||''});}
 async function riverReport(id){
   const mk=deepMarket(),raw=await finRaw(id),closes=closesOf(await longRows(id));
-  const pe=buildRiver(mk==='TW'?twRiverPoints(raw.per||[],closes,'pe'):usRiverPoints(raw.quarters,closes),{kind:'pe'}),pb=mk==='TW'?buildRiver(twRiverPoints(raw.per||[],closes,'pb'),{kind:'pb'}):null;
+  let pe=buildRiver(mk==='TW'?twRiverPoints(raw.per||[],closes,'pe'):usRiverPoints(raw.quarters,closes),{kind:'pe'});let pb=mk==='TW'?buildRiver(twRiverPoints(raw.per||[],closes,'pb'),{kind:'pb'}):null;
+  const bad=[pe,pb].find(x=>x?.unusable);
+  if(!(pe&&!pe.unusable)&&!(pb&&!pb.unusable)&&bad)return{id,name:nameOf(id),market:mk,available:false,reason:t(bad.unusable)};
+  const note=pe?.unusable&&pb&&!pb.unusable?t('本益比河流圖不顯示：')+t(pe.unusable):null;
+  if(pe?.unusable)pe=null;if(pb?.unusable)pb=null;
   if(!pe&&!pb)return{id,name:nameOf(id),market:mk,available:false,reason:mk==='US'&&!raw.source.startsWith('SEC')?t('美股河流圖需要 SEC EDGAR 的每股盈餘歷史，請在「資料與設定」填入聯絡 email'):t('本益比或股價歷史不足，無法畫河流圖')};
-  return{id,name:nameOf(id),market:mk,available:true,pe,pb,source:raw.source};
+  return{id,name:nameOf(id),market:mk,available:true,pe,pb,note,source:raw.source};
 }
 async function dividendsReport(id){
   const mk=deepMarket(),h=readPortfolio().holdings.find(x=>x.id===id);
@@ -1323,10 +1327,18 @@ async function shortsReport(id){
   const d=await cached('si:'+id,12*3600e3,()=>nasdaqGet(`/quote/${encodeURIComponent(id)}/short-interest?assetClass=stocks`,{})),f=read('zones/us-fund.json',{})[id]?.f,px=nowPrice(id,closesOf(await signalRows(id)));
   return buildUsShorts({id,name:nameOf(id),data:d,shares:f?.mcap>0&&px>0?f.mcap*1e6/px:null});
 }
-function peersReport(id){
+async function peersReport(id){
   const mk=deepMarket(),heat=heatStocks(latestHeat());
   if(mk==='TW'){const value=read('value/inputs.json',null)?.rows||[];if(!value.length){void runScreen();return{id,available:false,reason:t('低估選股資料還沒取得，請稍候再試')};}return twPeers({id,value,heat,chainOf:AI_INDEX,chains:AI_CHAIN});}
-  const cache=read('zones/us-fund.json',{}),fund=new Map(Object.entries(cache).map(([k,v])=>[k,v.f]));return usPeers({id,heat,fund});
+  const seg=US_AI_INDEX.get(id);if(seg)await peerFund(US_AI_CHAIN[seg]);
+  const cache=read('zones/us-fund.json',{}),fund=new Map(Object.entries(cache).map(([k,v])=>[k,v.f]));const p=usPeers({id,heat,fund,chainOf:US_AI_INDEX,chains:US_AI_CHAIN});for(const r of p.rows||[])if(r.name===r.id)r.name=nameOf(r.id);return p;
+}
+// 同一個供應鏈位置但不在價值區抓取範圍的公司，補抓 Finnhub 基本面（每檔 1 個請求，3 天內取過不重取）
+async function peerFund(ids){
+  const key=await getSecret('finnhub','FINNHUB_API_KEY');if(!key)return;
+  const cache=read('zones/us-fund.json',{}),fresh=minusDays(today(),3);let n=0;
+  for(const id of ids){if(cache[id]?.at>=fresh)continue;try{const f=await finnhubFundamentals(id,{key,signal:AbortSignal.timeout(15e3)});if(f){cache[id]={at:today(),f};n++;}}catch(e){if(e.code==='quota'||e.code==='auth')break;}}
+  if(n){fs.mkdirSync(path.join(LOCAL,'zones'),{recursive:true});write('zones/us-fund.json',cache);}
 }
 
 /* ---------- 持股損益與健檢（.local/portfolio.json） ---------- */
@@ -1813,7 +1825,7 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/macro/explain'&&req.method==='POST')return json(res,200,await explainMacro());
     if(route==='/api/zones'&&req.method==='GET')return json(res,200,zonesInfo());
     if(route==='/api/zones/query'&&req.method==='POST'){if(zonesJob.busy)throw new UserError('策略選股計算中，請稍候');void runZones();await new Promise(r=>setTimeout(r,300));return json(res,202,zonesInfo());}
-    {const deep={'/api/financials':financialsReport,'/api/river':riverReport,'/api/dividends':dividendsReport,'/api/insiders':insidersReport,'/api/shorts':shortsReport,'/api/peers':async id=>peersReport(id)}[route];
+    {const deep={'/api/financials':financialsReport,'/api/river':riverReport,'/api/dividends':dividendsReport,'/api/insiders':insidersReport,'/api/shorts':shortsReport,'/api/peers':peersReport}[route];
       if(deep&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`${route}:${id}`,()=>deep(id)));}}
     if(route==='/api/portfolio'&&req.method==='GET')return json(res,200,await once('portfolio',()=>portfolioReport()));
     if(route==='/api/portfolio'&&req.method==='POST'){const b=await body(req);const pf=normalizePortfolio(b);for(const h of pf.holdings)if(!validId(h.id))throw new UserError('股票代碼格式錯誤：{id}',{id:h.id});write('portfolio.json',pf);void refreshCalendar(true);return json(res,200,await portfolioReport());}

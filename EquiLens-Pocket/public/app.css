@@ -677,3 +677,5 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 .ct-t-low{color:var(--amber)}.ct-t-lowish{color:var(--amber)}.ct-t-mid{color:var(--muted)}.ct-t-highish,.ct-t-high{color:var(--cyan,var(--accent))}
 .ct-line{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:.86rem;margin:6px 0}.ct-line em{font-style:normal}
 @media (max-width:560px){.ct-top{grid-template-columns:1fr;justify-items:center}.ct-gauges{width:100%}}
+
+.dd-warn { margin: 4px 0 8px; padding: 6px 10px; border-radius: 6px; background: rgba(255,176,32,.12); color: var(--amber, #ffb020); font-size: 12px; }

@@ -44,11 +44,16 @@ export function twPeers({ id, value = [], heat = [], chainOf = new Map(), chains
   return finishPeers({ id, group: seg || me?.sector || '', kind: seg ? 'chain' : 'sector', rows: out, cols: ['pe', 'pb', 'yield', 'revYoY', 'revCumYoY', 'change'] });
 }
 // 美股：同 Nasdaq 產業、成交金額前段的公司；fund＝Map(id → Finnhub 基本面)
-export function usPeers({ id, heat = [], fund = new Map(), max = 15 }) {
-  const me = heat.find(h => h.id === id); if (!me) return { id, available: false, reason: '找不到這檔股票的產業資料。' };
-  const same = heat.filter(h => h.sector === me.sector && (h.id === id || fund.has(h.id))).sort((a, b) => Number(b.id === id) - Number(a.id === id) || (b.money ?? 0) - (a.money ?? 0)).slice(0, max);
-  const rows = same.map(h => { const f = fund.get(h.id) || {}; return { id: h.id, name: h.name, close: h.close, change: h.change, money: h.money, pe: r1(f.pe) || null, revYoY: r1(f.revGrowth), epsYoY: r1(f.epsGrowth), offHigh: f.high52 > 0 && h.close ? r1((h.close / f.high52 - 1) * 100) : null, mcap: f.mcap ?? null, self: h.id === id }; });
-  return finishPeers({ id, group: me.sector, kind: 'sector', rows, cols: ['pe', 'revYoY', 'epsYoY', 'offHigh', 'change'] });
+// chainOf／chains：美股 AI 供應鏈分類（例如矽光子與光通訊），有分類時用同一個供應鏈位置的公司
+export function usPeers({ id, heat = [], fund = new Map(), chainOf = new Map(), chains = {}, max = 15 }) {
+  const me = heat.find(h => h.id === id), seg = chainOf.get(id);
+  if (!me && !seg) return { id, available: false, reason: '找不到這檔股票的產業資料。' };
+  const hv = new Map(heat.map(h => [h.id, h]));
+  const pool = seg ? chains[seg].map(x => hv.get(x) || (fund.has(x) ? { id: x, name: x } : null)).filter(Boolean) : heat.filter(h => h.sector === me.sector && (h.id === id || fund.has(h.id)));
+  if (seg && !pool.some(h => h.id === id)) pool.push(me || { id, name: id });
+  const same = pool.sort((a, b) => Number(b.id === id) - Number(a.id === id) || (b.money ?? 0) - (a.money ?? 0)).slice(0, max);
+  const rows = same.map(h => { const f = fund.get(h.id) || {}; return { id: h.id, name: h.name, close: h.close, change: h.change, money: h.money, pe: r1(f.pe) || null, revYoY: r1(f.revGrowth), epsYoY: r1(f.epsGrowth), offHigh: f.high52 > 0 && h.close > 0 ? r1((h.close / f.high52 - 1) * 100) : null, mcap: f.mcap ?? null, self: h.id === id }; });
+  return finishPeers({ id, group: seg || me.sector, kind: seg ? 'chain' : 'sector', rows, cols: ['pe', 'revYoY', 'epsYoY', 'offHigh', 'change'] });
 }
 // 每欄的中位數與這檔的排名（本益比、股價淨值比越低排越前，其餘越高越前）
 function finishPeers({ id, group, kind, rows, cols }) {
