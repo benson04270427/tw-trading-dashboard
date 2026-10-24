@@ -33,7 +33,7 @@ import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs, get as tws
 import { buildRisk, fetchRiskInputs, riskContext } from './lib/riskgauge.mjs';
 import { buildRiskUS, fetchRiskInputsUS, parseFred } from './lib/riskgauge-us.mjs';
 import { buildMacro } from './lib/macro.mjs';
-import { fetchJSON } from './lib/providers/common.mjs';
+import { fetchJSON, rocDate } from './lib/providers/common.mjs';
 import { nyseHolidays } from './lib/providers/nasdaq.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
 import { SCOPES, AI_INDEX, AI_CHAIN } from './lib/aichain.mjs';
@@ -1162,14 +1162,16 @@ async function runMacro(){
     if(M().id==='TW'){const rows=await finmindRequest('TaiwanStockPrice',{data_id:'TAIEX',start_date:start,end_date:today()},fmOpt());closes=rows.map(r=>[String(r.date).slice(0,10),Number(r.close)]).filter(x=>x[1]>0);}
     else{const r=await fetchJSON(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500&cosd=${start}`,{headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0 Safari/537.36'},label:'FRED',timeout:40000,text:true});if(!r.ok)throw new UserError('FRED：資料服務回應 {status}',{status:r.status});closes=parseFred(r.body);}
     if(closes.length<300)throw new UserError('指數歷史資料不足');
-    fs.mkdirSync(path.join(LOCAL,'macro'),{recursive:true});write('macro/index.json',{at:today(),closes});
+    // 台股休市日（證交所公告，含名稱）：推估路徑略過休市日，並標出連假後開市
+    let holidays=[];if(M().id==='TW'){try{holidays=(await twseGet('https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule',{})).filter(h=>!/交易日/.test(h.Name)).map(h=>({date:rocDate(h.Date),name:String(h.Name||'').replace(/[（(].*$/,'').trim()})).filter(h=>h.date);}catch{}}
+    fs.mkdirSync(path.join(LOCAL,'macro'),{recursive:true});write('macro/index.json',{at:today(),closes,holidays});
   }catch(e){macroJob.error=e.message;}finally{macroJob.busy=false;}
 }
 function macroInfo(){
   const mk=M().id,idx=read('macro/index.json',null);if(!['TW','US'].includes(mk))return{capable:false};
-  if(!macroJob.busy&&(!idx||idx.at<today()))void runMacro();
-  const hol=new Set();if(mk==='US'){const y=Number(today().slice(0,4));for(const yy of [y,y+1])for(const d of nyseHolidays(yy))hol.add(d);}
-  const data=idx?buildMacro({market:mk,closes:idx.closes,today:today(),holidays:hol,risk:read('risk/latest.json',null)?.risk??null}):null,ex=read('macro/explain.json',null);
+  if(!macroJob.busy&&(!idx||idx.at<today()||(mk==='TW'&&!idx.holidays)))void runMacro();
+  const hol=new Set(),names=new Map();if(mk==='US'){const y=Number(today().slice(0,4));for(const yy of [y,y+1])for(const d of nyseHolidays(yy))hol.add(d);}else for(const h of idx?.holidays||[]){hol.add(h.date);names.set(h.date,h.name);}
+  const rk=read('risk/latest.json',null),data=idx?buildMacro({market:mk,closes:idx.closes,today:today(),holidays:hol,holidayNames:names,risk:rk?.risk??null,exposure:rk?.exposure??null}):null,ex=read('macro/explain.json',null);
   return{capable:true,data,busy:macroJob.busy,error:macroJob.error,llm:llmConfigured(),explain:ex&&data&&ex.date===data.date&&ex.market===mk?ex:null,explainBusy:macroJob.explainBusy};
 }
 async function explainMacro(){

@@ -60,15 +60,39 @@ export function monthEvents(market, y, m) {
   }
   return ev;
 }
+// 休市後第一個交易日：「連假後開市」提醒（休市日不含週末；names＝Map(日期 → 休市名稱)）
+export function reopenNotes(dates, holidays = new Set(), names = new Map(), last = null) {
+  const out = []; let prev = last;
+  for (const d of dates) {
+    if (prev) { const gap = []; for (let t = Date.parse(prev + 'T00:00:00Z') + 864e5; t < Date.parse(d + 'T00:00:00Z'); t += 864e5) { const x = new Date(t).toISOString().slice(0, 10); if (holidays.has(x)) gap.push(x); } if (gap.length) { const nm = names.get(gap[0]) || ''; out.push({ date: d, text: `${nm ? nm + '連假' : '休市'}後開市，觀察賣壓是否延續`, kind: 'reopen' }); } }
+    prev = d;
+  }
+  return out;
+}
+// 每月走勢標籤：該月推估路徑的漲跌（沒有時用歷史平均），加上歷史最佳／最差的差距判斷「震盪」
+export function monthTrend(stat, pathChange = null) {
+  if (!stat?.years && pathChange == null) return null;
+  const v = pathChange ?? stat.avg, wide = stat?.years ? stat.best - stat.worst >= 8 : true;
+  if (v >= 1.5) return wide ? '震盪走高' : '穩步走高';
+  if (v >= 0.3) return '震盪偏多';
+  if (v > -0.3) return '區間整理';
+  if (v > -1.5) return '震盪偏弱';
+  return wide ? '震盪走低' : '修正回檔';
+}
 // 組成畫面資料
-export function buildMacro({ market, closes, today, holidays = new Set(), horizon = 40, risk = null }) {
+export function buildMacro({ market, closes, today, holidays = new Set(), holidayNames = new Map(), horizon = 40, risk = null, exposure = null }) {
   const c = closes.filter(x => x[1] > 0);
   if (c.length < 300) return { market, available: false };
   const last = c.at(-1), s = seasonal(c, { horizon }), dates = nextSessions(last[0], horizon, holidays);
   const projection = s ? dates.map((d, k) => [d, r2(last[1] * (1 + s.median[k])), r2(last[1] * (1 + s.p25[k])), r2(last[1] * (1 + s.p75[k]))]) : [];
   const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7)), months = [0, 1, 2].map(k => { const mm = (m - 1 + k) % 12 + 1; return { y: y + Math.floor((m - 1 + k) / 12), m: mm }; });
   const stats = monthStats(c, months.map(x => x.m));
-  return { version: MACRO_VERSION, market, available: true, indexName: market === 'US' ? 'S&P 500' : '加權指數', date: last[0], close: last[1], position: position(c), risk,
-    recent: c.slice(-90), projection, horizon, years: s?.years || 0, upProb: s?.upProb ?? null, endMedian: s ? r2(s.median.at(-1) * 100) : null,
-    months: months.map((x, i) => ({ ...x, ...stats[i], events: monthEvents(market, x.y, x.m) })) };
+  // 推估路徑上的提醒：日期明確的重點事件，加上連假後開市
+  const evs = months.flatMap(x => monthEvents(market, x.y, x.m)).filter(e => /^\d{4}-\d{2}-\d{2}$/.test(e.date) && dates.includes(e.date)).map(e => ({ date: e.date, text: e.text, kind: 'event' }));
+  const notes = [...reopenNotes(dates, holidays, holidayNames, last[0]), ...evs].sort((a, b) => a.date.localeCompare(b.date));
+  // 每月在推估路徑上的漲跌（月初前一個點到月底最後一點）
+  const pathChange = (y, m) => { const key = `${y}-${String(m).padStart(2, '0')}`, idx = projection.map((p, i) => p[0].startsWith(key) ? i : -1).filter(i => i >= 0); if (idx.length < 5) return null; const a = idx[0] ? projection[idx[0] - 1][1] : last[1], b = projection[idx.at(-1)][1]; return r2((b / a - 1) * 100); };
+  return { version: MACRO_VERSION, market, available: true, indexName: market === 'US' ? 'S&P 500' : '加權指數', date: last[0], close: last[1], position: position(c), risk, exposure,
+    recent: c.slice(-90), projection, notes, horizon, years: s?.years || 0, upProb: s?.upProb ?? null, endMedian: s ? r2(s.median.at(-1) * 100) : null,
+    months: months.map((x, i) => { const pc = pathChange(x.y, x.m); return { ...x, ...stats[i], pathChange: pc, trend: monthTrend(stats[i], pc), events: monthEvents(market, x.y, x.m) }; }) };
 }

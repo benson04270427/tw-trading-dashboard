@@ -68,3 +68,19 @@ test('新聞標題擷取各家券商目標價', () => {
   const us = brokerTargets([{ date: '2026-10-20', title: 'Morgan Stanley lifts NVDA price target to $310', link: 'e' }, { date: '2026-10-19', title: 'Apple price target raised to $300 by Citi', link: 'f' }], { market: 'US', name: 'NVIDIA Corporation', id: 'NVDA', price: 212, today: '2026-10-24' });
   assert.deepEqual(us.map(x => [x.broker, x.target]), [['Morgan Stanley', 310]]);
 });
+
+test('總經大地圖：連假後開市提醒、每月走勢標籤、推估路徑上的事件', async () => {
+  const { reopenNotes, monthTrend } = await import('../lib/macro.mjs');
+  const hol = new Set(['2026-10-09', '2026-10-26']), names = new Map([['2026-10-09', '國慶日'], ['2026-10-26', '光復節']]);
+  const n = reopenNotes(['2026-10-08', '2026-10-12', '2026-10-13', '2026-10-27'], hol, names, '2026-10-07');
+  assert.deepEqual(n.map(x => [x.date, x.text]), [['2026-10-12', '國慶日連假後開市，觀察賣壓是否延續'], ['2026-10-27', '光復節連假後開市，觀察賣壓是否延續']]);
+  assert.equal(monthTrend({ years: 10, avg: 2, best: 8, worst: -6 }), '震盪走高');
+  assert.equal(monthTrend({ years: 10, avg: 2, best: 4, worst: -2 }), '穩步走高');
+  assert.equal(monthTrend({ years: 10, avg: 0.1, best: 4, worst: -2 }), '區間整理');
+  assert.equal(monthTrend({ years: 10, avg: 1, best: 9, worst: -9 }, -2), '震盪走低');
+  assert.equal(monthTrend(null), null);
+  const closes = []; for (let i = 0; i < 2600; i++) { const d = new Date(Date.UTC(2016, 0, 4) + i * 864e5); if (d.getUTCDay() % 6) closes.push([d.toISOString().slice(0, 10), 100 + i * 0.05 + Math.sin(i / 9) * 3]); }
+  const last = closes.at(-1)[0], m = buildMacro({ market: 'US', closes, today: last, exposure: 30 });
+  assert.equal(m.exposure, 30); assert.ok(Array.isArray(m.notes)); assert.ok(m.months.every(x => 'trend' in x));
+  assert.ok(m.notes.every(z => m.projection.some(p => p[0] === z.date)));
+});

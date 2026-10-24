@@ -3825,5 +3825,19 @@
  "🩳 借券賣出與放空": "🩳 Short selling",
  "（{0} 檔，依成交金額）": "({0} stocks, by turnover)",
  "（全市場 {0} 檔已公告）": "({0} announced market-wide)",
- "（風險 {0} {1}）": "(risk {0} {1})"
+ "（風險 {0} {1}）": "(risk {0} {1})",
+ "{0}後開市，觀察賣壓是否延續": "Market reopens after {0}; watch whether selling continues",
+ "修正回檔": "Correction",
+ "區間整理": "Range-bound",
+ "時間：{0}": "Date: {0}",
+ "穩步走高": "Steady rise",
+ "連假": "holiday",
+ "震盪偏多": "Choppy, mildly up",
+ "震盪偏弱": "Choppy, mildly down",
+ "震盪走低": "Choppy decline",
+ "震盪走高": "Choppy rise",
+ "預估 {0}": "Projected {0}",
+ "預估 {0}（{1}～{2}）": "Projected {0} ({1}–{2})",
+ "預估指數＝目前收盤 ×（過去 {0} 年同一時間點之後各交易日報酬的中位數），區間為 25%～75% 分位；高低點標示近 90 個交易日的最高與最低，路徑終點標示歷史同期上漲機率；路徑上的大圓點是重點事件與連假後開市，滑鼠移到圖上（手機點一下）可看該日的指數與提醒。每月的走勢標籤依該月推估路徑的漲跌（沒有時用歷史平均）判斷。這是歷史季節性的統計，不是預測，也不是買賣建議。事件日期依例行規則與已公布的排程，實際以官方公告為準。": "Projected index = latest close × (median return of each following session at the same point in the past {0} years), with the 25%–75% range; tags mark the high and low of the last 90 sessions and the path end shows the historical chance of a rise. Large dots on the path are key events and reopenings after holidays; hover over the chart (tap on a phone) to see the index and note for that day. Each month's trend label comes from that month's change along the projected path (or the historical average). This is historical seasonality, not a forecast or trading advice. Event dates follow routine rules and published schedules; official announcements prevail.",
+ "風控分數／建議持股": "Risk score / suggested exposure"
 }
