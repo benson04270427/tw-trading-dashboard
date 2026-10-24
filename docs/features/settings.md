@@ -40,3 +40,7 @@
 ## 相關檔案
 
 `EquiLens-Nexus/lib/config.mjs`、`lib/providers/`、`lib/secrets.mjs`、`public/setup.js`、`public/prefs.js`；設定 `.local/config.json`、`.local/settings.json`。
+
+## FinMind 請求間隔
+
+「更新與評分偏好」的請求間隔可選 13、7、6.5、3、1 秒，預設 6.5 秒（約每小時 553 次，註冊免費方案每小時上限 600 次）。原本使用預設 7 秒的設定會自動改為 6.5 秒一次。付費方案可選更短的間隔。

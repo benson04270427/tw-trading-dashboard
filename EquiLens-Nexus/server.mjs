@@ -66,7 +66,7 @@ import { normalizeWatchGroups, editWatchGroups, setWatch } from './lib/watchgrou
 export const APP_VERSION='3.0.0';
 const PORT = Number(process.env.PORT || 4330), ORIGIN = `http://127.0.0.1:${PORT}`;
 const csrf = crypto.randomBytes(32).toString('hex');
-const defaults = { weights: WEIGHTS, updateTime: '19:30', autoUpdate: true, interval: 7000, autoScope: 'all', lastAutoDate: null };
+const defaults = { weights: WEIGHTS, updateTime: '19:30', autoUpdate: true, interval: 6500, autoScope: 'all', lastAutoDate: null };
 // 目前研究的市場（一套衡析研究一個市場；時區、交易時段、代號格式都由市場設定決定）
 const M=()=>activeMarket(), today=()=>marketToday(), clock=()=>localParts(M());
 const validId=id=>typeof id==='string'&&safeSymbol(id)&&M().symbolRe.test(id);
@@ -76,6 +76,8 @@ const idleJob=()=>({running:false,done:0,total:0,current:null,dataset:null,error
 
 /* ---------- 狀態（切換市場時整組重新載入） ---------- */
 let settings = { ...defaults, ...read('settings.json', {}) };
+// FinMind 請求間隔：舊預設 7 秒改為 6.5 秒（註冊免費方案每小時 600 次的安全值），只轉換一次
+if (settings.interval === 7000 && !settings.intervalV2) { settings.interval = 6500; settings.intervalV2 = 1; try { write('settings.json', settings); } catch { } }
 let researchScope, universe, raw, evidence, watchlist, watchGroups, job, controller, marketCache, scopeError='';
 let flowBusy=false,heatBusy=false,reportBusy=false;
 let liveHeat=null,livePending=null,lastSnap=null,monitorPauseUntil=0,monitorError='';
@@ -1122,11 +1124,11 @@ async function signalReport(id,{live=true}={}){
 // 目標價：台股鉅亨網（FactSet 共識）、美股 Nasdaq；每檔快取 12 小時
 const targetCache=new Map();
 const targetBusy=new Set();
-// 每天研究更新後，先把持股與自選（最多 40 檔）的目標價、財報、河流圖、股利抓好存在磁碟，打開個股時就不用等
+// 每天研究更新後，先把持股、自選與研究名單（依序，最多 100 檔）的目標價、財報、河流圖、股利抓好存在磁碟，打開個股時就不用等
 let prefetchBusy=false;
 async function prefetchDeep(){
   if(prefetchBusy||!['TW','US'].includes(M().id))return;prefetchBusy=true;
-  try{const ids=[...new Set([...readPortfolio().holdings.map(h=>h.id),...watchlist])].filter(validId).slice(0,40);
+  try{const ids=[...new Set([...readPortfolio().holdings.map(h=>h.id),...watchlist,...scopeIds(researchScope)])].filter(validId).slice(0,100);
     for(const id of ids){for(const f of [targetsReport,financialsReport,riverReport,dividendsReport]){try{await f(id);}catch{}}}}
   finally{prefetchBusy=false;}
 }
@@ -1793,7 +1795,7 @@ function importBundle(b,parts){
     if(/^([01]\d|2[0-3]):[0-5]\d$/.test(s.updateTime||''))next.updateTime=s.updateTime;
     if(typeof s.autoUpdate==='boolean')next.autoUpdate=s.autoUpdate;
     if(['watchlist','all'].includes(s.autoScope))next.autoScope=s.autoScope;
-    if([7000,13000,3000,1000].includes(s.interval))next.interval=s.interval;
+    if([6500,7000,13000,3000,1000].includes(s.interval))next.interval=s.interval;
     if(typeof s.monitor==='boolean')next.monitor=s.monitor;
     if(validRadarInput(s.radar))next.radar=normalizeRadar(s.radar);
     if(validNewsInput(s.news))next.news=normalizeNews(s.news);
@@ -2189,7 +2191,7 @@ const server = http.createServer(async (req,res) => {
     }
     if (route === '/api/settings' && req.method === 'POST') {
       const b = await body(req);
-      if (!validateWeights(b.weights) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.updateTime) || ![7000,13000,3000,1000].includes(b.interval) || !['watchlist','all'].includes(b.autoScope) || typeof b.autoUpdate !== 'boolean') throw new UserError('設定無效，四項權重合計須為 100%');
+      if (!validateWeights(b.weights) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.updateTime) || ![6500,7000,13000,3000,1000].includes(b.interval) || !['watchlist','all'].includes(b.autoScope) || typeof b.autoUpdate !== 'boolean') throw new UserError('設定無效，四項權重合計須為 100%');
       settings = { ...settings, weights:b.weights, updateTime:b.updateTime, interval:b.interval, autoScope:b.autoScope, autoUpdate:b.autoUpdate }; saveSettings(); setInterval_('finmind',settings.interval); invalidate(); return json(res,200,{ ok:true });
     }
     if (route === '/api/news' && req.method === 'POST') {

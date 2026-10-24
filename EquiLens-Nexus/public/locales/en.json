@@ -4073,5 +4073,8 @@
   "最低目標價": "Lowest target",
   "最高目標價": "Highest target",
   "目前只有一個目標價來源（多半是 FactSet 共識，也就是多家分析師的平均），所以沒有最高、最低；近 90 天新聞出現個別券商的目標價時會自動列出。": "Only one target source is available (usually the FactSet consensus, an average of several analysts), so there is no high or low; individual broker targets appear automatically when they show up in news from the last 90 days.",
-  "（{0} 家）": " ({0} sources)"
+  "（{0} 家）": " ({0} sources)",
+  "6.5 秒": "6.5 s",
+  "6.5 秒 · 約 553 次 / 小時（註冊免費方案建議）": "6.5 s · about 553 / hour (recommended for registered free plan)",
+  "約 553 次 / 小時（註冊免費方案建議）": "about 553 / hour (recommended for registered free plan)"
 }
