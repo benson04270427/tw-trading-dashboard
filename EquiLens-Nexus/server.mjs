@@ -1349,7 +1349,7 @@ async function portfolioReport({deep=true}={}){
     if(!rows.length&&deep)void signalRows(h.id).catch(()=>{});
     const c=closesOf(rows),last=c.at(-1);
     const e=esb.get(h.id);
-    quotes.set(h.id,{...(q||(last?{close:last[1],prev:c.at(-2)?.[1]??null}:e?.close>0?{close:e.close,prev:e.prev}:{})),name:meta.name||hm.get(h.id)?.name||e?.name||h.id,sector:hm.get(h.id)?.sector||meta.sector||(e?'興櫃':''),chain:mk==='TW'?AI_INDEX.get(h.id)||null:null});
+    quotes.set(h.id,{...(q||(last?{close:last[1],prev:c.at(-2)?.[1]??null}:e?.close>0?{close:e.close,prev:e.prev}:{})),name:(meta.name&&meta.name!==h.id?meta.name:null)||hm.get(h.id)?.name||e?.name||h.id,sector:hm.get(h.id)?.sector||meta.sector||(e?'興櫃':''),chain:mk==='TW'?AI_INDEX.get(h.id)||null:null});
     if(c.length){const r=relative(c,index);if(r)rs.set(h.id,r);const s=signalOf(rows,M());if(s&&!s.stopped)signals.set(h.id,s.side);}
   }
   const z=read('zones/latest.json',null),pk=read('picks/latest.json',null),ideas=[...(z?.zones?.value||[]).map(x=>({...x,from:'value'})),...(z?.zones?.heat||[]).map(x=>({...x,from:'heat'})),...(pk?.picks||[]).map(x=>({...x,from:'picks'}))].map(x=>({id:x.id,name:x.name,sector:x.sector||hm.get(x.id)?.sector||'',chain:x.chain||null,from:x.from,names:z?.names||ZONE_NAMES[mk]}));
