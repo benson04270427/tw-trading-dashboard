@@ -2082,6 +2082,7 @@
  "熱浪": "Heatmap",
  "熱浪圖 ›": "Heatmap ›",
  "熱浪圖自動更新失敗：": "Heatmap auto-update failed:",
+ "補抓收盤後更新：熱浪圖查詢失敗：": "Catch-up update: heatmap query failed:",
  "熱浪圖紀錄": "Heatmap records",
  "熱浪圖資料尚未取得": "Heatmap data not available yet",
  "盤中": "Intraday",
