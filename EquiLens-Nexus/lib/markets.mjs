@@ -53,6 +53,21 @@ export function localParts(p, now = new Date()) {
 }
 export const localDate = (p, now) => localParts(p, now).date;
 export const isWeekday = (p, now) => { const w = localParts(p, now).weekday; return w >= 1 && w <= 5; };
+// 前一個平日（不判斷國定假日；休市日由熱浪圖的交易日曆確認）
+export function prevWeekday(date) {
+  const d = new Date(date + 'T12:00:00Z');
+  do d.setUTCDate(d.getUTCDate() - 1); while ([0, 6].includes(d.getUTCDay()));
+  return d.toISOString().slice(0, 10);
+}
+// 補抓錯過的收盤後更新：電腦在每日更新時間到午夜之間關機或睡眠時，週末與隔天早上不會再自動更新。
+// 週末、或平日在每日更新時間前，本機最新資料早於前一個平日時，每天最多補抓一次（盤中與收盤後 90 分鐘內不補抓）。
+export function catchupDue(x, { updateTime, newest, last, open = 0, close = 0 }) {
+  if (!newest || last === x.date) return false;
+  const weekday = x.weekday >= 1 && x.weekday <= 5;
+  if (weekday && x.hm >= updateTime) return false;
+  if (weekday && x.minute >= open && x.minute < close + 90) return false;
+  return newest < prevWeekday(x.date);
+}
 export const minuteOf = t => { const m = /(\d{2}):(\d{2})/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
 
 // 盤中（含收盤後撮合的緩衝時間）：平日、開盤到收盤＋settle 分鐘；國定假日由資料日期判斷

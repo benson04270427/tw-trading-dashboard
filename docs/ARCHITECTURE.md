@@ -13,7 +13,7 @@ mobile UI and Web Push relay. There is no database and no build step: plain ES m
 
 | Module | Role |
 |---|---|
-| `server.mjs` | HTTP server, API routes, schedulers (intraday monitor, close records, news push, AI report, daily update), market switching |
+| `server.mjs` | HTTP server, API routes, schedulers (intraday monitor, close records, news push, AI report, daily update and its catch-up for a missed day, `catchupDue` in `lib/markets.mjs`), market switching |
 | `lib/config.mjs` | `.local/config.json`: market, language, enabled data sources and preferences, AI model, up/down colors, and remote access (Pocket connection mode and domains, push contact, desktop Cloudflare Access settings). Legacy installs and `remote.json` are migrated automatically |
 | `lib/markets.mjs` | Market profiles: time zone, sessions (with lunch breaks), settle minutes, lot size, tick tables, price limits, symbol format, replay scales. All time / price rules come from here |
 | `lib/secrets.mjs` | API keys via Windows DPAPI, macOS Keychain or Secret Service (file fallback); environment variables take priority |

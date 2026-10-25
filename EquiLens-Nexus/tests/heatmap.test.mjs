@@ -86,3 +86,25 @@ test('live window is weekdays 09:00-13:35 Taipei', () => {
   assert.equal(at('2026-09-30T05:35:00Z'), false); // 13:35
   assert.equal(at('2026-10-03T02:00:00Z'), false); // Sat
 });
+
+test('catch-up after a missed after-close update: weekends and next morning, once per day, not intraday', async () => {
+  const { catchupDue, prevWeekday } = await import('../lib/markets.mjs');
+  assert.equal(prevWeekday('2026-10-25'), '2026-10-23');
+  assert.equal(prevWeekday('2026-10-24'), '2026-10-23');
+  assert.equal(prevWeekday('2026-10-26'), '2026-10-23');
+  assert.equal(prevWeekday('2026-10-27'), '2026-10-26');
+  const o = { updateTime: '19:30', open: 540, close: 810 };
+  const at = (date, weekday, hm) => ({ date, weekday, hm, minute: Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3)) });
+  // 週六：最新資料停在週四 → 補抓；已是週五 → 不用
+  assert.equal(catchupDue(at('2026-10-24', 6, '10:00'), { ...o, newest: '2026-10-22' }), true);
+  assert.equal(catchupDue(at('2026-10-24', 6, '10:00'), { ...o, newest: '2026-10-23' }), false);
+  // 同一天只補一次
+  assert.equal(catchupDue(at('2026-10-24', 6, '10:00'), { ...o, newest: '2026-10-22', last: '2026-10-24' }), false);
+  // 平日早上（開盤前）：前一個平日的資料沒抓到 → 補抓；盤中與收盤後 90 分鐘內不補；更新時間後交給每日更新
+  assert.equal(catchupDue(at('2026-10-27', 2, '08:00'), { ...o, newest: '2026-10-23' }), true);
+  assert.equal(catchupDue(at('2026-10-27', 2, '10:00'), { ...o, newest: '2026-10-23' }), false);
+  assert.equal(catchupDue(at('2026-10-27', 2, '14:00'), { ...o, newest: '2026-10-23' }), false);
+  assert.equal(catchupDue(at('2026-10-27', 2, '16:00'), { ...o, newest: '2026-10-23' }), true);
+  assert.equal(catchupDue(at('2026-10-27', 2, '20:00'), { ...o, newest: '2026-10-23' }), false);
+  assert.equal(catchupDue(at('2026-10-27', 2, '08:00'), { ...o, newest: null }), false);
+});

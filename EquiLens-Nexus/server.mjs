@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { ROOT, LOCAL, read, write, readStocks, safeSymbol } from './lib/storage.mjs';
 import { getSecret, saveSecret, secretConfigured, deleteSecret, secretBackend } from './lib/secrets.mjs';
 import { config, saveConfig, activeMarket, language, upColor, LANGUAGES, LLM_PROVIDERS, TUNNEL_MODES, HOST_RE, EMAIL_RE } from './lib/config.mjs';
-import { MARKETS, MARKET_IDS, localParts, closeHM, clientMarket, minuteOf, elapsedTrading, limitPrices } from './lib/markets.mjs';
+import { MARKETS, MARKET_IDS, localParts, closeHM, clientMarket, minuteOf, elapsedTrading, limitPrices, catchupDue } from './lib/markets.mjs';
 import { seriesFromBars, seriesFromReplay, seriesFromCandles, replayRef, vwapLine, groupLine } from './lib/intraday.mjs';
 import { t, UserError, isUserError } from './lib/i18n.mjs';
 import { data, PROVIDERS, CAPABILITIES, capabilityMap, providerInfo, setProviderInfo, setInterval_, hasKey, supports } from './lib/providers/index.mjs';
@@ -2254,4 +2254,18 @@ setInterval(() => {
     if(controller?.signal.aborted||firstOk&&!job.errors.length){settings.lastAutoDate=date;saveSettings();}
   })();
 },30000).unref();
+// 補抓錯過的收盤後更新（見 lib/markets.mjs catchupDue）：先查熱浪圖確認有比本機更新的交易日，才更新研究名單
+const newestAsOf=()=>{let m=null;for(const r of Object.values(raw)){const d=r?.price?.at?.(-1)?.date;if(d&&(!m||d>m))m=d;}return m;};
+setInterval(() => {
+  if (!settings.autoUpdate || job.running || flowBusy || heatBusy || prefetchBusy || !data.has('daily') || !(data.has('dailyAll')||data.has('heatAll'))) return;
+  const x = clock(), newest = newestAsOf();
+  if (!catchupDue(x, { updateTime:settings.updateTime, newest, last:settings.lastCatchupDate, open:M().open, close:M().close })) return;
+  settings = { ...settings, lastCatchupDate:x.date }; saveSettings();
+  void (async()=>{
+    let h; try { h = await runHeatmap(x.date); } catch (e) { console.error(t('補抓收盤後更新：熱浪圖查詢失敗：')+e.message); return; }
+    if (!(h?.date > newest)) return;
+    await refresh(settings.autoScope,[]);
+    if (data.has('dailyAll')) await refreshPatternMarket();
+  })();
+},60e3).unref();
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal,()=>{controller?.abort();server.close(()=>process.exit(0));});
