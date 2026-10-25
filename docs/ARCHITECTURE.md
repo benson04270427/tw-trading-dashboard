@@ -138,6 +138,16 @@ news and report events as Web Push notifications (`lib/push.mjs`, RFC 8291/8292 
 language, market profile, colors and remote-access settings come from Nexus `/api/profile`; translations are served from
 Nexus `/locales/`.
 
+Layout (`public/layout.js`): Pocket picks one of three layouts from the viewport size, the fold reported by the Viewport
+Segments API (when available) and the user's preference, and marks it on `<html data-layout="phone|split|stack"
+data-pane="on|off">` with CSS variables for the page sizes. `phone` is the single page with a bottom tab bar. `split`
+puts a tab rail and the list on the left and docks the stock sheet as a pane on the right. `stack` docks the pane on top
+and keeps the list and tab bar below. The pane is the same element as the phone's bottom sheet. Docked, it does not
+cover the list, so list views keep refreshing, and it shows the index chart when idle. Layout changes (fold, unfold,
+rotate) re-dock or un-dock the open sheet and repaint its chart at the new width. Shared views use container queries,
+so they adapt to the width of the page they are in rather than the viewport. The decision function `decideLayout` is
+pure and tested in `tests/layout.test.mjs`.
+
 Remote access (`lib/remote.mjs`): Pocket binds to `127.0.0.1`, so every external request arrives through a local tunnel or
 reverse proxy. The connection mode chosen in Nexus (`auto`, `cloudflare-quick`, `cloudflare-named`, `custom`, `off`) decides
 which hosts are allowed (the domains entered in Nexus, plus `*.trycloudflare.com` only for quick tunnels) and which headers

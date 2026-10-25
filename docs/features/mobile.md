@@ -2,6 +2,8 @@
 
 衡析 Pocket 是電腦版的手機網頁版（PWA）：加入主畫面後像 App 一樣使用，資料一律向電腦上的 Nexus 取得，並負責推播通知。連線方式的設定步驟見 [EquiLens-Pocket/README.md](../../EquiLens-Pocket/README.md)。
 
+一般手機使用單頁版面；摺疊手機展開、平板或橫向時自動改為左右或上下雙頁，見[摺疊手機與平板](foldable.md)。
+
 ## 分頁
 
 | 分頁 | 內容 |
@@ -14,7 +16,9 @@
 | 型態 | [型態選股](patterns.md)；上方切換到[型態分區](shapes.md)、[低估選股](value-screener.md)、[策略選股](strategy-zones.md)（下方有[策略回測](backtest.md)） |
 | 籌碼 | [法人](flows.md)、[分點追蹤](broker-watch.md)（含[認購權證進出](warrants.md)）、[大戶排行](big-holders.md)（後兩者需要 FinMind Sponsor） |
 
-左上角 ☰（設定）：螢幕恆亮、外觀（白天淺色〔預設〕／深色霓虹）、字型大小、[新聞推播](news-push.md)、通知狀態與各手機的提示音設定說明、登出這台裝置。
+左上角 ☰（設定）：螢幕恆亮、外觀（白天淺色〔預設〕／深色霓虹）、[版面](foldable.md#設定)（自動／左右雙頁／上下雙頁／單頁）、字型大小、[新聞推播](news-push.md)、通知狀態與各手機的提示音設定說明、登出這台裝置。
+
+雙頁版面時，分頁列移到左側（上下雙頁仍在底部），點股票後走勢顯示在副頁；上方的雙頁按鈕可收合副頁。
 
 ## 手機可以做的事
 
@@ -53,4 +57,4 @@
 
 ## 相關檔案
 
-`EquiLens-Pocket/server.mjs`、`lib/push.mjs`、`lib/auth.mjs`、`public/app.js`、`public/live.js`、`public/chips.js`。
+`EquiLens-Pocket/server.mjs`、`lib/push.mjs`、`lib/auth.mjs`、`public/app.js`、`public/live.js`、`public/chips.js`、`public/layout.js`（版面）。

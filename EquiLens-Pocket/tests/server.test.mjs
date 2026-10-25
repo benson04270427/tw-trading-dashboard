@@ -59,6 +59,9 @@ test('security headers, static files and private files', async () => {
   const appJs = (await req('/app.js')).body, liveJs = (await req('/live.js')).body;
   assert.match(appJs, /from '\.\/live\.js\?v=\w+'/); assert.match(liveJs, /from '\.\/insight-ui\.js\?v=\w+'/); assert.match(liveJs, /import\('\.\/report-card\.js\?v=\w+'\)/);
   assert.doesNotMatch((await req('/sw.js')).body, /\?v=/);
+  // 摺疊手機版面模組：app.js 與 live.js 都以同一個版本號載入（同一份模組）；manifest 不鎖定直向
+  assert.equal((await req('/layout.js')).status, 200); assert.match(appJs, /from '\.\/layout\.js\?v=\w+'/); assert.match(liveJs, /from '\.\/layout\.js\?v=\w+'/);
+  assert.equal(JSON.parse((await req('/manifest.webmanifest')).body).orientation, 'any');
   assert.equal((await req('/save-image.js')).status, 200); assert.match((await req('/report-card.js')).body, /from '\.\/save-image\.js\?v=\w+'/); assert.match((await req('/flow-cards.js')).body, /from'\.\/save-image\.js\?v=\w+'/);
   assert.equal((await req('/', { headers: { Host: 'evil.com' } })).status, 403);
 });

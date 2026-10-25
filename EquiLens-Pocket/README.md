@@ -109,6 +109,7 @@ server {
 
 ## 其他
 
+- 摺疊手機與平板：展開、平板或橫向時自動分成左右或上下兩頁（清單與走勢並排），封面螢幕維持單頁；可在 ☰ 設定的「版面」固定使用某一種，見[摺疊手機與平板](../docs/features/foldable.md)。
 - Windows 開機自動啟動：`Install-Autostart.ps1`（取消：`Remove-Autostart.ps1`）。
 - 舊版在本資料夾 `.local/config.json` 寫的 `hosts` 與環境變數 `MOBILE_HOSTS` 仍然有效，會與電腦版設定的網域合併。
 
@@ -128,7 +129,7 @@ server {
 |---|---|
 | `server.mjs` | 手機版伺服器、登入、安全標頭、API 代理、推播轉送 |
 | `lib/auth.mjs`／`lib/nexus.mjs`／`lib/push.mjs`／`lib/remote.mjs` | 密碼與 Session、Nexus API 用戶端、Web Push、連線方式與網域白名單 |
-| `public/` | 手機介面；`i18n.js`、`market.js`、`insight-ui.js`、`report-card.js`、`flow-cards.js`、`save-image.js`、`intraday.js` 與電腦版共用（保持相同內容） |
+| `public/` | 手機介面（`layout.js` 依螢幕形狀決定單頁、左右或上下雙頁）；`i18n.js`、`market.js`、`insight-ui.js`、`report-card.js`、`flow-cards.js`、`save-image.js`、`intraday.js` 與電腦版共用（保持相同內容） |
 | `scripts/set-password.mjs` | 設定密碼 |
 | `.local/` | 密碼雜湊、Session、推播訂閱、通道設定、遠端存取設定快取（勿公開） |
 

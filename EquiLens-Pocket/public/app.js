@@ -2,7 +2,8 @@ import { aggregate, renderTreemap, heatColor } from './heatmap.js';
 import { renderFlowCards, downloadFlowCard } from './flow-cards.js';
 import { initChips, loadChips, brokersView, holdersView } from './chips.js';
 import { initRV, riskCard, valueView, loadRisk, loadValue, picksCard, moversCard, loadHomeRank, zonesView, loadZones, macroCard, loadMacro, portfolioCard, loadPortfolio, shapesView, loadShapes } from './rv.js';
-import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard, openQuote, openIndex } from './live.js';
+import { initLive, livePage, loadLiveTab, reportCard, replayActive, replayPage, mountReplay, stockExtrasShell, fillStockExtras, liveState, newsSettingsCard, IOS, rulesCard, openQuote, openIndex, idlePane, repaintPane } from './live.js';
+import { docked, layout, onLayout, setLayoutPref, layoutPref, setPaneHidden, paneHiddenNow } from './layout.js';
 import { setLanguage, getLanguage, tx } from './i18n.js';
 import { watchAddHTML, watchAddList } from './research-ui.js';
 import * as MK from './market.js';
@@ -86,13 +87,13 @@ function market() {
 function defaultHeatDate() { let d = MK.parts().mod >= MK.market().close + 90 ? twToday() : minusDays(twToday(), 1); while ([0, 6].includes(new Date(d + 'T12:00:00Z').getUTCDay())) d = minusDays(d, 1); return d; }
 
 /* ---------- shell ---------- */
-const ICON = { menu: '<path d="M4 6.5h16M4 12h16M4 17.5h16"/>', refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>', theme: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>', back: '<path d="M15 18l-6-6 6-6"/>', close: '<path d="M6 6l12 12M18 6L6 18"/>' };
+const ICON = { pane: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>', menu: '<path d="M4 6.5h16M4 12h16M4 17.5h16"/>', refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>', theme: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>', back: '<path d="M15 18l-6-6 6-6"/>', close: '<path d="M6 6l12 12M18 6L6 18"/>' };
 const svg = p => `<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
 function shell() {
-  document.body.innerHTML = `<header class="appbar"><button class="iconbtn menu" id="settings" aria-label="設定">${svg(ICON.menu)}</button><h1 id="title"></h1><button class="iconbtn" id="refresh" aria-label="重新整理">${svg(ICON.refresh)}</button><button class="iconbtn" id="theme" aria-label="切換深淺色">${svg(ICON.theme)}</button></header>
+  document.body.innerHTML = `<header class="appbar"><button class="iconbtn menu" id="settings" aria-label="設定">${svg(ICON.menu)}</button><h1 id="title"></h1><button class="iconbtn" id="pane-toggle" aria-label="顯示或收合副頁" title="顯示或收合副頁">${svg(ICON.pane)}</button><button class="iconbtn" id="refresh" aria-label="重新整理">${svg(ICON.refresh)}</button><button class="iconbtn" id="theme" aria-label="切換深淺色">${svg(ICON.theme)}</button></header>
   <main id="main"></main>
   <nav class="tabbar" aria-label="主要分頁">${tabsNow().map(([k, l, i]) => `<button class="tab" data-tab="${k}" aria-label="${l}">${svg(i)}<span>${l}</span></button>`).join('')}</nav>
-  <div class="sheet-backdrop" id="backdrop"></div><section class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><div class="sheet-h"><h2 id="sheet-title"></h2><button class="iconbtn" data-close-sheet aria-label="關閉">${svg(ICON.close)}</button></div><div class="sheet-b" id="sheet-body"></div></section>
+  <div class="sheet-backdrop" id="backdrop"></div><section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><div class="grab"></div><div class="sheet-h"><h2 id="sheet-title"></h2><button class="iconbtn" data-close-sheet aria-label="關閉">${svg(ICON.close)}</button></div><div class="sheet-b" id="sheet-body"></div></section>
   <div id="toast" role="status" aria-live="polite"></div>`;
 }
 function setTab(tab, push = true) {
@@ -107,6 +108,7 @@ function draw() {
   const main = $('#main'); if (!main) return;
   main.innerHTML = jobBar() + ({ brief: briefPage, home: homePage, heat: () => replayActive() ? replayPage() : heatPage(), live: livePage, stocks: stocksPage, patterns: patternPage, flows: flowPage })[S.tab]();
   if (S.tab === 'heat') replayActive() ? mountReplay() : mountHeat();
+  markSel();
 }
 async function load(force = false) {
   const btn = $('#refresh'); btn?.classList.add('spin');
@@ -278,7 +280,7 @@ document.addEventListener('change', async e => {
     syncWatchSel(id, name); S.summary = null;
     const g = r.watchGroups.groups.find(x => x.id === r.watchGroups.assign[id]);
     toast(v === 'remove' ? `已將 ${name} 移出自選` : research ? `${name} 已加入研究族群「${research.name}」並加到自選${joined.updating ? '，正在下載行情' : joined.needsUpdate ? '，請更新此股以取得行情' : ''}` : `${name} 已加到自選${g ? `「${g.name}」` : '（未分組）'}`);
-    loadStocks(S.tab === 'stocks' && !$('#sheet')?.classList.contains('open')).catch(() => { }); // 重新取得（含研究名單以外自選股的報價）
+    loadStocks(S.tab === 'stocks' && !overlay()).catch(() => { }); // 重新取得（含研究名單以外自選股的報價）
   } catch (err) { if (!err.silent) toast(err.message); syncWatchSel(id, name); }
 });
 function stocksPage() {
@@ -314,7 +316,7 @@ function kline(bars) {
 async function openStock(id) {
   openSheet('讀取中…', loadingBox());
   try {
-    const s = await api('api/stock?id=' + encodeURIComponent(id)); S.sheetStock = s;
+    const s = await api('api/stock?id=' + encodeURIComponent(id)); S.sheetStock = s; setSel(s.id);
     if (!S.stocks) await loadStocks().catch(() => { }); else refreshWatchSel(s.id, s.name); // 自選分組選單需要清單資料（太舊時在背景更新）
     const ringC = 2 * Math.PI * 31, val = s.score ?? 0;
     $('#sheet-title').innerHTML = `${esc(s.name)}<small>${s.id} · ${esc(s.market)}</small>`;
@@ -344,15 +346,44 @@ function klineTouch(e) {
 }
 document.addEventListener('pointerdown', klineTouch); document.addEventListener('pointermove', e => { if (e.buttons || e.pointerType === 'mouse') klineTouch(e); });
 
-/* ---------- sheet ---------- */
+/* ---------- sheet：單頁時從下方滑出蓋住清單；雙頁時停靠在副頁（右頁或上頁），清單照常更新 ---------- */
+const sheetOpen = () => !!$('#sheet')?.classList.contains('open');
+const overlay = () => sheetOpen() && !docked();
+function syncSheet() {
+  const sh = $('#sheet'); if (!sh) return; const ov = overlay();
+  $('#backdrop').classList.toggle('open', ov); document.body.style.overflow = ov ? 'hidden' : '';
+  sh.setAttribute('role', ov ? 'dialog' : 'region'); if (ov) sh.setAttribute('aria-modal', 'true'); else sh.removeAttribute('aria-modal');
+  $('#pane-toggle')?.setAttribute('aria-pressed', String(docked()));
+}
 function openSheet(title, body) {
   $('#sheet-title').textContent = title; $('#sheet-body').innerHTML = body; $('#sheet-body').scrollTop = 0;
-  if (!$('#sheet').classList.contains('open')) { history.pushState({ tab: S.tab, sheet: 1 }, '', location.hash); }
-  $('#sheet').classList.add('open'); $('#backdrop').classList.add('open'); document.body.style.overflow = 'hidden';
+  if (paneHiddenNow()) setPaneHidden(false); // 副頁收合時點了股票：重新展開
+  if (!sheetOpen()) { history.pushState({ tab: S.tab, sheet: 1 }, '', location.hash); }
+  $('#sheet').classList.add('open'); setSel(''); syncSheet();
 }
-function closeSheet(fromPop = false) { if (!$('#sheet')?.classList.contains('open')) return; $('#sheet').classList.remove('open'); $('#backdrop').classList.remove('open'); document.body.style.overflow = ''; S.sheetStock = null; if (!fromPop) history.back(); }
+function closeSheet(fromPop = false) {
+  if (!sheetOpen()) return; $('#sheet').classList.remove('open'); S.sheetStock = null; setSel(''); syncSheet();
+  if (!fromPop) history.back();
+  idlePane(); // 雙頁時回到大盤走勢
+}
+// 雙頁時在清單上標出副頁正在看的股票
+const SEL_ATTRS = ['data-intra', 'data-kbar', 'data-stock', 'data-alert-stock', 'data-gr-stock', 'data-pat', 'data-stock-detail'];
+function setSel(id) { const sh = $('#sheet'); if (sh) sh.dataset.sel = id || ''; markSel(); }
+function markSel() {
+  const main = $('#main'); if (!main) return;
+  main.querySelectorAll('.is-sel').forEach(el => el.classList.remove('is-sel'));
+  const id = docked() && sheetOpen() ? $('#sheet').dataset.sel : '';
+  if (id) main.querySelectorAll(SEL_ATTRS.map(a => `[${a}="${CSS.escape(id)}"]`).join(',')).forEach(el => el.classList.add('is-sel'));
+}
+// 摺疊、展開或旋轉時：個股視窗在「滑出」與「停靠」之間切換，內容不中斷；圖表依新的寬度重畫
+onLayout(() => {
+  if (!$('#main')) return;
+  syncSheet();
+  if (docked() && !sheetOpen()) idlePane(); else repaintPane();
+  markSel();
+});
 let touchY = null;
-document.addEventListener('touchstart', e => { if (e.target.closest('.sheet-h,.grab')) touchY = e.touches[0].clientY; }, { passive: true });
+document.addEventListener('touchstart', e => { if (overlay() && e.target.closest('.sheet-h,.grab')) touchY = e.touches[0].clientY; }, { passive: true });
 document.addEventListener('touchend', e => { if (touchY != null && e.changedTouches[0].clientY - touchY > 70) closeSheet(); touchY = null; }, { passive: true });
 window.addEventListener('popstate', e => { if ($('#sheet')?.classList.contains('open')) { closeSheet(true); return; } const t = (location.hash || '#brief').slice(1); if (t !== S.tab) setTab(t, false); });
 
@@ -375,7 +406,7 @@ async function loadLive() {
   H.liveBusy = true;
   try { const r = await api('api/heatmap/live'); if (r.data) { H.data = r.data; H.agg = null; H.error = ''; if (H.focus && !r.data.sectors.some(s => s.name === H.focus)) H.focus = null; } }
   catch (e) { if (!e.silent) { H.error = `盤中即時更新失敗：${e.message}`; if (/權限不足|額度/.test(e.message)) { H.live = false; H.error += '；已暫停自動更新。'; } } }
-  finally { H.liveBusy = false; if (S.tab === 'heat' && !$('#sheet')?.classList.contains('open')) draw(); }
+  finally { H.liveBusy = false; if (S.tab === 'heat' && !overlay()) draw(); }
 }
 setInterval(() => { if (S.tab === 'heat' && S.heat.live && liveOpen() && !document.hidden && !replayActive()) loadLive(); }, 10000);
 function heatAgg() { const H = S.heat; if (!H.data) return null; if (!H.agg || H.aggMarket !== H.market) { H.agg = aggregate(H.data, H.market); H.aggMarket = H.market; } return H.agg; }
@@ -443,7 +474,7 @@ function patChart(s, m) {
 async function openPattern(id, pid) {
   openSheet('讀取中…', loadingBox());
   try {
-    const s = await api(`api/pattern?id=${encodeURIComponent(id)}&pid=${encodeURIComponent(pid)}`), m = s.match, pl = m.plan;
+    const s = await api(`api/pattern?id=${encodeURIComponent(id)}&pid=${encodeURIComponent(pid)}`), m = s.match, pl = m.plan; setSel(s.id);
     if (!S.stocks) await loadStocks().catch(() => { }); else refreshWatchSel(s.id, s.name); // 自選分組選單需要清單資料（太舊時在背景更新）
     $('#sheet-title').innerHTML = `${esc(s.name)}<small>${s.id} · ${esc(m.name)}</small>`;
     $('#sheet-body').innerHTML = `<div class="statusline"><span class="badge ${m.status === '量價確認' ? 'ok' : 'wait'}">${esc(m.status)}</span><span class="pill">${esc(m.category)}</span><span class="pill">強度 ${m.score}</span><span class="pill">${s.asOf} 收 ${fmt(s.price, 2)}</span></div>
@@ -522,6 +553,8 @@ document.addEventListener('click', async e => {
     if (ds.pview) { S.patView = ds.pview; draw(); return load(); }
     if (b.id === 'refresh') { if (S.tab === 'heat' && !(S.heat.live && liveOpen())) await loadHeat(S.heat.data?.date); return load(S.tab !== 'heat'); }
     if (b.id === 'settings') return openSettings();
+    if (b.id === 'pane-toggle') { if (paneHiddenNow()) setPaneHidden(false); else { closeSheet(); setPaneHidden(true); } return; }
+    if (ds.setLayout) { setLayoutPref(ds.setLayout); return openSettings(); }
     if (ds.setFont) { try { localStorage.setItem('pocket.font', ds.setFont); } catch { } applyFont(); draw(); return openSettings(); }
     if (ds.setTheme) { try { localStorage.setItem('pocket.theme', ds.setTheme); } catch { } applyTheme(); draw(); return openSettings(); }
     if ('gotoPush' in ds) { closeSheet(); liveState.view = 'radar'; return setTab('live'); }
@@ -555,7 +588,7 @@ document.addEventListener('click', async e => {
     if ('hclose' in ds) { S.heat.sel = null; return draw(); }
     if (ds.hsec) { S.heat.focus = ds.hsec; S.heat.sel = null; draw(); return window.scrollTo({ top: 0, behavior: 'smooth' }); }
     if (ds.sec && b.closest('#hm')) { S.heat.focus = S.heat.focus === ds.sec ? null : ds.sec; S.heat.sel = null; return draw(); }
-    if (ds.id && b.closest('#hm')) { S.heat.sel = S.heat.sel === ds.id ? null : ds.id; draw(); if (S.heat.sel) $('.hm-pick')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
+    if (ds.id && b.closest('#hm')) { S.heat.sel = S.heat.sel === ds.id ? null : ds.id; draw(); if (S.heat.sel && docked()) return openQuote(S.heat.sel); if (S.heat.sel) $('.hm-pick')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
     if ('pstatus' in ds) { S.patStatus = ds.pstatus; S.patLimit = 20; return draw(); }
     if ('pcat' in ds) { S.patCat = ds.pcat; S.patLimit = 20; return draw(); }
     if ('morePat' in ds) { S.patLimit += 20; return draw(); }
@@ -596,12 +629,18 @@ document.addEventListener('visibilitychange', applyWake);
 document.addEventListener('change', async e => { if (e.target.id !== 'wake-toggle') return; try { localStorage.setItem('pocket.wake', e.target.checked ? '1' : '0'); } catch { } await applyWake(); toast(e.target.checked ? (wakeLock ? '螢幕恆亮已開啟' : '已開啟，回到 App 畫面時生效') : '螢幕恆亮已關閉'); });
 
 /* ---------- 設定 ---------- */
+// 目前版面的說明（各段先翻譯，英文介面才不會夾雜中文）
+function layoutText() {
+  const c = layout(), why = { hinge: '依摺痕位置', pref: '依你的設定', narrow: '畫面寬度不足以左右分頁，改用自動', short: '畫面高度不足以上下分頁，改用自動', size: '依畫面寬高' }[c.source];
+  return `${tx({ phone: '單頁', split: '左右雙頁', stack: '上下雙頁' }[c.mode])}（${c.w} × ${c.h}，${tx(why)}）${paneHiddenNow() ? tx('，副頁已收合') : ''}`;
+}
 function openSettings() {
   const theme = document.documentElement.dataset.theme, perm = 'Notification' in window ? Notification.permission : 'unsupported';
   const push = liveState.push?.state;
   openSheet('設定', `<section class="card"><div class="card-b" style="padding-top:14px">
       <div class="lv-rule"><label class="lv-sw"><input type="checkbox" id="wake-toggle" ${wakePref() ? 'checked' : ''} ${wakeSupported() ? '' : 'disabled'}><span></span></label><div><b>螢幕恆亮</b><small>開著衡析時螢幕不會自動熄滅，適合盤中盯看板或熱浪圖；切到其他 App 或鎖定後自動恢復正常。較耗電。${IOS ? '從主畫面圖示開啟時需 iOS 18.4 以上才有效。' : ''}</small><small>狀態：<span id="wake-status"></span></small></div></div>
       <div class="lv-rule"><div style="flex:1"><b>外觀</b><div class="seg" style="margin-top:8px">${[['light', '白天淺色'], ['dark', '深色霓虹']].map(([v, l]) => `<button class="${theme === v ? 'on' : ''}" data-set-theme="${v}">${l}</button>`).join('')}</div></div></div>
+      <div class="lv-rule"><div style="flex:1"><b>版面</b><small>自動：展開的摺疊手機、平板或橫向時分成左右兩頁（左邊清單、右邊走勢與五檔），直向展開時分成上下兩頁（可半摺立在桌上看盤）；一般手機與摺疊手機的封面螢幕維持單頁。</small><div class="seg" style="margin-top:8px">${[['auto', '自動'], ['split', '左右雙頁'], ['stack', '上下雙頁'], ['phone', '單頁']].map(([v, l]) => `<button class="${layoutPref() === v ? 'on' : ''}" data-set-layout="${v}">${l}</button>`).join('')}</div><small>目前：${esc(layoutText())}</small></div></div>
       <div class="lv-rule"><div style="flex:1"><b>字型大小</b><small>調整整個 App 的文字大小，立即套用。</small><div class="seg" style="margin-top:8px">${FONT_SIZES.map(([v, l]) => `<button class="${fontSize() === v ? 'on' : ''}" data-set-font="${v}">${l}</button>`).join('')}</div></div></div>
     </div></section>
     ${newsSettingsCard()}
@@ -628,7 +667,7 @@ setInterval(() => { if (!document.hidden) checkBuild(); }, 10 * 60e3);
 checkBuild();
 applyWake();
 initRV({ api, toast, draw, S, openSheet, $ });
-initLive({ api, toast, draw, S, openSheet, openStock, inScope, aggregate, renderTreemap, heatColor, $, $$, setTab, twToday, openChips });
+initLive({ api, toast, draw, S, openSheet, openStock, inScope, aggregate, renderTreemap, heatColor, $, $$, setTab, twToday, openChips, setSel });
 initChips({ api, toast, draw, S });
 // 推播或雷達中的分點追蹤／大戶週報：開啟籌碼分頁對應的檢視
 function openChips(view) { S.flows.view = view; if (S.tab === 'flows') { draw(); load(); } else setTab('flows'); }
@@ -638,6 +677,7 @@ async function start() {
   try { const h = await (await fetch('/health', { cache: 'no-store' })).json(); if (h.lang && h.lang !== getLanguage()) await setLanguage(h.lang); } catch { }
   let me; try { me = await api('auth/me'); applyProfile(me.profile); } catch (e) { if (!e.silent) { document.body.innerHTML = `<div class="login">${LOGO}<h1>無法連線</h1><p>${esc(e.message)}</p><button class="btn primary" data-reload>重試</button></div>`; } return; }
   shell(); setTab((location.hash || '#brief').slice(1), false); history.replaceState({ tab: S.tab }, '', '#' + S.tab);
+  syncSheet(); idlePane();
 }
 start();
 

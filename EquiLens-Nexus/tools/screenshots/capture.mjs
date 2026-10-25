@@ -91,4 +91,28 @@ if (want('mobile')) {
   await tab('flows'); const br = p.locator('[data-fview="brokers"]'); if (await br.count()) { await br.click(); await p.waitForTimeout(1500); } await shot(p, 'mobile-chips');
   await c.close();
 }
+// 摺疊手機（iPhone Duo 的 CSS 尺寸）：展開橫向＝左右雙頁、展開直向＝上下雙頁、封面螢幕＝單頁
+// 示意資料沒有指數分時資料，副頁閒置時的大盤走勢以合成的分時資料取代 /m/api/index 的回應
+if (want('foldable')) {
+  const ixMinutes = (ref, last) => { const m = [], c = [], v = []; for (let t = 540; t <= 810; t++) { const k = (t - 540) / 270; m.push(t); c.push(Math.round((ref + (last - ref) * k + Math.sin(t / 9) * ref * .0012 + Math.sin(t / 37) * ref * .002) * 100) / 100); v.push(t < 560 || t > 790 ? 30 + t % 9 : 6 + t % 5); } c[c.length - 1] = last; return { m, c, v, vwap: m.map(() => null), group: m.map(() => null) }; };
+  const fold = async (w, h) => {
+    const c = await b.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2 }), p = await c.newPage(); await p.clock.install({ time: T });
+    await p.route(u => u.pathname === '/m/api/index', async r => { const res = await r.fetch(), j = await res.json(), ref = j.ref || 23005, last = j.quote?.last || 23187, M = ixMinutes(ref, last);
+      r.fulfill({ response: res, json: { ...j, source: 'fugle', ref, minutes: M, quote: { ...j.quote, open: M.c[0], high: Math.max(...M.c), low: Math.min(...M.c) } } }); });
+    await p.goto('http://127.0.0.1:4392/'); await p.waitForTimeout(800);
+    await p.evaluate(() => fetch('/m/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'nexus-pocket' }, body: JSON.stringify({ password: 'demo-password-123' }) }));
+    await p.reload(); await p.waitForTimeout(2000);
+    return { c, p, tab: async k => { await p.locator(`button.tab[data-tab="${k}"]`).click(); await p.waitForTimeout(2000); } };
+  };
+  { const { c, p, tab } = await fold(890, 626);
+    await tab('heat'); await shot(p, 'foldable-idle');
+    await tab('live'); await p.locator('[data-intra="3017"]').first().click(); await p.waitForTimeout(2000); await shot(p, 'foldable-split');
+    await c.close(); }
+  { const { c, p, tab } = await fold(626, 890);
+    await tab('live'); await p.locator('[data-intra="2330"]').first().click(); await p.waitForTimeout(2000); await shot(p, 'foldable-stack');
+    await c.close(); }
+  { const { c, p, tab } = await fold(466, 678);
+    await tab('live'); await shot(p, 'foldable-cover');
+    await c.close(); }
+}
 await b.close();
