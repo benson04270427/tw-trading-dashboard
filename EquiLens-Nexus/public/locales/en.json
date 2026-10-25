@@ -4077,5 +4077,7 @@
   "（{0} 家）": " ({0} sources)",
   "6.5 秒": "6.5 s",
   "6.5 秒 · 約 553 次 / 小時（註冊免費方案建議）": "6.5 s · about 553 / hour (recommended for registered free plan)",
-  "約 553 次 / 小時（註冊免費方案建議）": "about 553 / hour (recommended for registered free plan)"
+  "約 553 次 / 小時（註冊免費方案建議）": "about 553 / hour (recommended for registered free plan)",
+  "到 {t} 暫停，明晚接著跑": "Paused at {t}; continues tomorrow night",
+  "研究更新開始，先暫停": "Paused because a research update started"
 }

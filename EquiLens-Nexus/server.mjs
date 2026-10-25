@@ -1125,14 +1125,33 @@ async function signalReport(id,{live=true}={}){
 const targetCache=new Map();
 const targetBusy=new Set();
 // 每天研究更新後，先把持股、自選與研究名單（依序，最多 100 檔）的目標價、財報、河流圖、股利抓好存在磁碟，打開個股時就不用等
+// 半夜那次清單跑完後，繼續在時間內輪流預載名單外的股票（AI 供應鏈與同業 → 科技股 → 其他上市櫃），6 天內預載過的跳過
 let prefetchBusy=false;
-let prefetchState={done:0,total:0,current:'',startedAt:null,finishedAt:null};
+let prefetchState={done:0,total:0,current:'',startedAt:null,finishedAt:null,extraDone:0,extraLeft:0,extraStop:''};
 const prefetchInfo=()=>({busy:prefetchBusy,...prefetchState,lastDate:settings.lastPrefetchDate||null});
-async function prefetchDeep(){
+const EXTRA_FRESH=6*86400e3,EXTRA_UNTIL={TW:'07:30',US:'23:30'};
+function extraIds(skip){
+  const tried=read('cache/prefetch-tried.json',{}),now=Date.now();
+  let ids;
+  if(M().id==='US')ids=[...Object.values(US_AI_CHAIN).flat(),...usShapeList().map(x=>x.id)];
+  else{const st=universe.filter(x=>/^[1-9]\d{3}$/.test(x.id));ids=[...Object.values(AI_CHAIN).flat(),...Object.values(TW_PEER_GROUPS).flat(),...st.filter(x=>TECH_SECTORS.has(x.sector)).map(x=>x.id),...st.map(x=>x.id)];}
+  return[...new Set(ids)].filter(id=>validId(id)&&!skip.has(id)&&!(tried[id]&&now-tried[id]<EXTRA_FRESH));
+}
+const prefetchOne=async id=>{for(const f of [targetsReport,financialsReport,riverReport,dividendsReport]){try{await f(id);}catch{}}};
+async function prefetchDeep({extra=false}={}){
   if(prefetchBusy||!['TW','US'].includes(M().id))return;prefetchBusy=true;
   try{const ids=[...new Set([...readPortfolio().holdings.map(h=>h.id),...watchlist,...scopeIds(researchScope)])].filter(validId).slice(0,100);
-    prefetchState={done:0,total:ids.length,current:'',startedAt:new Date().toISOString(),finishedAt:null};
-    for(const id of ids){prefetchState.current=id;for(const f of [targetsReport,financialsReport,riverReport,dividendsReport]){try{await f(id);}catch{}}prefetchState.done++;}}
+    prefetchState={done:0,total:ids.length,current:'',startedAt:new Date().toISOString(),finishedAt:null,extraDone:0,extraLeft:0,extraStop:''};
+    for(const id of ids){prefetchState.current=id;await prefetchOne(id);prefetchState.done++;}
+    if(!extra)return;
+    const list=extraIds(new Set(ids)),until=EXTRA_UNTIL[M().id];prefetchState.extraLeft=list.length;
+    for(const id of list){
+      if(clock().hm>=until){prefetchState.extraStop=t('到 {t} 暫停，明晚接著跑',{t:until});break;}
+      if(job.running){prefetchState.extraStop=t('研究更新開始，先暫停');break;}
+      prefetchState.current=id;await prefetchOne(id);
+      const tried=read('cache/prefetch-tried.json',{});tried[id]=Date.now();try{write('cache/prefetch-tried.json',tried);}catch{}
+      prefetchState.extraDone++;prefetchState.extraLeft--;
+    }}
   finally{prefetchBusy=false;prefetchState.finishedAt=new Date().toISOString();prefetchState.current='';}
 }
 async function targetsReport(id){
@@ -2147,7 +2166,7 @@ const server = http.createServer(async (req,res) => {
     }
     if(route==='/api/patterns'&&req.method==='GET'){const snapshot=patternSnapshot(universe);return json(res,200,{...snapshot,stocks:snapshot.stocks.map(({bars,...s})=>s),scope:data.has('dailyAll')?'market':'local'});}
     if(route==='/api/prefetch'&&req.method==='GET')return json(res,200,prefetchInfo());
-    if(route==='/api/prefetch'&&req.method==='POST'){void prefetchDeep();await new Promise(r=>setTimeout(r,300));return json(res,202,prefetchInfo());}
+    if(route==='/api/prefetch'&&req.method==='POST'){void prefetchDeep({extra:url.searchParams.get('extra')==='1'});await new Promise(r=>setTimeout(r,300));return json(res,202,prefetchInfo());}
     if(route==='/api/shapes'&&req.method==='GET'&&url.searchParams.get('q')!=null){const r=shapesReport(url.searchParams.get('scope')||'tech');return json(res,200,{scope:r.scope,scopeName:r.scopeName,asOf:r.asOf,...shapesSearch(r,url.searchParams.get('q'))});}
     if(route==='/api/shapes'&&req.method==='GET'){const r=shapesReport(url.searchParams.get('scope')||'tech'),sid=url.searchParams.get('shape');if(sid){const sh=r.shapes?.find(x=>x.id===sid);return json(res,200,{...r,shapes:undefined,shape:sh||null});}return json(res,200,{...r,shapes:(r.shapes||[]).map(({stocks,...x})=>({...x,top:stocks.slice(0,3).map(y=>y.name)}))});}
     if(route==='/api/pattern-detail'&&req.method==='GET'){const s=patternSnapshot(universe).stocks.find(x=>x.id===url.searchParams.get('id'));return s?json(res,200,s):json(res,404,{error:t('此股票目前沒有符合的型態')});}
@@ -2234,7 +2253,7 @@ const server = http.createServer(async (req,res) => {
 server.listen(PORT,'127.0.0.1',() => console.log(`EquiLens Nexus ready: ${ORIGIN}`));
 server.on('error',e => { console.error(e.code==='EADDRINUSE'?t('連接埠已使用；請開啟現有頁面，或以 PORT 環境變數設定其他連接埠'):t('本機服務啟動失敗')); process.exit(1); });
 // 半夜預載：每天（含週末）跑一次（台股凌晨 2:00～5:00；美股在美東收盤後 18:00～21:00，約台北早上 6～9 點）持股、自選、研究名單的個股資料（電腦要開著），快取有效的不重抓
-setInterval(() => { const x = clock(), [from, to] = M().id === 'US' ? ['18:00', '21:00'] : ['02:00', '05:00']; if (x.hm < from || x.hm > to || settings.lastPrefetchDate === x.date || prefetchBusy || job.running) return; settings = { ...settings, lastPrefetchDate: x.date }; saveSettings(); void prefetchDeep(); }, 60e3);
+setInterval(() => { const x = clock(), [from, to] = M().id === 'US' ? ['18:00', '21:00'] : ['02:00', '05:00']; if (x.hm < from || x.hm > to || settings.lastPrefetchDate === x.date || prefetchBusy || job.running) return; settings = { ...settings, lastPrefetchDate: x.date }; saveSettings(); void prefetchDeep({ extra: true }); }, 60e3);
 let autoRetryAt=0,autoAttempts=0,autoAttemptDate='';
 setInterval(() => {
   if (!settings.autoUpdate || job.running || flowBusy || heatBusy || !data.has('daily')) return;
