@@ -28,3 +28,14 @@ test('權重最佳化：找出有預測力的指標，並在驗證期間檢驗',
   const g = r.single.find(x => x.key === 'good'); assert.ok(g.train.ic < 0); assert.ok(g.test.ic < 0);
   assert.ok(r.robust.weights.good > 0); assert.ok(r.robust.test.J >= r.current.test.J - 0.01);
 });
+
+test('recentFit rewards a score that rises as the market falls', async () => {
+  const { recentFit } = await import('../lib/riskbacktest.mjs');
+  const close = [], sc = [];
+  for (let i = 0; i < 200; i++) close.push(100 + 10 * Math.sin(i / 12));
+  for (let i = 60; i < 200; i++) sc.push({ i, score: 50 - (close[i] - 100) * 3 });
+  const good = recentFit(sc, close, 100, 10), bad = recentFit(sc.map(x => ({ ...x, score: 100 - x.score })), close, 100, 10);
+  assert.ok(good.syncDD > 0.5 && good.sync20 > 0, JSON.stringify(good));
+  assert.ok(good.fit > bad.fit);
+  assert.equal(good.days, 100);
+});

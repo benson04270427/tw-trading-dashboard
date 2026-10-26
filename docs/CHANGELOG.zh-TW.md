@@ -2,6 +2,10 @@
 
 每次更新都記在這裡，最新的在最上面。各功能的完整說明見[功能說明](features/README.md)。
 
+## 2026-10-27 · 風控配方近期貼合度
+
+- 風控配方回測新增「近期貼合度」：每個配方在最近 100 個交易日，分數與大盤回檔（同步）、之後 10 日漲跌（領先）的相關程度，依此排序。詳見[風控配方回測](features/risk-backtest.md#近期貼合度最近-100-個交易日)。
+
 ## 2026-10-27 · Tailscale 私人網址與美股手機版
 
 - 新增 `EquiLens-Pocket\設定手機網址（Tailscale）.cmd`：用 Tailscale Serve 提供只限自己裝置的固定網址（台股 `https://<電腦>.<tailnet>.ts.net`、美股加 `:8443`），經 Tailscale 開啟免密碼，並關閉公開的 Cloudflare 臨時網址。

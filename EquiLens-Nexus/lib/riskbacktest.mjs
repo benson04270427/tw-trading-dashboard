@@ -60,7 +60,7 @@ function rankCorr(a, b) {
 // 主函式：s／index／dates 來自 twSeries 或 usSeries；horizon＝訊號檢驗的天數（交易日）
 // cost：換檔成本（調整的持股比例 × cost）；台股手續費 0.1425% × 2 ＋ 證交稅 0.3% ≈ 0.585%，美股約 0.1%（ETF 價差與規費）
 export const COST = { TW: 0.00585, US: 0.001 };
-export function backtestRecipes({ market, s, index, dates, defs, recipes = RECIPES[market], horizon = 20, warmup = 250, cost = COST[market] ?? 0 }) {
+export function backtestRecipes({ market, s, index, dates, defs, recipes = RECIPES[market], horizon = 20, warmup = 250, cost = COST[market] ?? 0, recentDays = 100, recentHorizon = 10 }) {
   const fr = factorRisks(s, dates, defs, { warmup });
   const px = d => { const i = at(index, d); return i < 0 ? null : index[i]; };
   // 對齊：評分日 → 指數位置
@@ -86,6 +86,7 @@ export function backtestRecipes({ market, s, index, dates, defs, recipes = RECIP
     return { key: rc.key, name: rc.name, source: rc.source, weights: rc.weights, smooth: rc.smooth || null, invert: rc.invert || null, ...p, avgExposure: r1(exAvg), fixed: { cagr: fixed.cagr, mdd: fixed.mdd, sharpe: fixed.sharpe }, timing: r2(p.sharpe - fixed.sharpe),
       // 命中率：高風險（≥60）之後 horizon 天下跌的比例；低風險（<40）之後上漲的比例
       hiHit: hi.length ? r1(avg(hi.map(x => fwd(x.i) < 0 ? 1 : 0)) * 100) : null, hiN: hi.length, loHit: lo.length ? r1(avg(lo.map(x => fwd(x.i) > 0 ? 1 : 0)) * 100) : null, loN: lo.length,
+      recent: recentFit(sc, close, recentDays, recentHorizon),
       ic: r2(rankCorr(withF.map(x => x.score), withF.map(x => fwd(x.i)))), changes: sc.reduce((a, x, k) => a + (k && exposure(x.score) !== exposure(sc[k - 1].score) ? 1 : 0), 0), buckets };
   });
   // 綜合排名：夏普值、調整時機的加分、命中率、相關係數（越負越好）各自排名後平均
@@ -93,10 +94,25 @@ export function backtestRecipes({ market, s, index, dates, defs, recipes = RECIP
   const ranks = [rk('sharpe', 1), rk('timing', 1), rk('hiHit', 1), rk('loHit', 1), rk('ic', -1), rk('mdd', 1)];
   results.forEach((r, i) => { r.rank = r1(avg(ranks.map(x => x[i]))); });
   const order = [...results].sort((a, b) => a.rank - b.rank).map(r => r.key);
+  // 近期貼合度：最近 recentDays 個交易日，哪個配方的分數最貼近大盤（同步＋領先平均）
+  const recentOrder = results.filter(r => r.recent?.fit != null).sort((a, b) => b.recent.fit - a.recent.fit).map(r => r.key);
   const first = rows[0].date, end = rows.at(-1).date;
   return { version: RISK_BT_VERSION, market, available: true, cost, from: first, to: end, days: rows.length, years: r1((Date.parse(end) - Date.parse(first)) / 864e5 / 365.25), horizon,
-    buyHold: bh, baseDown: r1(baseDown * 100), baseUp: r1((1 - baseDown) * 100), results, best: order[0], order,
+    recent: { days: recentDays, horizon: recentHorizon, from: rows.at(-Math.min(recentDays, rows.length)).date, to: rows.at(-1).date, order: recentOrder, best: recentOrder[0] || null }, buyHold: bh, baseDown: r1(baseDown * 100), baseUp: r1((1 - baseDown) * 100), results, best: order[0], order,
     coverage: Object.fromEntries(defs.map(f => { const l = s[f.key] || []; return [f.key, l.length ? l[0][0] : null]; })) };
+}
+
+// 近期貼合度（最近 n 個交易日）。風險分數應該在大盤轉弱時升高，所以三個相關係數都取負號，越高越貼近：
+//   同步（回檔）：分數 vs 指數離近 60 日高點的距離；同步（漲跌）：分數 vs 近 20 日漲跌；
+//   領先：分數 vs 之後 h 日漲跌（最後 h 天還沒有結果，不計）。fit＝同步（回檔）與領先的平均。
+export function recentFit(sc, close, n = 100, h = 10) {
+  const list = sc.slice(-n); if (list.length < 40) return null;
+  const dd = x => { let mx = 0; for (let k = Math.max(0, x.i - 59); k <= x.i; k++) mx = Math.max(mx, close[k]); return close[x.i] / mx - 1; };
+  const r20 = x => x.i >= 20 ? close[x.i] / close[x.i - 20] - 1 : null;
+  const pair = (f, src = list) => { const p = src.map(x => [x.score, f(x)]).filter(([, v]) => v != null && Number.isFinite(v)); return p.length >= 30 ? rankCorr(p.map(q => q[0]), p.map(q => q[1])) : null; };
+  const syncDD = pair(dd), sync20 = pair(r20), lead = pair(x => x.i + h < close.length ? close[x.i + h] / close[x.i] - 1 : null);
+  const neg = v => v == null ? null : r2(-v), parts = [neg(syncDD), neg(lead)].filter(v => v != null);
+  return { days: list.length, syncDD: neg(syncDD), sync20: neg(sync20), lead: neg(lead), fit: parts.length ? r2(avg(parts)) : null, now: r1(list.at(-1).score), avg: r1(avg(list.map(x => x.score))) };
 }
 
 // ---- 台股權重最佳化（含外資期貨與選擇權） ----
