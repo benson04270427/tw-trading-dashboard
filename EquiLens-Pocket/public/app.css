@@ -748,3 +748,6 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 
 /* 透過 Tailscale 私人網路免密碼開啟時不顯示登出 */
 .nopw #logout { display: none; }
+/* 風控水位：大盤溫度計（參考線） */
+.rv-tline{fill:none;stroke:var(--amber);stroke-width:1.6;opacity:.85;vector-effect:non-scaling-stroke}.rv-tkey{border-top:2px solid var(--amber)}
+.rv-thermo{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;margin-top:8px;font-size:.92em}.rv-thermo b{font-size:1.15em}

@@ -119,18 +119,22 @@ export function twSeries(raw) {
   const dates = [...new Set([...index.map(x => x[0]), ...s.retail.map(x => x[0])])].sort();
   return { s, index, dates };
 }
+// 大盤溫度計：近 100 個交易日最貼近大盤（同步）的配方，只顯示大盤現況，不參與建議持股（2026-10-27 依配方回測的近期貼合度加入）
+export const THERMO_TW = { name: '大盤溫度計', recipe: '外資主導', weights: { foreignFut: 35, foreignSpot: 35, trend: 30 } };
 export function buildRisk(raw, { days = 120, now = new Date().toISOString() } = {}) {
   const { s, index, dates } = twSeries(raw);
-  return assemble(s, dates, index, raw, { days, now, defs: FACTORS, market: 'TW', indexName: '加權指數', smooth: 10 });
+  return assemble(s, dates, index, raw, { days, now, defs: FACTORS, market: 'TW', indexName: '加權指數', smooth: 10, thermo: THERMO_TW });
 }
 // 共用：依評分日組成最新評分、近 days 日走勢與一日／一週變化（台股與美股共用）
 // smooth：建議持股用近 smooth 個交易日風險分數的平均（台股 10 日，回測顯示可大幅減少換檔、扣成本後績效較好）
-export function assemble(s, dates, index, raw, { days = 120, now = new Date().toISOString(), defs = FACTORS, market = 'TW', indexName = '', smooth = 1 } = {}) {
+const thermoOf = (factors, w) => { let a = 0, b = 0; for (const f of factors) { const wt = w[f.key] || 0; if (wt && f.risk != null) { a += f.risk * wt; b += wt; } } return b ? r1(a / b) : null; };
+export function assemble(s, dates, index, raw, { days = 120, now = new Date().toISOString(), defs = FACTORS, market = 'TW', indexName = '', smooth = 1, thermo = null } = {}) {
   if (!dates.length) return { version: RISK_VERSION, market, indexName, available: false, updatedAt: now, errors: raw.errors || {} };
   const latest = dates.at(-1), current = scoreAt(s, latest, undefined, defs);
-  const hist = dates.slice(-days - smooth + 1).map(d => { const x = scoreAt(s, d, undefined, defs), ix = index[at(index, d)]; return [d, x.risk, x.exposure, ix ? ix[1] : null]; });
+  const hist = dates.slice(-days - smooth + 1).map(d => { const x = scoreAt(s, d, undefined, defs), ix = index[at(index, d)]; return [d, x.risk, x.exposure, ix ? ix[1] : null, thermo ? thermoOf(x.factors, thermo.weights) : null]; });
   if (smooth > 1) { for (let k = hist.length - 1; k >= 0; k--) { const w = hist.slice(Math.max(0, k - smooth + 1), k + 1).map(h => h[1]).filter(v => v != null); if (w.length) hist[k][2] = exposure(w.reduce((a, b) => a + b, 0) / w.length); } hist.splice(0, Math.max(0, hist.length - days)); }
   if (smooth > 1 && current.risk != null) { const w = hist.slice(-smooth).map(h => h[1]).filter(v => v != null); current.riskAvg = r1(w.reduce((a, b) => a + b, 0) / w.length); current.exposure = exposure(current.riskAvg); current.smooth = smooth; }
+  if (thermo) { const v = thermoOf(current.factors, thermo.weights); current.thermo = v == null ? null : { name: thermo.name, recipe: thermo.recipe, weights: thermo.weights, risk: v, ...level(v) }; }
   const prev = hist.length > 1 ? hist.at(-2)[1] : null, week = hist.length > 5 ? hist.at(-6)[1] : null;
   return { version: RISK_VERSION, market, indexName, available: current.risk != null, updatedAt: now, ...current, change1: prev == null || current.risk == null ? null : r1(current.risk - prev), change5: week == null || current.risk == null ? null : r1(current.risk - week),
     history: hist, summary: summarize(current), errors: raw.errors || {} };

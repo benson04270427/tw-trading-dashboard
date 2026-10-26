@@ -1027,10 +1027,11 @@ async function runRiskBacktest(){
     r.errors=raw.errors||{};r.generatedAt=new Date().toISOString();
     if(!r.available){riskBtJob.error=t(r.reason);return;}
     fs.mkdirSync(path.join(LOCAL,'risk'),{recursive:true});write('risk/backtest.json',r);
+    if(r.recent?.best){const h=read('risk/recent-history.json',[]).filter(x=>x.date!==today());h.push({date:today(),to:r.recent.to,best:r.recent.best,order:r.recent.order,fit:Object.fromEntries(r.results.map(x=>[x.key,x.recent?.fit??null]))});write('risk/recent-history.json',h.slice(-52));}
     const errs=[...new Set(Object.values(r.errors))];riskBtJob.error=errs.length?t('部分指標未取得：')+errs.join('；'):'';
   }catch(e){riskBtJob.error=e.message;}finally{riskBtJob.busy=false;}
 }
-const riskBtInfo=()=>({job:riskBtJob,result:read('risk/backtest.json',null),optimize:read('risk/optimize.json',null)});
+const riskBtInfo=()=>({job:riskBtJob,result:read('risk/backtest.json',null),optimize:read('risk/optimize.json',null),recentHistory:read('risk/recent-history.json',[])});
 // 台股權重最佳化：8 個指標（含外資台指期 5 日增減、外資選擇權淨部位），每個權重 0／1／2 全部組合，2024 年前挑、2024 年後驗證
 async function runRiskOptimize(){
   if(riskBtJob.busy||M().id!=='TW')return;

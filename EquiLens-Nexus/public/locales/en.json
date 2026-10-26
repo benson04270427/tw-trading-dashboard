@@ -4193,5 +4193,9 @@
   "回檔 3–25%、低點墊高、波動收斂，9 日 EMA 在 21 日之上且兩條都走平或向上": "Pullback of 3–25%, higher lows, contracting range, 9-day EMA above the 21-day and both flat or rising",
   "在區內": "In zone",
   "規則：前一天收盤符合「接近買點」，隔天突破前一天高點進場（開盤跳空用開盤價）；停損放前一天低點與支撐區下緣較低者；到 3R 先賣一半之前只看停損，賣一半後其餘收盤跌破 9 日 EMA 出場，最多持有 40 天。日線無法看出分鐘線訊號，實際進出場會不同。回測股票是電腦上有長期資料的那幾檔（以持股、自選、AI 供應鏈為主），有選股偏差；股價未還原，除權息可能誤觸停損。": "Rules: if a stock is Near entry at the close, enter the next day on a break of that day's high (at the open if it gaps up); stop at the lower of that day's low and the bottom of the support zone; only the stop applies until half is sold at 3R, then the rest exits on a close below the 9-day EMA, holding at most 40 days. Daily bars cannot see minute-chart signals, so real fills will differ. The backtest covers only stocks with long history on this computer (mostly holdings, watchlist and the AI chain), so it has selection bias; prices are not adjusted, so ex-dividend gaps may trigger stops.",
-  "衡析 {0}": "EquiLens {0}"
+  "衡析 {0}": "EquiLens {0}",
+  "{0} · 反映大盤現況，不影響建議持股": "{0} · shows the market right now; does not change suggested exposure",
+  "反映大盤現況，不影響建議持股": "shows the market right now; does not change suggested exposure",
+  "外資期貨 35%、外資現貨 35%、趨勢 30%（配方回測的「外資主導」）。近 100 個交易日最貼近大盤漲跌，但屬於事後反映，不參與建議持股。": "Foreign futures 35%, foreign spot 35%, trend 30% (the Foreign-led recipe in the recipe backtest). It tracked the market most closely over the last 100 trading days, but it reacts after the fact and does not feed the suggested exposure.",
+  "大盤溫度計": "Market thermometer"
 }

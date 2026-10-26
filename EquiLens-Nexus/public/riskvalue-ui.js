@@ -22,8 +22,8 @@ export function riskHistorySVG(history = [], indexName = '加權指數') {
   const ix = h.map(r => r[3]).filter(v => v != null), lo = Math.min(...ix), hi = Math.max(...ix), iy = v => P + (hi === lo ? 0.5 : (hi - v) / (hi - lo)) * (H - 2 * P);
   const line = (f, sel) => h.map((r, i) => sel(r) == null ? '' : `${i && sel(h[i - 1]) != null ? 'L' : 'M'}${x(i).toFixed(1)} ${f(sel(r)).toFixed(1)}`).join('');
   const bands = [[75, 100, 'high'], [60, 75, 'highish'], [40, 60, 'mid'], [25, 40, 'lowish'], [0, 25, 'low']].map(([a, b, k]) => `<rect class="rv-band rv-${k}" x="0" y="${y(b)}" width="${W}" height="${y(a) - y(b)}"/>`).join('');
-  return `<svg class="rv-hist" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="風險分數走勢">${bands}<path class="rv-ixline" d="${line(iy, r => r[3])}"/><path class="rv-rline" d="${line(y, r => r[1])}"/></svg>
-  <div class="rv-hist-axis"><span>${esc(h[0][0])}</span><span><i class="rv-key rv-rkey"></i>風險分數 <i class="rv-key rv-ikey"></i>${esc(indexName)}</span><span>${esc(h.at(-1)[0])}</span></div>`;
+  return `<svg class="rv-hist" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="風險分數走勢">${bands}<path class="rv-ixline" d="${line(iy, r => r[3])}"/><path class="rv-rline" d="${line(y, r => r[1])}"/>${h.some(r => r[4] != null) ? `<path class="rv-tline" d="${line(y, r => r[4])}"/>` : ''}</svg>
+  <div class="rv-hist-axis"><span>${esc(h[0][0])}</span><span><i class="rv-key rv-rkey"></i>風險分數 ${h.some(r => r[4] != null) ? '<i class="rv-key rv-tkey"></i>大盤溫度計 ' : ''}<i class="rv-key rv-ikey"></i>${esc(indexName)}</span><span>${esc(h.at(-1)[0])}</span></div>`;
 }
 
 const factorValue = f => f.value == null ? '—' : f.unit === 'bp' ? sign(f.value, 0) + ' bp' : f.show === 'plain' ? fmt(f.value, 2) + (f.unit || '') : f.key === 'foreignFut' || f.key === 'foreignFutChg' ? sign(f.value, 0) + ' 口' : f.key === 'foreignOpt' ? sign(f.value, 2) + ' 億' : f.key === 'foreignSpot' ? sign(f.value, 0) + ' 億' : f.key === 'retail' ? sign(f.value, 2) + '%' : sign(f.value, 2) + '%';
@@ -58,7 +58,7 @@ export function riskHTML(info, { compact = false } = {}) {
     <div class="rv-main"><div class="rv-level rv-t-${t}">${esc(d.label)}</div>
       <div class="rv-expo"><span>建議持股</span><b class="num">${fmt(d.exposure)}%</b><span class="soft">現金 ${fmt(100 - d.exposure)}%${d.smooth ? ` · 依近 ${d.smooth} 日平均分數 ${fmt(d.riskAvg, 1)}` : ''}</span></div>
       <div class="rv-split"><i style="width:${d.exposure}%"></i></div>
-      <div class="rv-meta"><span>${esc(d.date)}</span>${chg(d.change1, '較前日')}${chg(d.change5, '較一週前')}${d.coverage < 100 ? `<span class="amber">指標涵蓋 ${d.coverage}%</span>` : ''}</div></div></div>`;
+      <div class="rv-meta"><span>${esc(d.date)}</span>${chg(d.change1, '較前日')}${chg(d.change5, '較一週前')}${d.coverage < 100 ? `<span class="amber">指標涵蓋 ${d.coverage}%</span>` : ''}</div>${d.thermo ? `<div class="rv-thermo" title="外資期貨 35%、外資現貨 35%、趨勢 30%（配方回測的「外資主導」）。近 100 個交易日最貼近大盤漲跌，但屬於事後反映，不參與建議持股。"><span>大盤溫度計</span><b class="num rv-t-${d.thermo.tone}">${fmt(d.thermo.risk)}</b><span class="soft">${esc(d.thermo.label)} · 反映大盤現況，不影響建議持股</span></div>` : ''}</div></div>`;
   const tags = d.summary?.length ? `<div class="rv-tags">${d.summary.map(s => `<span class="rv-tag ${s.tone === 'risk' ? 'rv-tag-risk' : 'rv-tag-calm'}">${s.tone === 'risk' ? '▲' : '▼'} ${esc(s.name)} ${fmt(s.risk)}</span>`).join('')}</div>` : '';
   if (compact) return `<div class="rv-compact">${head}</div>${contraHTML(info.contra, { compact: true })}${tags}<div class="rv-actions"><button class="rv-btn" data-rv="risk-open">看完整分析 ›</button>${busy}</div>${err}`;
   const groups = [...new Set(d.factors.map(f => f.group))].map(g => `<div class="rv-group"><h4>${esc(g)}</h4>${d.factors.filter(f => f.group === g).map(factorRow).join('')}</div>`).join('');
