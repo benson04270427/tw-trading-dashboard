@@ -63,7 +63,7 @@
 2. 在電腦上執行 `EquiLens-Pocket\設定手機網址（Tailscale）.cmd`。它會：用 Tailscale Serve（只限自己的 tailnet，不是公開的 Funnel）把 443 埠接到台股手機版、8443 埠接到美股手機版；在兩個資料夾的 `config.json` 寫入 `tailnetNoPassword: true`；把兩個電腦版的「遠端存取」改為不對外開放、手機版網址改為上面的網址；關閉 Cloudflare 臨時網址並重新啟動台股與美股手機版。網址會印出、複製到剪貼簿，並存在 `.local/tailnet-urls.txt`。
 3. 第一次執行如果出現 Tailscale 的網址，表示 tailnet 還沒啟用 HTTPS 憑證：打開網址啟用後再執行一次。
 
-免密碼只適用於經過 Tailscale Serve 的請求：網址是 `*.ts.net`、帶有 Tailscale 附上的登入者身分標頭、連線來自本機，而且沒有 Cloudflare 標頭。其他來源（例如本機網址或公開通道）仍然需要密碼。美股手機版沒有設密碼，所以只能透過 Tailscale 使用。開機自動啟動（`EquiLens.vbs`）在 `.local-us` 存在時會一起啟動美股手機版。
+免密碼只適用於經過 Tailscale Serve 的請求：網址是 `*.ts.net`、帶有 Tailscale 附上的登入者身分標頭、連線來自本機，而且沒有 Cloudflare 標頭。其他來源（例如本機網址或公開通道）仍然需要密碼。美股手機版沒有設密碼，所以只能透過 Tailscale 使用。兩個手機版加到主畫面時名稱與圖示不同：台股為「台股」（青色圖示），美股為「美股」（琥珀色圖示加 US）；已經加過的圖示要刪掉重新加入才會更新。開機自動啟動（`EquiLens.vbs`）在 `.local-us` 存在時會一起啟動美股手機版。
 
 ## 更新
 

@@ -42,7 +42,7 @@ if (-not $nexusOk) {
 $running = $false
 try { $h = Invoke-RestMethod -Uri "$pocketUrl/health" -TimeoutSec 2; $running = ($h.app -eq 'equilens-pocket') } catch { }
 if (-not $running) {
-    $env:MOBILE_DATA_DIR = $local; $env:PORT = "$port"; $env:NEXUS_URL = $nexusUrl
+    $env:MOBILE_DATA_DIR = $local; $env:PORT = "$port"; $env:NEXUS_URL = $nexusUrl; $env:MOBILE_MARKET = $Market
     $p = Start-Process -FilePath $node -ArgumentList ('"' + (Join-Path $root 'server.mjs') + '"') -WorkingDirectory $root -WindowStyle Hidden -PassThru
     Set-Content -LiteralPath (Join-Path $local 'server.pid') -Value $p.Id -Encoding ASCII
     for ($i = 0; $i -lt 30; $i++) {

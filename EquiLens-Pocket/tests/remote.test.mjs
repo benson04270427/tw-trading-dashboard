@@ -71,3 +71,12 @@ test('tailnet requests come through Tailscale Serve with identity headers and no
   assert.equal(tailnetRequest(r({ ...ok, host: 'x.ts.net.evil.com' })), false);
   assert.equal(tailnetRequest(r(ok, '192.168.1.5')), false, 'not proxied on this computer');
 });
+
+test('home-screen name and icon differ between the Taiwan and US phone apps', async () => {
+  const { brandFor } = await import('../server.mjs');
+  const html = '<meta name="apple-mobile-web-app-title" content="衡析"><title>衡析 Pocket</title>';
+  assert.equal(brandFor('US').us, true);
+  assert.match(brandFor('US').html(html), /content="美股".*<title>衡析 美股<\/title>/);
+  assert.match(brandFor('TW').html(html), /content="台股"/);
+  assert.equal(brandFor('US').manifest({ short_name: '衡析' }).short_name, '美股');
+});

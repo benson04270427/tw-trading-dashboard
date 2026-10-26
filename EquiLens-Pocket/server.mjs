@@ -26,6 +26,17 @@ const STATIC = {
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/live.js': ['live.js', 'text/javascript; charset=utf-8'], '/chips.js': ['chips.js', 'text/javascript; charset=utf-8'], '/rv.js': ['rv.js', 'text/javascript; charset=utf-8'], '/riskvalue-ui.js': ['riskvalue-ui.js', 'text/javascript; charset=utf-8'], '/research-ui.js': ['research-ui.js', 'text/javascript; charset=utf-8'], '/intraday.js': ['intraday.js', 'text/javascript; charset=utf-8'], '/insight-ui.js': ['insight-ui.js', 'text/javascript; charset=utf-8'], '/report-card.js': ['report-card.js', 'text/javascript; charset=utf-8'], '/save-image.js': ['save-image.js', 'text/javascript; charset=utf-8'], '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'], '/market.js': ['market.js', 'text/javascript; charset=utf-8'],  '/icon-192.png': ['icon-192.png', 'image/png'], '/badge-96.png': ['badge-96.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'], '/apple-touch-icon.png': ['icon-192.png', 'image/png'],
 };
 
+const ICON_US = { '/icon.svg': 'icon-us.svg', '/icon-192.png': 'icon-us-192.png', '/icon-512.png': 'icon-us-512.png', '/apple-touch-icon.png': 'icon-us-192.png' };
+// 市場：Nexus 回報的市場（取不到時用環境變數 MOBILE_MARKET）。台股、美股的主畫面名稱不同
+export function brandFor(market) {
+  const us = market === 'US', short = us ? '美股' : '台股', name = `衡析 ${short}`;
+  return {
+    us, short, name,
+    manifest: m => ({ ...m, name: `${name}（Pocket）`, short_name: short, ...(us ? { background_color: '#120C02', theme_color: '#120C02' } : {}) }),
+    html: h => h.replace('<meta name="apple-mobile-web-app-title" content="衡析">', `<meta name="apple-mobile-web-app-title" content="${short}">`).replace('<title>衡析 Pocket</title>', `<title>${name}</title>`),
+  };
+}
+async function branding() { const p = await profile().catch(() => null); return brandFor(p?.market?.id || process.env.MOBILE_MARKET || 'TW'); }
 // 前端版本號：public 內檔案的修改時間雜湊（改了網頁檔即變更，手機 App 回到前景時會自動重新載入）
 let buildCache = { at: 0, id: '' };
 export function buildId() {
@@ -281,7 +292,11 @@ export const server = http.createServer(async (req, res) => {
     const loc = /^\/locales\/([a-z]{2}(?:-[A-Z]{2})?)\.json$/.exec(route);
     if (loc) { const d = await nexus.locale(loc[1]).catch(() => null); return d ? send(req, res, 200, d, 'application/json; charset=utf-8') : send(req, res, 404, { error: '頁面不存在' }); }
     const file = STATIC[route]; if (!file) return send(req, res, 404, { error: '頁面不存在' });
-    if (route === '/') return send(req, res, 200, fs.readFileSync(path.join(ROOT, 'public', file[0]), 'utf8').replace(/(\/app\.(?:js|css))"/g, `$1?v=${buildId()}"`), file[1]);
+    // 主畫面圖示與名稱依市場區分（美股版：琥珀色圖示加 US、名稱「美股」），兩個手機版加到主畫面時才分得出來
+    const brand = await branding();
+    if (route === '/manifest.webmanifest') { const m = JSON.parse(fs.readFileSync(path.join(ROOT, 'public', file[0]), 'utf8')); return send(req, res, 200, JSON.stringify(brand.manifest(m)), file[1]); }
+    if (brand.us && ICON_US[route]) return send(req, res, 200, fs.readFileSync(path.join(ROOT, 'public', ICON_US[route])), file[1]);
+    if (route === '/') return send(req, res, 200, brand.html(fs.readFileSync(path.join(ROOT, 'public', file[0]), 'utf8')).replace(/(\/app\.(?:js|css))"/g, `$1?v=${buildId()}"`), file[1]);
     // Cloudflare 會把 js／css 的瀏覽器快取改成 4 小時：模組互相 import 時一律加上版本號，改版後手機才會取到新檔
     if (file[0].endsWith('.js') && file[0] !== 'sw.js') return send(req, res, 200, versionImports(fs.readFileSync(path.join(ROOT, 'public', file[0]), 'utf8'), buildId()), file[1]);
     return send(req, res, 200, fs.readFileSync(path.join(ROOT, 'public', file[0])), file[1]);
