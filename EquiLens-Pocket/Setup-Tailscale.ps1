@@ -9,9 +9,13 @@ $ts = (Get-Command tailscale -ErrorAction SilentlyContinue).Source
 if (-not $ts) { foreach ($c in @("$env:ProgramFiles\Tailscale\tailscale.exe", "${env:ProgramFiles(x86)}\Tailscale\tailscale.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { $ts = $c; break } } }
 if (-not $ts) { Write-Host 'Tailscale is not installed. Install it from https://tailscale.com/download/windows, sign in, then run this again.'; exit 1 }
 
-$st = & $ts status --json | ConvertFrom-Json
-if ($st.BackendState -ne 'Running') { Write-Host 'Tailscale is not signed in. Click the Tailscale icon in the taskbar, sign in, then run this again.'; exit 1 }
-$dns = ([string]$st.Self.DNSName).TrimEnd('.')
+# Windows PowerShell 5.1 cannot parse this JSON reliably (one object per line, keys differing only in case): read the two fields as text
+$raw = (& $ts status --json) -join "`n"
+$state = ''; if ($raw -match '"BackendState"\s*:\s*"([^"]*)"') { $state = $Matches[1] }
+if ($state -ne 'Running') { Write-Host 'Tailscale is not signed in. Click the Tailscale icon in the taskbar, sign in, then run this again.'; exit 1 }
+$dns = ''
+$self = $raw.IndexOf('"Self"')
+if ($self -ge 0 -and ($raw.Substring($self) -match '"DNSName"\s*:\s*"([^"]*)"')) { $dns = $Matches[1].TrimEnd('.') }
 if (-not $dns) { Write-Host 'MagicDNS name not found. In the Tailscale admin console (DNS page) turn on MagicDNS, then run this again.'; exit 1 }
 
 # 1. Tailscale Serve (tailnet only, not Funnel): 443 -> Taiwan phone app, 8443 -> US phone app
