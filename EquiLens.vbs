@@ -1,5 +1,5 @@
 ' EquiLens launcher: starts everything in the background without a console window.
-'   EquiLens.vbs        -> Taiwan Nexus + phone server + tunnel, and US Nexus (used at Windows sign-in)
+'   EquiLens.vbs        -> Taiwan Nexus + phone server + tunnel, US Nexus, and the US phone server if set up (used at Windows sign-in)
 '   EquiLens.vbs tw     -> same, then opens the Taiwan dashboard
 '   EquiLens.vbs us     -> same, then opens the US dashboard
 '   EquiLens.vbs restart -> restarts both Nexus instances and the phone server (phone URL unchanged)
@@ -17,5 +17,6 @@ If mode = "restart" Then
 End If
 sh.Run ps & """" & root & "\EquiLens-Pocket\Start-Pocket.ps1""", 0, True
 sh.Run ps & """" & root & "\EquiLens-Nexus\Start-NexusUS.ps1"" -NoBrowser", 0, True
+If fso.FolderExists(root & "\EquiLens-Pocket\.local-us") Then sh.Run ps & """" & root & "\EquiLens-Pocket\Start-Pocket.ps1"" -Market US", 0, True
 If mode = "tw" Then sh.Run "http://127.0.0.1:4330/"
 If mode = "us" Then sh.Run "http://127.0.0.1:4331/"

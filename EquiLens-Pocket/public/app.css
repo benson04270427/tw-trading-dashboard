@@ -745,3 +745,6 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 .wa-btn { flex: none; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--cyan2, var(--accent)); background: var(--cyan2, var(--accent)); color: #fff; font-weight: 600; cursor: pointer; min-height: 36px; }
 .wa-btn.wa-rm { background: transparent; color: var(--muted, var(--soft)); border-color: var(--line2, var(--line)); }
 .wa-on { flex: none; font-size: .8rem; color: var(--down); }
+
+/* 透過 Tailscale 私人網路免密碼開啟時不顯示登出 */
+.nopw #logout { display: none; }

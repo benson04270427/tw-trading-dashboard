@@ -103,6 +103,12 @@ server {
 
 代理必須跑在這台電腦上（Pocket 只接受 127.0.0.1 的連線），而且對外必須是 https：推播通知與安全 Cookie 都需要。
 
+### Tailscale 私人網址（免密碼，含美股手機版）
+
+只有登入同一個 Tailscale 帳號的手機與電腦連得到，網址固定為 `https://<電腦名稱>.<tailnet>.ts.net`（美股手機版加 `:8443`）。電腦與手機都安裝並登入 Tailscale 後，執行 `設定手機網址（Tailscale）.cmd`（`Setup-Tailscale.ps1`）。詳見[手機版說明](../docs/features/mobile.md#tailscale-私人網址與美股手機版)。
+
+美股手機版：`Start-Pocket.ps1 -Market US`／`Stop-Pocket.ps1 -Market US`（埠 4341，連到美股 Nexus 4331，資料在 `.local-us`，不開 Cloudflare 通道）。
+
 ### 不對外開放
 
 手機版只接受這台電腦本機的連線（例如只在電腦上使用，或暫時關閉手機存取）。
@@ -118,7 +124,8 @@ server {
 - 同一來源 15 分鐘內錯 5 次即鎖 15 分鐘；全站 1 小時錯 50 次暫停登入 1 小時。
 - 來源 IP 與 https 只讀取所選連線方式的標頭：Cloudflare 模式讀 `CF-Connecting-IP`／`CF-Visitor`，自行處理模式讀 `X-Real-IP` 或 `X-Forwarded-For` 最後一筆／`X-Forwarded-Proto`；其他來源的標頭不被採信，無法藉偽造標頭繞過登入限速。
 - Cookie：HttpOnly、SameSite=Strict、https 下 Secure；寫入操作需自訂標頭與同源檢查。
-- 主機名稱白名單：本機、電腦版設定的網域（Cloudflare 臨時網址模式另允許 `*.trycloudflare.com`）。
+- 主機名稱白名單：本機、電腦版設定的網域（Cloudflare 臨時網址模式另允許 `*.trycloudflare.com`）；經 Tailscale Serve 轉入的 `*.ts.net` 請求（帶身分標頭、來自本機、無 Cloudflare 標頭）一律允許。
+- `config.json` 設 `tailnetNoPassword: true`（或環境變數 `MOBILE_TAILNET_NO_PASSWORD=1`）時，只有上述 Tailscale 請求免密碼，其他來源照常要求登入；Funnel（公開）請求沒有身分標頭，不會免密碼。
 - CSP、禁止被嵌入框架、不傳 Referrer；搜尋引擎 noindex。
 - 手機端可以閱讀、查詢熱浪圖與法人、加減自選、更新行情與型態資料、調整雷達與新聞推播；資料來源、金鑰、AI 模型、研究族群與遠端存取只能在電腦版設定。
 

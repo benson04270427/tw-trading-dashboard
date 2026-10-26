@@ -636,7 +636,7 @@ function openChips(view) { S.flows.view = view; if (S.tab === 'flows') { draw();
 function applyProfile(p) { if (!p) return; S.profile = p; MK.setMarket(p.market, p.upColor, p.language); if (p.language && p.language !== getLanguage()) setLanguage(p.language); }
 async function start() {
   try { const h = await (await fetch('/health', { cache: 'no-store' })).json(); if (h.lang && h.lang !== getLanguage()) await setLanguage(h.lang); } catch { }
-  let me; try { me = await api('auth/me'); applyProfile(me.profile); } catch (e) { if (!e.silent) { document.body.innerHTML = `<div class="login">${LOGO}<h1>無法連線</h1><p>${esc(e.message)}</p><button class="btn primary" data-reload>重試</button></div>`; } return; }
+  let me; try { me = await api('auth/me'); applyProfile(me.profile); document.documentElement.classList.toggle('nopw', !!me.noPassword); } catch (e) { if (!e.silent) { document.body.innerHTML = `<div class="login">${LOGO}<h1>無法連線</h1><p>${esc(e.message)}</p><button class="btn primary" data-reload>重試</button></div>`; } return; }
   shell(); setTab((location.hash || '#brief').slice(1), false); history.replaceState({ tab: S.tab }, '', '#' + S.tab);
 }
 start();

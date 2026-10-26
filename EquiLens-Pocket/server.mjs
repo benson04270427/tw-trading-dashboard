@@ -8,12 +8,15 @@ import * as auth from './lib/auth.mjs';
 import * as nexus from './lib/nexus.mjs';
 import * as push from './lib/push.mjs';
 import { setLanguage, getLanguage } from './public/i18n.js';
-import { loadRemote, storeRemote, allowHost, clientIp as ipOf, isHttps as httpsOf } from './lib/remote.mjs';
+import { loadRemote, storeRemote, allowHost, clientIp as ipOf, isHttps as httpsOf, tailnetRequest } from './lib/remote.mjs';
 
 export const APP_VERSION = '2.0.0';
 const PORT = Number(process.env.PORT || 4340);
 const COOKIE = 'np_sid';
 const config = read('config.json', {});
+// 透過 Tailscale 私人網路開啟時免密碼（.local/config.json 的 tailnetNoPassword，或環境變數 MOBILE_TAILNET_NO_PASSWORD=1）
+const tailnetNoPassword = config.tailnetNoPassword === true || process.env.MOBILE_TAILNET_NO_PASSWORD === '1';
+const openAccess = req => tailnetNoPassword && tailnetRequest(req);
 const extraHosts = [...(config.hosts || []), ...String(process.env.MOBILE_HOSTS || '').split(',')].map(h => h.trim().toLowerCase()).filter(Boolean);
 
 const STATIC = {
@@ -237,7 +240,7 @@ export const server = http.createServer(async (req, res) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
-  if (!hostAllowed(req.headers.host)) {
+  if (!hostAllowed(req.headers.host) && !tailnetRequest(req)) {
     // 剛在電腦版新增的網域：最多每 15 秒向 Nexus 重新讀取一次設定後再判斷
     if (Date.now() - hostRefreshAt > 15000) { hostRefreshAt = Date.now(); await profile(true); }
     if (!hostAllowed(req.headers.host)) return send(req, res, 403, { error: '不允許的主機名稱' });
@@ -249,6 +252,12 @@ export const server = http.createServer(async (req, res) => {
       if (req.headers['x-requested-with'] !== 'nexus-pocket' || (origin && ![`https://${req.headers.host}`, `http://${req.headers.host}`].includes(origin))) return send(req, res, 403, { error: '請重新整理頁面後再試' });
     }
     if (route.startsWith('/m/')) {
+      const open = openAccess(req);
+      if (open) {
+        if (route === '/m/auth/me') return send(req, res, 200, { ok: true, appVersion: APP_VERSION, profile: await profile(), noPassword: true });
+        if (route.startsWith('/m/api/')) return await api(req, res, url);
+        if (route === '/m/auth/logout') return send(req, res, 200, { ok: true });
+      }
       if (!auth.passwordConfigured()) return send(req, res, 503, { error: '尚未設定手機版密碼，請在電腦上執行「設定手機密碼.cmd」', setup: true });
       const sid = cookies(req)[COOKIE];
       if (route === '/m/auth/login' && req.method === 'POST') {

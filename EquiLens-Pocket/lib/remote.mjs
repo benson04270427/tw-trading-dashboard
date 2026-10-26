@@ -36,8 +36,18 @@ export function clientIp(req, mode) {
   else if (mode === 'custom') ip = h['x-real-ip'] || String(h['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean).at(-1);
   return String(ip || req.socket?.remoteAddress || 'local').slice(0, 64);
 }
+// Tailscale Serve 轉進來的私人網路請求：網址是 <電腦>.<tailnet>.ts.net、Tailscale 附上登入者身分標頭、
+// 連線來自本機（Serve 在這台電腦上代理），而且沒有 Cloudflare 標頭（公開通道無法偽造 Host 與移除 CF 標頭）。
+// Tailscale Funnel（公開）不會附上身分標頭，所以不算。
+const LOOPBACK = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+export function tailnetRequest(req) {
+  const h = req?.headers || {}, host = String(h.host || '').toLowerCase().replace(/:\d+$/, '');
+  return /^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/.test(host) && typeof h['tailscale-user-login'] === 'string' && h['tailscale-user-login'].length > 0
+    && !h['cf-connecting-ip'] && !h['cf-ray'] && LOOPBACK.includes(String(req.socket?.remoteAddress || ''));
+}
 // 外部連線是否為 https（決定 Cookie 是否加上 Secure、是否送出 HSTS）
 export function isHttps(req, mode) {
+  if (tailnetRequest(req)) return true;
   if (mode === 'off') return false;
   const h = req.headers || {};
   if (String(h['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https') return true;

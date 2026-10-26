@@ -58,3 +58,16 @@ test('custom mode: login limits use X-Forwarded-For, rotating CF-Connecting-IP d
   const ok = await req('/m/auth/login', { ...H, 'X-Forwarded-For': '6.6.6.6', 'X-Forwarded-Proto': 'https' }, { password: 'pocket-remote-password' });
   assert.equal(ok.status, 200); assert.match(ok.headers['set-cookie'][0], /Secure/);
 });
+
+test('tailnet requests come through Tailscale Serve with identity headers and no Cloudflare headers', async () => {
+  const { tailnetRequest } = await import('../lib/remote.mjs');
+  const r = (headers, addr = '127.0.0.1') => ({ headers, socket: { remoteAddress: addr } });
+  const ok = { host: 'desktop-3b96ffu.tail1234.ts.net', 'tailscale-user-login': 'me@example.com' };
+  assert.equal(tailnetRequest(r(ok)), true);
+  assert.equal(tailnetRequest(r({ ...ok, host: 'desktop-3b96ffu.tail1234.ts.net:8443' })), true, 'second port for the US phone app');
+  assert.equal(tailnetRequest(r({ host: ok.host })), false, 'Funnel (public) has no identity header');
+  assert.equal(tailnetRequest(r({ ...ok, 'cf-connecting-ip': '1.2.3.4' })), false, 'came through Cloudflare');
+  assert.equal(tailnetRequest(r({ ...ok, host: 'abc.trycloudflare.com' })), false);
+  assert.equal(tailnetRequest(r({ ...ok, host: 'x.ts.net.evil.com' })), false);
+  assert.equal(tailnetRequest(r(ok, '192.168.1.5')), false, 'not proxied on this computer');
+});

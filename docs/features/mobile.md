@@ -47,6 +47,24 @@
 - 密碼至少 10 個字元（電腦上執行「設定手機密碼.cmd」），登入可保持 30 天；連續輸錯會暫時封鎖。
 - 只有你在電腦版「遠端存取」填入的網域可以連線。
 
+## Tailscale 私人網址與美股手機版
+
+用 [Tailscale](https://tailscale.com/) 建立只有自己裝置連得到的私人網路，手機版網址固定、不用密碼，也多一個美股手機版：
+
+| 項目 | 台股 | 美股 |
+|---|---|---|
+| 網址 | `https://<電腦名稱>.<tailnet>.ts.net` | 同一網址加 `:8443` |
+| 手機版伺服器 | 埠 4340 → 台股 Nexus 4330 | 埠 4341 → 美股 Nexus 4331 |
+| 資料（推播訂閱、設定） | `EquiLens-Pocket/.local` | `EquiLens-Pocket/.local-us` |
+
+設定步驟：
+
+1. 電腦安裝 Tailscale 並登入；手機安裝 Tailscale App，登入同一個帳號並保持開啟。
+2. 在電腦上執行 `EquiLens-Pocket\設定手機網址（Tailscale）.cmd`。它會：用 Tailscale Serve（只限自己的 tailnet，不是公開的 Funnel）把 443 埠接到台股手機版、8443 埠接到美股手機版；在兩個資料夾的 `config.json` 寫入 `tailnetNoPassword: true`；把兩個電腦版的「遠端存取」改為不對外開放、手機版網址改為上面的網址；關閉 Cloudflare 臨時網址並重新啟動台股與美股手機版。網址會印出、複製到剪貼簿，並存在 `.local/tailnet-urls.txt`。
+3. 第一次執行如果出現 Tailscale 的網址，表示 tailnet 還沒啟用 HTTPS 憑證：打開網址啟用後再執行一次。
+
+免密碼只適用於經過 Tailscale Serve 的請求：網址是 `*.ts.net`、帶有 Tailscale 附上的登入者身分標頭、連線來自本機，而且沒有 Cloudflare 標頭。其他來源（例如本機網址或公開通道）仍然需要密碼。美股手機版沒有設密碼，所以只能透過 Tailscale 使用。開機自動啟動（`EquiLens.vbs`）在 `.local-us` 存在時會一起啟動美股手機版。
+
 ## 更新
 
 電腦上更新程式並執行「重新啟動衡析（網址不變）.cmd」後，手機回到前景時會自動載入新版，網址與推播訂閱不變。

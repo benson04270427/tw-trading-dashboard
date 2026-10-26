@@ -296,6 +296,7 @@ node scripts/set-password.mjs     # 設定登入密碼，至少 10 個字元（W
 | 停止手機版（Nexus 繼續執行） | `EquiLens-Pocket\停止衡析手機版.cmd` | `EquiLens-Pocket/stop.sh` |
 | 停止電腦版 | `EquiLens-Nexus\Stop-Nexus.ps1` | `EquiLens-Nexus/stop.sh` |
 | 開機自動啟動 | `EquiLens-Pocket\設定開機自動啟動.cmd` | 依系統設定 |
+| 改用 Tailscale 固定私人網址（免密碼、含美股手機版） | `EquiLens-Pocket\設定手機網址（Tailscale）.cmd` | 見[手機版說明](docs/features/mobile.md#tailscale-私人網址與美股手機版) |
 
 **更新程式**：在專案資料夾執行 `git pull`（或切換到新的分支），再執行「重新啟動衡析（網址不變）.cmd」。
 重新啟動只會重啟 Nexus 與手機版服務，Cloudflare 通道繼續執行，所以手機網址與推播訂閱都不會失效；手機下次打開 App 時會自動載入新版。
