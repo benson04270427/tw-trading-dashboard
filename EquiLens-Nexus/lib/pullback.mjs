@@ -3,7 +3,7 @@
 // 分鐘線的進場訊號（突破前一根 K 高點）在日線回測中以「隔天突破今天高點」近似。
 // 純計算，日 K 由 server.mjs 準備（{ date, open, max, min, close, Trading_Volume }，日期由舊到新）。
 
-export const PULLBACK_VERSION = '1.0';
+export const PULLBACK_VERSION = '1.1';
 
 export const PB_DEFAULTS = {
   minRet: 0.30,      // 近 1／3／6 個月任一漲幅門檻
@@ -151,7 +151,7 @@ export function scanPullback(stocks, { market = 'TW', opt = PB_DEFAULTS, account
 }
 
 // 回測：每檔同時最多一筆。第 i 天收盤判定「接近買點」→ 第 i+1 天突破第 i 天高點進場（開盤跳空就用開盤價）。
-// 出場：跌破停損（跳空用開盤價）；到 3R 先賣一半；剩下收盤跌破 9 日 EMA 出場；最多抱 40 天。
+// 出場：跌破停損（跳空用開盤價）；到 3R 先賣一半，之後剩下的收盤跌破 9 日 EMA 出場（賣一半之前只看停損）；最多抱 40 天。
 // 進場當天又碰到停損，保守當作停損。每筆以 1R 計，報酬換算成 R 並扣交易成本。
 export function backtestPullback(stocks, { market = 'TW', opt = PB_DEFAULTS, from = null, maxHold = 40, partialR = 3, partialPct = 0.5 } = {}) {
   const preps = new Map(stocks.map(s => [s.id, prepare(s.rows || [])]).filter(([, p]) => p.b.length >= 120));
@@ -176,7 +176,7 @@ export function backtestPullback(stocks, { market = 'TW', opt = PB_DEFAULTS, fro
         const y = b[k];
         if (y.l <= stop) { legs.push([left, Math.min(y.o, stop)]); left = 0; exitIdx = k; why = 'stop'; break; }
         if (left === 1 && y.h >= entry + partialR * R) { legs.push([partialPct, Math.max(y.o, entry + partialR * R)]); left -= partialPct; }
-        if (y.c < e9[k]) { legs.push([left, y.c]); left = 0; exitIdx = k; why = 'ema9'; break; }
+        if (left < 1 && y.c < e9[k]) { legs.push([left, y.c]); left = 0; exitIdx = k; why = 'ema9'; break; }
         if (k - j >= maxHold) { legs.push([left, y.c]); left = 0; exitIdx = k; why = 'time'; break; }
       }
       if (exitIdx == null) continue; // 還在持有，不計

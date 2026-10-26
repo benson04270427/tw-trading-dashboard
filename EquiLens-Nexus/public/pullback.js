@@ -49,7 +49,7 @@ function btBox() {
   return `<div class="pb-bt"><h4 class="dd-h">歷史回測 <small class="soft">${esc(r.from)}～${esc(r.to)} · ${r.stocks} 檔 · 已扣交易成本 ${fmt(r.cost * 100, 3)}%${r.stale ? ' · 規則已更新，請重新回測' : ''}</small></h4>
   <div class="pb-kpis">${cell('交易次數', s.n)}${cell('勝率', fmt(s.winRate, 1) + '%')}${cell('平均每筆', rr(s.avgR), `中位數 ${rr(s.medianR)}`)}${cell('獲利因子', s.pf ?? '—')}${cell('平均賺／賠', `${rr(s.avgWinR)} / ${rr(s.avgLossR)}`)}${cell('最大連續回落', rr(s.maxDDR), '依出場順序累計')}${cell('到 3R', fmt(s.hit3R, 0) + '%')}${cell('平均持有', fmt(s.avgDays, 1) + ' 天', `停損距離 ${fmt(s.avgStopPct, 1)}%`)}</div>
   <div class="dd-scroll"><table class="tg-table dd-tbl"><thead><tr><th>分組</th><th>筆數</th><th>勝率</th><th>平均</th><th>獲利因子</th></tr></thead><tbody>${grp('依大盤寬度（站上 50 日 EMA 的比例）', r.byBreadth, { strong: '強（≥60%）', mid: '中（40–60%）', weak: '弱（<40%）', na: '資料不足' })}${grp('依第幾次回測', r.byRetest, { first: '第一次回測', later: '第二次以上' })}${grp('依年度', r.byYear, {})}</tbody></table></div>
-  <p class="ix-foot">規則：前一天收盤符合「接近買點」，隔天突破前一天高點進場（開盤跳空用開盤價）；停損放前一天低點與支撐區下緣較低者；到 3R 先賣一半，其餘收盤跌破 9 日 EMA 出場，最多持有 40 天。日線無法看出分鐘線訊號，實際進出場會不同。回測股票是電腦上有長期資料的那幾檔（以持股、自選、AI 供應鏈為主），有選股偏差；股價未還原，除權息可能誤觸停損。</p>
+  <p class="ix-foot">規則：前一天收盤符合「接近買點」，隔天突破前一天高點進場（開盤跳空用開盤價）；停損放前一天低點與支撐區下緣較低者；到 3R 先賣一半之前只看停損，賣一半後其餘收盤跌破 9 日 EMA 出場，最多持有 40 天。日線無法看出分鐘線訊號，實際進出場會不同。回測股票是電腦上有長期資料的那幾檔（以持股、自選、AI 供應鏈為主），有選股偏差；股價未還原，除權息可能誤觸停損。</p>
   <div class="pb-actions">${run}<button data-pb-trades>${S.showTrades ? '收起交易明細' : `看最近 ${r.trades.length} 筆交易`}</button></div>${trades}</div>`;
 }
 

@@ -32,7 +32,7 @@ import { createDayTrade, buildBaseline, normalizeDaytrade, roundTripCost, tzOffs
 import { createHistoryLoader } from './lib/daytrade-history.mjs';
 import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
 import { dispositions, tpexDayTrade, callWarrantQuotes, screenInputs, get as twseGet } from './lib/providers/twse.mjs';
-import { buildRisk, fetchRiskInputs, riskContext, twSeries, FACTORS as TW_RISK_FACTORS } from './lib/riskgauge.mjs';
+import { buildRisk, fetchRiskInputs, riskContext, twSeries, FACTORS as TW_RISK_FACTORS, level as riskLevel } from './lib/riskgauge.mjs';
 import { backtestRecipes, optimizeWeights, RECIPES as RISK_RECIPES } from './lib/riskbacktest.mjs';
 import { buildRiskUS, fetchRiskInputsUS, parseFred, usSeries, US_FACTORS } from './lib/riskgauge-us.mjs';
 import { buildMacro } from './lib/macro.mjs';
@@ -1476,7 +1476,7 @@ function usShapesReport(){
 /* ---------- 回檔買點（強勢股回測支撐；規則見 lib/pullback.mjs） ---------- */
 // 台股：全市場上市櫃普通股，用型態選股的全市場日 K 快照；美股：型態分區同一批（AI 供應鏈＋持股＋自選）
 let pullbackCache=null;
-function pullbackRegime(){const d=read('risk/latest.json',null);if(!d?.available)return null;const risk=d.riskAvg??d.risk;return{risk,label:d.label,tone:d.tone,exposure:d.exposure,caution:['highish','high'].includes(d.tone),date:d.date};}
+function pullbackRegime(){const d=read('risk/latest.json',null);if(!d?.available)return null;const risk=d.riskAvg??d.risk,lv=riskLevel(risk);return{risk,label:lv.label,tone:lv.tone,exposure:d.exposure,caution:['highish','high'].includes(lv.tone),date:d.date};}
 function pullbackReport(){
   const mk=M().id;if(!['TW','US'].includes(mk))return{available:false,reason:t('回檔買點目前只支援台股與美股')};
   let list,rows;
