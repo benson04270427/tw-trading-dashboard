@@ -1230,15 +1230,15 @@ async function scanSignals(){
 /* ---------- 今日漲跌排行、每日精選 ---------- */
 const latestHeat=()=>{const d=heatFiles().at(-1);return d?read('heatmap-'+d+'.json',null):null;};
 // 漲跌排行：盤中且即時熱浪涵蓋 100 檔以上時用即時資料，否則用最近一個收盤熱浪圖
-// 即時資料源只能逐檔查詢（證交所 MIS）時：有人看漲跌排行才在背景每 3 分鐘逐批掃一次全市場普通股，供排行使用
+// 即時資料源只能逐檔查詢（證交所 MIS）時：有人看漲跌排行才在背景逐批掃全市場普通股，每輪開始間隔 90 秒（一輪約 1 分鐘），供排行使用
 let moversLive=null,moversPending=null;
-const MOVERS_SWEEP_MS=180e3;
+const MOVERS_SWEEP_MS=90e3;let moversStart=0;
 const sweepable=()=>M().id==='TW'&&data.snapshotMode()==='symbols'&&data.source('snapshot')==='twsemis';
 function moversSweep(){
-  if(moversPending||!sweepable()||(moversLive&&Date.now()-moversLive.at<MOVERS_SWEEP_MS))return;
-  moversPending=(async()=>{try{await ensureUniverse();const list=uniIndex().list.filter(s=>/^[1-9]\d{3}$/.test(s.id)),exch=new Map(list.map(s=>[s.id,s.market==='上櫃'?'otc':'tse']));
+  if(moversPending||!sweepable()||Date.now()-moversStart<MOVERS_SWEEP_MS)return;
+  moversStart=Date.now();moversPending=(async()=>{try{await ensureUniverse();const list=uniIndex().list.filter(s=>/^[1-9]\d{3}$/.test(s.id)),exch=new Map(list.map(s=>[s.id,s.market==='上櫃'?'otc':'tse']));
     const rows=await data.snapshot(list.map(s=>s.id),{exch});moversLive={at:Date.now(),data:buildLiveHeatmap(rows,{universe:uniIndex().list,sectorOf:heatSectorOf(),refreshMs:MOVERS_SWEEP_MS}),error:''};}
-    catch(e){moversLive={...(moversLive||{}),at:Date.now(),error:e.message};}finally{moversPending=null;}})();
+    catch(e){moversLive={...(moversLive||{}),at:Date.now(),error:e.message};moversStart=Date.now()+210e3;}finally{moversPending=null;}})(); // 失敗（例如被證交所暫時限流）時至少隔 5 分鐘再試
 }
 function moversInfo(){
   const full=h=>h?.date===today()&&(h.total?.count||0)>=100;

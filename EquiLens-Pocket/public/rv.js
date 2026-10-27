@@ -14,8 +14,13 @@ export function riskCard() {
 // 盤勢分頁：每日精選與今日漲跌排行
 const H = { movers: null, picks: null, tab: 'gainers' };
 export function picksCard() { return `<section class="card"><div class="card-h"><h2>每日精選<small>${H.picks?.data?.date || ''}</small></h2></div><div class="card-b rv-wrap">${picksHTML(H.picks)}</div></section>`; }
-export function moversCard() { return H.movers?.available === false ? '' : `<section class="card"><div class="card-h"><h2>今日漲跌排行<small>全市場</small></h2></div><div class="card-b rv-wrap">${moversHTML(H.movers, { tab: H.tab, n: 15 })}</div></section>`; }
+export function moversCard() { return H.movers?.available === false ? '' : `<section class="card" data-movers-card><div class="card-h"><h2>今日漲跌排行<small>全市場</small></h2></div><div class="card-b rv-wrap">${moversHTML(H.movers, { tab: H.tab, n: 15 })}</div></section>`; }
 export async function loadHomeRank() { try { [H.movers, H.picks] = await Promise.all([X.api('api/movers'), X.api('api/picks')]); } catch { } if (H.picks?.busy) pollPicks(); }
+// 盤中排行每 30 秒更新（伺服器約每 90 秒掃一次全市場），只換掉排行卡片
+setInterval(async () => {
+  if (!X || X.S.tab !== 'home' || document.hidden || !(H.movers?.source === 'live' || H.movers?.sweeping)) return;
+  try { H.movers = await X.api('api/movers'); const el = document.querySelector('[data-movers-card]'); if (el) el.outerHTML = moversCard(); } catch { }
+}, 30e3);
 let pp = false;
 async function pollPicks() { if (pp) return; pp = true; try { do { await sleep(3000); H.picks = await X.api('api/picks'); if (X.S.tab === 'home') X.draw(); } while (H.picks?.busy); } catch { } finally { pp = false; } }
 // 型態分頁的「策略選股」、盤勢分頁的「總經大地圖」
