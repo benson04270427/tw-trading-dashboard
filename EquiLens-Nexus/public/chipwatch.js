@@ -33,9 +33,9 @@ async function loadRank() { W.rank = await C.api('holders/rank?scope=' + W.scope
 export function chipPage() {
   const i = W.info, r = W.rank;
   if (!i && !W.error) return '<div class="empty"><i class="spinner"></i>讀取中…</div>';
-  if (i && !i.capable) return `<div class="notice warn"><span>籌碼追蹤需要 FinMind Sponsor 方案（券商分點與全市場股權分散表）。</span><button data-page="settings">資料來源設定 →</button></div>`;
+  const noBw = i && !i.capable; // 沒有 FinMind Sponsor：分點追蹤不能用，大戶排行（集保開放資料）照常
   const s = i?.settings || {};
-  const bw = `<section class="panel"><div class="panelhead"><div><h2><span class="idx">01</span>分點追蹤</h2><p>指定券商分點，每個交易日盤後整理它在全市場的進出 · 自選與研究名單股票特別標示 · 達門檻推播到手機</p></div>
+  const bw = noBw ? `<div class="notice warn"><span>分點追蹤需要 FinMind Sponsor 方案（券商分點）；下方的大戶集中度排行使用集保結算所的免費資料，不受影響。</span><button data-page="settings">資料來源設定 →</button></div>` : `<section class="panel"><div class="panelhead"><div><h2><span class="idx">01</span>分點追蹤</h2><p>指定券商分點，每個交易日盤後整理它在全市場的進出 · 自選與研究名單股票特別標示 · 達門檻推播到手機</p></div>
     <div class="actions">${i ? cwDateHTML(i, W) : ''}<button class="primary" data-cw="query" ${W.loading || i?.busy || !s.branches?.length ? 'disabled' : ''}>${W.loading || i?.busy ? '<i class="spinner"></i>查詢中…' : '⟳ 查詢最新交易日'}</button></div></div>
     <div class="contentpad"><div class="ix-cw-set">${branchChips(s)}
       <form class="ix-cw-search" data-cw-search><input name="q" value="${esc(W.q)}" placeholder="搜尋券商分點名稱或代號，例如 凱基台北、9200" maxlength="30" aria-label="搜尋券商分點"><button type="submit">搜尋</button></form>

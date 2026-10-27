@@ -4229,5 +4229,9 @@
   "{label}：回應格式不符，稍後再試": "{label}: unexpected response format, try again later",
   "{label}：讀不到可查詢的週別": "{label}: could not read the available weeks",
   "正在向集保結算所補齊約一年的每週資料（{0}／{1} 週），每檔只需補一次，稍後會自動更新。": "Backfilling about a year of weekly data from TDCC ({0}/{1} weeks). This happens once per stock; the chart updates automatically.",
-  "集保結算所": "TDCC"
+  "集保結算所": "TDCC",
+  "分點追蹤需要 FinMind Sponsor 方案（券商分點）；下方的大戶集中度排行使用集保結算所的免費資料，不受影響。": "Broker-branch tracking needs a FinMind Sponsor plan (broker branches). The big-holder ranking below uses free TDCC data and works without it.",
+  "大戶集中度排行只支援台股": "The big-holder ranking supports Taiwan stocks only",
+  "集保結算所開放資料": "TDCC open data",
+  "大戶排行只支援台股。": "The big-holder ranking supports Taiwan stocks only."
 }

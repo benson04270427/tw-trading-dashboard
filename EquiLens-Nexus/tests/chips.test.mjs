@@ -152,6 +152,6 @@ test('price alert and chip tracking APIs: validation, persistence per market, no
     const set = await (await post('chipwatch/settings', { branches: [{ id: '9200', name: '凱基台北' }], dayPct: 15, minAmount: 3e7 })).json();
     assert.deepEqual(set.settings.branches, [{ id: '9200', name: '凱基台北' }]); assert.equal(set.settings.dayPct, 15); assert.equal(set.settings.minAmount, 3e7); assert.equal(set.settings.accumDays, 5);
     assert.equal((await post('chipwatch/settings', { branches: Array.from({ length: 21 }, (_, i) => ({ id: String(i), name: 'x' })) })).status, 400);
-    const hr = await get('holders/rank'); assert.equal(hr.capable, false); assert.equal(hr.rank, null);
+    const hr = await get('holders/rank'); assert.equal(hr.capable, true); assert.equal(hr.rank, null); // 大戶排行改用集保開放資料，台股不需要 FinMind Sponsor
   } finally { child.kill(); await new Promise(r => child.once('close', r)); fs.rmSync(dir, { recursive: true, force: true }); }
 });

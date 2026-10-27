@@ -36,3 +36,14 @@ test('集保結算所查詢頁：讀 token、週別與級距表', () => {
   assert.equal(lv.big1000, 61.73); assert.equal(lv.big400, 63.83); assert.equal(lv.people, 619908); assert.equal(lv.shares, 2058730688);
   assert.deepEqual(parseTdccTable('<table><tr><td colspan="5"><span>查無此資料</span></td></tr></table>', '2026-10-22'), []);
 });
+
+import { parseTdccOpenData } from '../lib/providers/tdcc.mjs';
+import { holderMarketDay } from '../lib/chipwatch.mjs';
+test('集保開放資料：全市場 CSV 轉成每檔大戶比率', () => {
+  const lv = [[1, 2594858, 303612546, 1.17], [11, 1330, 373928990, 1.44], [12, 576, 282066601, 1.08], [15, 1476, 21893080824, 84.42], [16, 2, 4000, 0], [17, 3166709, 25932070000, 100]];
+  const csv = '資料日期,證券代號,持股分級,人數,股數,占集保庫存數比例%\r\n' + lv.map(x => `20261022,2330  ,${x.join(',')}`).join('\r\n') + '\r\n';
+  const { date, rows } = parseTdccOpenData(csv);
+  assert.equal(date, '2026-10-22'); assert.equal(rows.length, 5);
+  const s = holderMarketDay(rows, date);
+  assert.deepEqual(s['2330'], [84.42, 85.5, 1.17, 3166709, 25932070000]);
+});

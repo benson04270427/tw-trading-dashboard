@@ -26,7 +26,7 @@ import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGro
 import { patternSnapshot, clearPatterns, updatePatternData, patternBars } from './lib/pattern-service.mjs';
 import { scanPullback, backtestPullback, PULLBACK_VERSION } from './lib/pullback.mjs';
 import { buildOwnership, insiderTotals } from './lib/ownership.mjs';
-import { tdccSession } from './lib/providers/tdcc.mjs';
+import { tdccSession, tdccOpenData } from './lib/providers/tdcc.mjs';
 import { permitted as patternPermitted } from './lib/patterns.mjs';
 import { createStreamPool, splitSymbols, spreadSymbols } from './lib/stream.mjs';
 import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV, exportDay } from './lib/bookrec.mjs';
@@ -128,7 +128,7 @@ loadMarketState();
 
 // 換市場：把目前市場的資料（股票清單、族群、自選、行情、紀錄）收進 .local/markets/<市場>/，再把目標市場先前收起來的資料搬回來
 const MARKET_FILE=/^(universe|groups|watchlist|watch-groups|evidence|last-job|news-seen|pattern-active|pattern-calendar|pattern-ledger|bulk-ledger|daytrade-prep|price-alerts|portfolio|portfolio-alerts|backtest)\.json$|^(heatmap|flows|grouprank|alerts|index|card)-\d{4}-\d{2}-\d{2}\.json$/;
-const MARKET_DIRS=['cache','stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history','insiders'];
+const MARKET_DIRS=['cache','stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','tdcc','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history','insiders'];
 function switchMarket(next){
   const cur=config().market;if(next===cur)return;
   if(job.running||flowBusy||heatBusy||reportBusy||livePending)throw new UserError('請等待更新完成或停止後，再切換市場');
@@ -664,6 +664,8 @@ const TDCC_DIR='tdcc',tdccFile=id=>`${TDCC_DIR}/${String(id).replace(/[^\w.-]/g,
 let tdccSess=null,tdccSessAt=0;const tdccFill=new Map();let tdccTail=Promise.resolve();
 const tdcc=()=>{if(!tdccSess||Date.now()-tdccSessAt>20*60e3){tdccSess=tdccSession();tdccSessAt=Date.now();}return tdccSess;};
 const tdccQueue=fn=>{const p=tdccTail.then(fn,fn);tdccTail=p.catch(()=>{});return p;};
+// 集保查詢頁可查的週別（新到舊），存檔供大戶排行找前 1 週／前 4 週
+const tdccDatesSave=d=>{const o=read(`${TDCC_DIR}/dates.json`,null);if(o?.dates?.[0]===d[0])return;fs.mkdirSync(path.join(LOCAL,TDCC_DIR),{recursive:true});write(`${TDCC_DIR}/dates.json`,{at:Date.now(),dates:d});};
 async function tdccFetch(id,dates){
   const st=read(tdccFile(id),null)||{id,weeks:{},none:[]};let n=0;
   const save=()=>{if(!n)return;fs.mkdirSync(path.join(LOCAL,TDCC_DIR),{recursive:true});write(tdccFile(id),st);};
@@ -674,12 +676,17 @@ async function tdccFetch(id,dates){
   finally{save();}
   return st;
 }
-async function tdccWeeks(id,{need=12}={}){
-  const all=await tdccQueue(()=>tdcc().dates()),st0=read(tdccFile(id),null)||{weeks:{},none:[]};
+// 全市場每週檔（holders-all/<日期>.json，集保開放資料每週一次取得）裡有的週別不用再逐檔查
+const hdMem=new Map();
+const hdDay=d=>{if(!hdMem.has(d))hdMem.set(d,read(`holders-all/${d}.json`,null)?.s||null);return hdMem.get(d);};
+const hdWeek=v=>v?{big1000:v[0],big400:v[1],small:v[2],people:v[3],shares:v[4]||0}:null;
+async function tdccWeeks(id,{need=12,fill=true}={}){
+  const all=await tdccQueue(()=>tdcc().dates()).then(d=>{tdccDatesSave(d);return d;}),st0=read(tdccFile(id),null)||{weeks:{},none:[]};
+  for(const d of hdDates()){const v=hdDay(d)?.[id];if(v&&!st0.weeks[d])st0.weeks[d]=hdWeek(v);}
   const missing=all.filter(d=>!st0.weeks[d]&&!st0.none?.includes(d));
   const now=missing.filter(d=>all.indexOf(d)<need),later=missing.filter(d=>!now.includes(d));
-  const st=now.length?await tdccFetch(id,now):st0;
-  if(later.length&&!tdccFill.has(id))tdccFill.set(id,tdccFetch(id,later).catch(e=>console.warn('TDCC fill',id,e.message)).finally(()=>tdccFill.delete(id)));
+  const st=now.length?{...st0,weeks:{...st0.weeks,...(await tdccFetch(id,now)).weeks}}:st0;
+  if(fill&&later.length&&!tdccFill.has(id))tdccFill.set(id,tdccFetch(id,later).catch(e=>console.warn('TDCC fill',id,e.message)).finally(()=>tdccFill.delete(id)));
   const weeks=Object.entries(st.weeks).map(([date,v])=>({date,...v})).sort((a,b)=>a.date.localeCompare(b.date));
   return{weeks,total:all.length,filling:tdccFill.has(id)};
 }
@@ -888,46 +895,48 @@ function chipwatchInfo(date){
     query:bw.busy||bw.date?{date:bw.date,done:bw.done,total:bw.total}:null,holders:holderStatus(),warrants:{busy:!!wm.busy,error:wm.error}};
 }
 
-// 大戶集中度：每週股權分散表（全市場一次取回，每個日期存一份精簡檔）；最多每 6 小時確認一次是否有新的一週
+// 大戶集中度：每週股權分散表。集保結算所開放資料（免費、1 個請求取得全市場最新一週，約 2.4 MB）每週存一份精簡檔；
+// 最新一週距今不到 7 天就不檢查，之後每 6 小時檢查一次直到新的一週公布（通常週五傍晚）。
 const hdDates=()=>listDir('holders-all',/^(\d{4}-\d{2}-\d{2})\.json$/);
-let hd={busy:false,error:'',probeAt:0,cache:{key:'',data:null}};
-async function holderDay(date){
-  const name=`holders-all/${date}.json`,c=read(name,null);if(c?.s&&Object.values(c.s)[0]?.length>=5)return c; // 舊紀錄沒有集保股數時重新取得
-  const rows=await finmind('brokers')('TaiwanStockHoldingSharesPer',{start_date:date},fmOpt()),s=holderMarketDay(rows,date);
-  if(!Object.keys(s).length)return null;
-  const doc={date,at:Date.now(),s};fs.mkdirSync(path.join(LOCAL,'holders-all'),{recursive:true});write(name,doc);return doc;
-}
-// 以台積電確認近期有哪些公布日期，再補齊最新、前 1 週、前 4 週三個日期；回傳是否有新的一週
+let hd={busy:false,error:'',probeAt:0,cache:{key:'',data:null},fill:null};
+const holdersCapable=()=>M().id==='TW';
+const hdIds=()=>{const pf=read('portfolio.json',null);return[...new Set([...watchlist,...scopeIds(researchScope),...(pf?.holdings||[]).map(h=>h.id)])].filter(id=>/^\d{4,6}[A-Z]?$/.test(id));};
+// 回傳是否有新的一週
 async function refreshHolders(){
   if(hd.busy)throw new UserError('大戶資料更新中，請稍候');
   hd.busy=true;hd.error='';hd.probeAt=Date.now();
   try{
-    const probe=await finmind('brokers')('TaiwanStockHoldingSharesPer',{data_id:'2330',start_date:minusDays(today(),45)},fmOpt());
-    const dates=[...new Set(probe.map(r=>r.date))].sort();if(!dates.length)throw new UserError('查無股權分散資料');
-    const had=hdDates().at(-1)||'';
-    for(const d of [dates.at(-1),dates.at(-2),dates.at(-5)].filter(Boolean))await holderDay(d);
-    // 只保留最近 12 週
-    for(const d of hdDates().slice(0,-12))fs.rmSync(path.join(LOCAL,'holders-all',`${d}.json`),{force:true});
+    const {date,rows}=await tdccOpenData(),had=hdDates().at(-1)||'';
+    if(!read(`holders-all/${date}.json`,null)?.s){const s=holderMarketDay(rows,date);if(!Object.keys(s).length)throw new UserError('查無股權分散資料');
+      fs.mkdirSync(path.join(LOCAL,'holders-all'),{recursive:true});write(`holders-all/${date}.json`,{date,at:Date.now(),source:'tdcc',s});hdMem.delete(date);}
+    // 保留約 60 週（每週約 200 KB）
+    for(const d of hdDates().slice(0,-60)){fs.rmSync(path.join(LOCAL,'holders-all',`${d}.json`),{force:true});hdMem.delete(d);}
     hd.cache={key:'',data:null};
-    return dates.at(-1)>had;
+    // 自選、研究名單與持股：第一次在背景向集保查詢頁補前 4 週，讓排行有 1 週／4 週變化（之後每週由開放資料接上）
+    if(!hd.fill)hd.fill=(async()=>{for(const id of hdIds())await tdccWeeks(id,{need:5,fill:false}).catch(()=>{});})().finally(()=>{hd.fill=null;hd.cache={key:'',data:null};});
+    return date>had;
   }catch(e){hd.error=e.message;throw e;}finally{hd.busy=false;}
 }
 function holderRank(scope='mine',date){
   const ds=hdDates();if(!date||date==='latest')date=ds.at(-1);if(!date)return null;
-  const key=`${scope}:${date}:${ds.length}:${watchlist.length}:${scopeIds(researchScope).length}`;if(hd.cache.key===key)return hd.cache.data;
-  const i=ds.indexOf(date);if(i<0)return null;
-  const day=d=>d?read(`holders-all/${d}.json`,null):null,before=ds.slice(0,i);
-  // 前 1 週與前 4 週：依日期找最接近的紀錄（5–9 天前、26–32 天前）
-  const near=(lo,hi)=>before.filter(d=>{const n=(Date.parse(date)-Date.parse(d))/864e5;return n>=lo&&n<=hi;}).at(-1);
+  const key=`${scope}:${date}:${ds.length}:${watchlist.length}:${scopeIds(researchScope).length}:${hd.fill?1:0}`;if(hd.cache.key===key)return hd.cache.data;
+  if(!ds.includes(date))return null;
   const {meta}=uniIndex(),research=scopeIds(researchScope),ids=scope==='market'?null:[...new Set([...watchlist,...research])];
+  // 自選＋研究名單：全市場週檔沒有的週別，用逐檔查到的每週資料補上
+  const own=ids?new Map(ids.map(id=>[id,read(tdccFile(id),null)?.weeks||{}])):null;
+  const day=d=>{if(!d)return null;const s={...(hdDay(d)||{})};if(own)for(const [id,w] of own)if(!s[id]&&w[d]){const v=w[d];s[id]=[v.big1000,v.big400,v.small,v.people,v.shares];}return Object.keys(s).length?{date:d,s}:null;};
+  // 前 1 週與前 4 週：依日期找最接近的紀錄（5–9 天前、24–32 天前）
+  const known=[...new Set([...ds,...(read(`${TDCC_DIR}/dates.json`,null)?.dates||[])])].sort(),before=known.filter(d=>d<date);
+  const near=(lo,hi)=>before.filter(d=>{const n=(Date.parse(date)-Date.parse(d))/864e5;return n>=lo&&n<=hi;}).at(-1);
   const r=rankHolders({latest:day(date),prev1:day(near(5,9)),prev4:day(near(24,32))},{ids,meta,watch:new Set(watchlist),research:new Set(research),minPeople:scope==='market'?1000:0});
   // 全市場只回傳集中與渙散兩端各 60 檔
   const data=r&&scope==='market'?{...r,rows:[...r.rows.slice(0,60),...r.rows.slice(60).slice(-60)]}:r;
   hd.cache={key,data};return data;
 }
-const holderStatus=()=>({dates:hdDates().slice(-12),busy:hd.busy,error:hd.error,checkedAt:hd.probeAt||null});
+const holderStatus=()=>({dates:hdDates().slice(-12),busy:hd.busy,error:hd.error,checkedAt:hd.probeAt||null,filling:!!hd.fill,source:'tdcc'});
 setInterval(()=>{
-  if(hd.busy||Date.now()-hd.probeAt<6*3600e3||!chipCapable())return;
+  const last=hdDates().at(-1);
+  if(hd.busy||!holdersCapable()||Date.now()-hd.probeAt<6*3600e3||(last&&(Date.parse(today())-Date.parse(last))/864e5<7))return;
   hd.probeAt=Date.now();
   refreshHolders().then(fresh=>{if(fresh&&chipSettings().holdersPush){const a=holderRankAlert(holderRank('mine'),{lang:language()});if(a)addAlerts(today(),[a]);}}).catch(e=>console.error(t('大戶資料更新失敗：')+e.message));
 },10*60e3).unref();
@@ -2098,10 +2107,10 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/holders/rank'&&req.method==='GET'){
       const scope=url.searchParams.get('scope')==='market'?'market':'mine',date=url.searchParams.get('date');
       if(date&&date!=='latest'&&!validHeatDate(date))throw new UserError('請選擇有效日期');
-      return json(res,200,{capable:chipCapable(),rank:holderRank(scope,date),...holderStatus()});
+      return json(res,200,{capable:holdersCapable(),rank:holderRank(scope,date),...holderStatus()});
     }
     if(route==='/api/holders/rank/query'&&req.method==='POST'){
-      finmind('brokers');await refreshHolders();return json(res,200,{capable:true,rank:holderRank('mine'),...holderStatus()});
+      if(!holdersCapable())throw new UserError('大戶集中度排行只支援台股');await refreshHolders();return json(res,200,{capable:true,rank:holderRank('mine'),...holderStatus()});
     }
     if(route==='/api/alerts'&&req.method==='GET'){
       let date=url.searchParams.get('date')||today();

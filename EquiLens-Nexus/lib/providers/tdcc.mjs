@@ -55,3 +55,25 @@ export function tdccSession({ interval = 400, timeout = 20000 } = {}) {
     },
   };
 }
+
+// 集保開放資料「集保戶股權分散表」（https://opendata.tdcc.com.tw/getOD.ashx?id=1-5）：全市場最新一週，CSV 約 2.4 MB。
+// 欄位：資料日期, 證券代號（右側補空白）, 持股分級（1–15 級距、16 差異數調整、17 合計）, 人數, 股數, 占集保庫存數比例%
+const LEVEL_LOW = [1, 1000, 5001, 10001, 15001, 20001, 30001, 40001, 50001, 100001, 200001, 400001, 600001, 800001, 1000001];
+export function parseTdccOpenData(csv) {
+  let date = null; const rows = [];
+  for (const line of String(csv).split(/\r?\n/)) {
+    const c = line.split(','); if (c.length < 6 || !/^\d{8}$/.test(c[0])) continue;
+    const lv = Number(c[2]); if (lv === 16) continue;
+    const d = iso(c[0]); date ??= d;
+    rows.push({ date: d, stock_id: c[1].trim(), HoldingSharesLevel: lv === 17 ? 'total' : lv >= 1 && lv <= 15 ? `${LEVEL_LOW[lv - 1]}-` : 'other', people: Number(c[3]) || 0, unit: Number(c[4]) || 0, percent: Number(c[5]) || 0 });
+  }
+  return { date, rows: rows.filter(r => r.HoldingSharesLevel !== 'other') };
+}
+export async function tdccOpenData({ timeout = 90000 } = {}) {
+  let res; try { res = await fetch('https://opendata.tdcc.com.tw/getOD.ashx?id=1-5', { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(timeout) }); }
+  catch { throw new DataError('{label} 連線失敗或逾時', { label: '集保結算所開放資料' }); }
+  if (!res.ok) throw new DataError('{label}：資料服務回應 {status}', { label: '集保結算所開放資料', status: res.status });
+  const out = parseTdccOpenData(await res.text());
+  if (!out.date || !out.rows.length) throw new DataError('{label}：回應格式不符，稍後再試', { label: '集保結算所開放資料' });
+  return out;
+}
