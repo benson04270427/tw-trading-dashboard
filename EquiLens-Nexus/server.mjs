@@ -1197,10 +1197,25 @@ async function scanSignals(){
 /* ---------- 今日漲跌排行、每日精選 ---------- */
 const latestHeat=()=>{const d=heatFiles().at(-1);return d?read('heatmap-'+d+'.json',null):null;};
 // 漲跌排行：盤中且即時熱浪涵蓋 100 檔以上時用即時資料，否則用最近一個收盤熱浪圖
+// 即時資料源只能逐檔查詢（證交所 MIS）時：有人看漲跌排行才在背景每 3 分鐘逐批掃一次全市場普通股，供排行使用
+let moversLive=null,moversPending=null;
+const MOVERS_SWEEP_MS=180e3;
+const sweepable=()=>M().id==='TW'&&data.snapshotMode()==='symbols'&&data.source('snapshot')==='twsemis';
+function moversSweep(){
+  if(moversPending||!sweepable()||(moversLive&&Date.now()-moversLive.at<MOVERS_SWEEP_MS))return;
+  moversPending=(async()=>{try{await ensureUniverse();const list=uniIndex().list.filter(s=>/^[1-9]\d{3}$/.test(s.id)),exch=new Map(list.map(s=>[s.id,s.market==='上櫃'?'otc':'tse']));
+    const rows=await data.snapshot(list.map(s=>s.id),{exch});moversLive={at:Date.now(),data:buildLiveHeatmap(rows,{universe:uniIndex().list,sectorOf:heatSectorOf(),refreshMs:MOVERS_SWEEP_MS}),error:''};}
+    catch(e){moversLive={...(moversLive||{}),at:Date.now(),error:e.message};}finally{moversPending=null;}})();
+}
 function moversInfo(){
-  const live=liveWindow()&&liveHeat?.data?.date===today()&&(liveHeat.data.total?.count||0)>=100?liveHeat.data:null,heat=live||latestHeat();
+  const full=h=>h?.date===today()&&(h.total?.count||0)>=100;
+  let live=liveWindow()&&full(liveHeat?.data)?liveHeat.data:null;
+  const close=latestHeat();
+  // 盤中（或收盤後、當天收盤熱浪圖還沒產生前）用全市場掃描的結果
+  if(!live&&sweepable()&&(liveWindow()||close?.date!==today())){if(liveWindow())moversSweep();if(full(moversLive?.data))live=moversLive.data;}
+  const heat=live||close;
   if(!heat)return{available:false};
-  return{available:true,source:live?'live':'close',market:M().id,...movers(heat,{market:M().id,watch:new Set(watchlist)})};
+  return{available:true,source:live?'live':'close',sweeping:!live&&!!moversPending,market:M().id,...movers(heat,{market:M().id,watch:new Set(watchlist)})};
 }
 // 每日精選：收盤熱浪圖的候選股依籌碼、訊號、量價、營收、新聞、AI 供應鏈加總，取前 5 名（同一供應鏈或產業最多 2 檔）
 let picksJob={busy:false,error:''};

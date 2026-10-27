@@ -4197,5 +4197,7 @@
   "{0} · 反映大盤現況，不影響建議持股": "{0} · shows the market right now; does not change suggested exposure",
   "反映大盤現況，不影響建議持股": "shows the market right now; does not change suggested exposure",
   "外資期貨 35%、外資現貨 35%、趨勢 30%（配方回測的「外資主導」）。近 100 個交易日最貼近大盤漲跌，但屬於事後反映，不參與建議持股。": "Foreign futures 35%, foreign spot 35%, trend 30% (the Foreign-led recipe in the recipe backtest). It tracked the market most closely over the last 100 trading days, but it reacts after the fact and does not feed the suggested exposure.",
-  "大盤溫度計": "Market thermometer"
+  "大盤溫度計": "Market thermometer",
+  "{0} 收盤{1}": "{0} close{1}",
+  "（正在取得盤中全市場報價，約 1 分鐘）": " (fetching intraday quotes for the whole market, about 1 minute)"
 }

@@ -1,5 +1,6 @@
 // 證交所基本市況報導（MIS，台股，免金鑰）：研究名單、自選與提醒股票的盤中即時報價（約 5 秒更新），加上加權與櫃買指數。
 // 一次查詢最多 40 檔；只提供逐檔查詢，因此盤中監控只涵蓋研究名單與自選股（全市場即時熱浪需要付費資料源）。
+// 今日漲跌排行另外每 3 分鐘逐批掃一次全市場普通股（約 50 批，每批間隔 0.7 秒），見 server.mjs moversSweep。
 import { DataError, fetchJSON, sleep } from './common.mjs';
 
 const LABEL = '證交所即時報價';
@@ -25,7 +26,8 @@ export function parseMis(body) {
   }
   return out;
 }
-const channels = ids => ids.flatMap(id => exOf.has(id) ? [`${exOf.get(id)}_${id}.tw`] : [`tse_${id}.tw`, `otc_${id}.tw`]);
+// exch：呼叫端已知的上市（tse）／上櫃（otc）別，可少查一倍的頻道
+const channels = (ids, exch) => ids.flatMap(id => { const ex = exOf.get(id) || exch?.get(id); return ex ? [`${ex}_${id}.tw`] : [`tse_${id}.tw`, `otc_${id}.tw`]; });
 
 export default {
   id: 'twsemis', name: '證交所即時報價（MIS）', site: 'https://mis.twse.com.tw', docs: 'https://mis.twse.com.tw/stock/index.jsp', markets: ['TW'],
@@ -40,7 +42,7 @@ export default {
     if (!batches.length) batches.push([]);
     for (const [i, b] of batches.entries()) {
       if (i) await sleep(700, ctx.signal);
-      const ch = [...channels(b), ...(i === 0 ? ['tse_t00.tw', 'otc_o00.tw'] : [])].join('|');
+      const ch = [...channels(b, ctx.exch), ...(i === 0 ? ['tse_t00.tw', 'otc_o00.tw'] : [])].join('|');
       const r = await fetchJSON(`${URL_}?ex_ch=${encodeURIComponent(ch)}&json=1&delay=0&_=${Date.now()}`, { headers: HEADERS, signal: ctx.signal, label: LABEL, timeout: 15000 });
       if (!r.ok || r.body?.rtcode !== '0000') throw new DataError('{label}：資料服務回應 {status}', { label: LABEL, status: r.body?.rtcode || r.status });
       out.push(...parseMis(r.body));

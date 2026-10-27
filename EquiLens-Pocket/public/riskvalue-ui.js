@@ -185,7 +185,7 @@ export function moversHTML(d, { tab = 'gainers', n = 20 } = {}) {
   if (!d.available) return '<p class="ix-empty">還沒有收盤熱浪圖。到「資金熱浪」查詢一次，或等每日更新後就會出現。</p>';
   const list = (tab === 'losers' ? d.losers : d.gainers).slice(0, n);
   const head = `<div class="mv-head"><div class="segmented rv-strats">${[['gainers', '漲幅'], ['losers', '跌幅']].map(([k, l]) => `<button data-rv-mtab="${k}" class="${tab === k ? 'selected' : ''}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>
-    <span class="soft">${d.source === 'live' ? `盤中 ${esc(String(d.asOf || '').slice(11, 16))}` : `${esc(d.date || '')} 收盤`} · 成交 ≥ ${moneyText(d.minMoney, d.market)}</span></div>`;
+    <span class="soft">${d.source === 'live' ? `盤中 ${esc(String(d.asOf || '').slice(11, 16))}` : `${esc(d.date || '')} 收盤${d.sweeping ? '（正在取得盤中全市場報價，約 1 分鐘）' : ''}`} · 成交 ≥ ${moneyText(d.minMoney, d.market)}</span></div>`;
   const rows = list.length ? list.map((x, i) => `<div class="mv-row"><span class="mv-rank num">${i + 1}</span><button class="ix-cw-stock mv-name" data-alert-stock="${esc(x.id)}">${esc(x.name)} <small class="num">${esc(x.id)}</small></button><small class="soft mv-sec">${esc(x.sector || '')}</small>${chg(x.change)}<span class="num mv-px">${fmt(x.close, 2)}</span><span class="num soft mv-amt">${moneyText(x.money, d.market)}</span>${star(x.id, x.watch)}</div>`).join('') : '<p class="ix-empty">沒有符合條件的股票。</p>';
   return `${head}<div class="mv-list">${rows}</div>`;
 }
