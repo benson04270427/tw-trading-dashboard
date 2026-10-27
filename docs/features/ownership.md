@@ -23,7 +23,7 @@
 
 | 資料 | 來源 | 請求量與快取 |
 |---|---|---|
-| 千張大戶、股東人數、集保總股數 | FinMind 集保股權分散表（TaiwanStockHoldingSharesPer，免費），約 380 天 | 每檔 1 個請求，存磁碟 12 小時 |
+| 千張大戶、股東人數、集保總股數 | 集保結算所「集保戶股權分散表查詢」網頁（免費、免金鑰，可查最近約 51 週） | 一檔一週 1 個請求，間隔 0.4 秒、同時只查一檔；過去的週別不會再變，存在 `.local/tdcc/<代號>.json` 永久重用。第一次開啟某檔時先補最近 12 週（約 10 秒），其餘約 39 週在背景補齊（約 30 秒），畫面每 10 秒自動更新；之後每週只多 1 個請求 |
 | 內部人持股 | 證交所／櫃買董監事持股餘額明細（[內部人](insiders.md)每天同步時保存的每月檔 `.local/insiders/tw-YYYY-MM.json`） | 不另外請求 |
 | 股價 | 訊號面板用的日 K（約 400 天） | 研究名單內不請求；名單外 1 個請求，快取 6 小時 |
 
@@ -31,12 +31,15 @@
 
 - 內部人持股的開放資料只提供當月，沒有歷史；衡析從開始同步的月份起逐月保存（保留 13 個月），所以一開始只有一兩個點，累積兩個月以上才畫成走勢。
 - 集保股權分散表每週五公布，資料日是前一個交易日。
+- 大戶資料原本用 FinMind，但 FinMind 已把個股股權分散表改為 Sponsor 才能取得，所以改向集保結算所查詢；個股視窗的「🐋 大戶持股」也改用同一份保存的資料。
+- 集保查詢頁只提供最近約一年，比這更早的週別查不到；衡析會一直保存已抓過的週別，用越久累積越長。
 - 千張大戶包含公司派、法人、ETF 與信託持股，比率上升不一定是「主力買進」。
 - 分母用集保總股數，和以實收資本額換算的股數會有些微差異。
 
 ## 相關檔案
 
 - `EquiLens-Nexus/lib/ownership.mjs`：計算（純函式）
-- `EquiLens-Nexus/server.mjs`：`GET /api/ownership?id=`
+- `EquiLens-Nexus/lib/providers/tdcc.mjs`：集保查詢頁的工作階段（cookie、token）與表格解析
+- `EquiLens-Nexus/server.mjs`：`GET /api/ownership?id=`、`tdccWeeks`（每週資料的保存與背景補齊）
 - `EquiLens-Nexus/public/research-ui.js`（與手機版共用）：`ownershipHTML`
 - `EquiLens-Nexus/tests/ownership.test.mjs`

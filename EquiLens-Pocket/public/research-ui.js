@@ -231,5 +231,6 @@ export function ownershipHTML(d) {
   const tone = l.chg4 == null ? '' : l.chg4 >= 0.5 && (l.people4 == null || l.people4 <= 0) ? '近 4 週大戶加碼、股東人數減少：籌碼往大戶集中。' : l.chg4 <= -0.5 && (l.people4 == null || l.people4 >= 0) ? '近 4 週大戶減碼、股東人數增加：籌碼往散戶分散。' : '近 4 週大戶持股大致持平。';
   const legend = `<div class="tg-legend"><span><i class="tg-k-price"></i>收盤價（左軸）</span><span><i class="own-k-big"></i>千張大戶持股比率（右軸）</span></div>`;
   const insPart = d.insiders.length >= 2 ? `<h4 class="dd-h">內部人持股比率（每月）</h4>${insiderSVG(d)}` : `<p class="soft rv-small">內部人持股比率每月公布一次，衡析從開始使用的月份起逐月保存${d.insiders.length ? `（目前有 ${esc(d.insiders.map(i => i.ym).join('、'))}）` : ''}，累積兩個月以上會畫成走勢。</p>`;
-  return `<div class="dd">${head}${tone ? `<p class="soft rv-small">${tone}</p>` : ''}${legend}${ownershipSVG(d)}${insPart}<p class="ix-foot">千張大戶＝集保股權分散表中持有 1,000 張以上的股東合計持股比率（每週五公布，資料日為前一個交易日）；內部人持股比率＝董監事、經理人與大股東本人持股合計 ÷ 集保總股數（每月，證交所／櫃買董監事持股餘額明細）。大戶比率上升代表籌碼往大戶集中，但也包含公司派、法人與 ETF 的持股變化。資料來源：FinMind（集保結算所）、證交所／櫃買開放資料。不是買賣建議。</p></div>`;
+  const fill = d.filling ? `<p class="soft rv-small"><i class="spinner"></i>正在向集保結算所補齊約一年的每週資料（${fmt(d.filling.have, 0)}／${fmt(d.filling.total, 0)} 週），每檔只需補一次，稍後會自動更新。</p>` : '';
+  return `<div class="dd">${fill}${head}${tone ? `<p class="soft rv-small">${tone}</p>` : ''}${legend}${ownershipSVG(d)}${insPart}<p class="ix-foot">千張大戶＝集保股權分散表中持有 1,000 張以上的股東合計持股比率（每週五公布，資料日為前一個交易日）；內部人持股比率＝董監事、經理人與大股東本人持股合計 ÷ 集保總股數（每月，證交所／櫃買董監事持股餘額明細）。大戶比率上升代表籌碼往大戶集中，但也包含公司派、法人與 ETF 的持股變化。資料來源：集保結算所（集保戶股權分散表）、證交所／櫃買開放資料。不是買賣建議。</p></div>`;
 }

@@ -421,8 +421,13 @@ document.addEventListener('click', async e => {
   const k = b.dataset.ddTab, id = b.dataset.ddId, [path, render] = DD[k];
   for (const x of b.parentElement.children) x.classList.toggle('selected', x === b);
   box.innerHTML = '<div class="empty"><span class="spinner"></span> 讀取中…</div>';
-  try { const d = await C.api(path + encodeURIComponent(id)); if (k === 'river') DDS.river = d; if (C.S.sheetStock?.id === id) box.innerHTML = render(d); } catch (err) { box.innerHTML = `<p class="muted">${esc(err.message)}</p>`; }
+  try { const d = await C.api(path + encodeURIComponent(id)); if (k === 'river') DDS.river = d; if (C.S.sheetStock?.id === id) box.innerHTML = render(d); if (d?.filling) setTimeout(() => { if (b.isConnected && b.classList.contains('selected') && C.S.sheetStock?.id === id) refill(k, id, box, b); }, 10000); } catch (err) { box.innerHTML = `<p class="muted">${esc(err.message)}</p>`; }
 });
+// 籌碼結構還在向集保補資料時，每 10 秒重抓一次（不顯示讀取中）
+async function refill(k, id, box, b) {
+  const [path, render] = DD[k];
+  try { const d = await C.api(path + encodeURIComponent(id)); if (!box.isConnected || !b.classList.contains('selected') || C.S.sheetStock?.id !== id) return; box.innerHTML = render(d); if (d?.filling) setTimeout(() => refill(k, id, box, b), 10000); } catch {}
+}
 
 /* ---------- 事件 ---------- */
 document.addEventListener('click', async e => {

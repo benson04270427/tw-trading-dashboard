@@ -234,6 +234,8 @@ async function refreshChart() {
   if (chartShown(id)) paintChart();
 }
 setInterval(() => { if (K.id && K.period !== 'live' && !PANEL_TABS[K.period] && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+// 籌碼結構還在向集保補資料時，每 10 秒重抓一次
+setInterval(() => { if (K.id && PANEL_TABS[K.period] && K.panel?.[K.period]?.filling && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
 setInterval(() => { if (K.id && K.period === 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 3000);
 function paintChart() {
   if (K.period === 'live') return paintLive();

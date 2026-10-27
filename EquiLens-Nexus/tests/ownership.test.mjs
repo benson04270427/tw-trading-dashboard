@@ -22,3 +22,17 @@ test('ownership combines weekly big holders, monthly insider ratio and price', (
   assert.equal(o.price.length, 14);
   assert.equal(buildOwnership({ id: 'x', weeks: [] }).available, false);
 });
+
+import { parseTdccForm, parseTdccTable } from '../lib/providers/tdcc.mjs';
+import { holderLevels } from '../lib/insight.mjs';
+test('集保結算所查詢頁：讀 token、週別與級距表', () => {
+  const form = '<input type="hidden" name="SYNCHRONIZER_TOKEN" value="abc-123"><select name="scaDate" id="scaDate"><option value="20261022">20261022</option><option value="20261016">20261016</option></select>';
+  assert.deepEqual(parseTdccForm(form), { token: 'abc-123', dates: ['2026-10-22', '2026-10-16'] });
+  const tr = (...c) => `<tr>${c.map(x => `<td>${x}</td>`).join('')}</tr>`;
+  const html = `<table>${tr('序', '持股/單位數分級', '人數', '股數/單位數', '占集保庫存數比例 (%)')}${tr('1', '1-999', '456,058', '62,657,873', '3.04')}${tr('12', '400,001-600,000', '87', '43,289,970', '2.10')}${tr('15', '1,000,001以上', '196', '1,271,009,361', '61.73')}${tr('16', '合　計', '619,908', '2,058,730,688', '100.00')}</table>`;
+  const rows = parseTdccTable(html, '2026-10-22');
+  assert.equal(rows.length, 4); assert.equal(rows.at(-1).HoldingSharesLevel, 'total');
+  const lv = holderLevels(rows);
+  assert.equal(lv.big1000, 61.73); assert.equal(lv.big400, 63.83); assert.equal(lv.people, 619908); assert.equal(lv.shares, 2058730688);
+  assert.deepEqual(parseTdccTable('<table><tr><td colspan="5"><span>查無此資料</span></td></tr></table>', '2026-10-22'), []);
+});

@@ -13,7 +13,7 @@ import { LLM_INFO, listModels } from './lib/llm.mjs';
 import { recordFrame, listDays, loadDay, compactReplay, replaySummary, resetReplayCache, framePrice, frameAmount, prevPrice } from './lib/replay.mjs';
 import { normalizeRadar, validRadarInput, createRadarState, seedRadarState, scanRadar } from './lib/radar.mjs';
 import { normalizeRule, createRuleState, scanPriceAlerts, ruleLabel, RULE_KINDS, MAX_RULES } from './lib/pricealerts.mjs';
-import { aggregateBrokers, brokerAnalysis, parseHolders, holderSignal, replayMinuteBars, fiveMinBars, dailyKRows, replayDayBar } from './lib/insight.mjs';
+import { aggregateBrokers, brokerAnalysis, parseHolders, holderLevels, holderSignal, replayMinuteBars, fiveMinBars, dailyKRows, replayDayBar } from './lib/insight.mjs';
 import { buildReportContext, generateReport, normalizeReportSettings, overnightOutlook } from './lib/report.mjs';
 import { normalizeChipwatch, branchDay, brokerWatchAlerts, holderMarketDay, rankHolders, holderRankAlert, MAX_BRANCHES } from './lib/chipwatch.mjs';
 import { warrantMaster, branchWarrants, turnoverByTarget, stockWarrants, WARRANT_ID } from './lib/warrants.mjs';
@@ -26,6 +26,7 @@ import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGro
 import { patternSnapshot, clearPatterns, updatePatternData, patternBars } from './lib/pattern-service.mjs';
 import { scanPullback, backtestPullback, PULLBACK_VERSION } from './lib/pullback.mjs';
 import { buildOwnership, insiderTotals } from './lib/ownership.mjs';
+import { tdccSession } from './lib/providers/tdcc.mjs';
 import { permitted as patternPermitted } from './lib/patterns.mjs';
 import { createStreamPool, splitSymbols, spreadSymbols } from './lib/stream.mjs';
 import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV, exportDay } from './lib/bookrec.mjs';
@@ -654,11 +655,33 @@ async function brokerReport(id,n){
   return{...brokerAnalysis(days),tracked:chipSettings().branches.map(b=>b.id)};
 }
 async function holderReport(id){
-  const fm=finmind('holders'),name=`holders/${id}.json`,cached=read(name,null);
-  if(cached&&Date.now()-cached.at<12*3600e3)return cached.data;
-  const rows=await fm('TaiwanStockHoldingSharesPer',{data_id:id,start_date:minusDays(today(),130)},fmOpt());
-  const series=parseHolders(rows).slice(-16);if(!series.length)throw new UserError('查無股權分散資料');
-  const result={series,signal:holderSignal(series)};fs.mkdirSync(path.join(LOCAL,'holders'),{recursive:true});write(name,{at:Date.now(),data:result});return result;
+  const series=(await tdccWeeks(id,{need:16})).weeks.slice(-16);if(!series.length)throw new UserError('查無股權分散資料');
+  return{series,signal:holderSignal(series)};
+}
+// 集保股權分散表（每週）：集保結算所查詢頁，一檔一週一個請求；過去的週別不會再變，存在 .local/tdcc/<代號>.json 永久重用。
+// 開啟時先同步補最近 need 週，其餘在背景慢慢補（同時只跑一檔，間隔 0.4 秒）。
+const TDCC_DIR='tdcc',tdccFile=id=>`${TDCC_DIR}/${String(id).replace(/[^\w.-]/g,'_')}.json`;
+let tdccSess=null,tdccSessAt=0;const tdccFill=new Map();let tdccTail=Promise.resolve();
+const tdcc=()=>{if(!tdccSess||Date.now()-tdccSessAt>20*60e3){tdccSess=tdccSession();tdccSessAt=Date.now();}return tdccSess;};
+const tdccQueue=fn=>{const p=tdccTail.then(fn,fn);tdccTail=p.catch(()=>{});return p;};
+async function tdccFetch(id,dates){
+  const st=read(tdccFile(id),null)||{id,weeks:{},none:[]};let n=0;
+  const save=()=>{if(!n)return;fs.mkdirSync(path.join(LOCAL,TDCC_DIR),{recursive:true});write(tdccFile(id),st);};
+  try{for(const d of dates){if(st.weeks[d]||st.none.includes(d))continue;
+    const rows=await tdccQueue(()=>tdcc().week(id,d).catch(e=>{tdccSess=null;throw e;}));
+    if(rows.length)st.weeks[d]=holderLevels(rows);else st.none.push(d);
+    if(++n%5===0)save();}}
+  finally{save();}
+  return st;
+}
+async function tdccWeeks(id,{need=12}={}){
+  const all=await tdccQueue(()=>tdcc().dates()),st0=read(tdccFile(id),null)||{weeks:{},none:[]};
+  const missing=all.filter(d=>!st0.weeks[d]&&!st0.none?.includes(d));
+  const now=missing.filter(d=>all.indexOf(d)<need),later=missing.filter(d=>!now.includes(d));
+  const st=now.length?await tdccFetch(id,now):st0;
+  if(later.length&&!tdccFill.has(id))tdccFill.set(id,tdccFetch(id,later).catch(e=>console.warn('TDCC fill',id,e.message)).finally(()=>tdccFill.delete(id)));
+  const weeks=Object.entries(st.weeks).map(([date,v])=>({date,...v})).sort((a,b)=>a.date.localeCompare(b.date));
+  return{weeks,total:all.length,filling:tdccFill.has(id)};
 }
 // 個股 K 線：日 K／5 分 K，列格式 [日期或時間, 開, 高, 低, 收, 量（顯示單位）]；5MA、20MA 由前端依完整序列計算。
 // 一分 K：已收盤的交易日用資料源的分 K（存檔後不再請求）；盤中（或資料源尚未公布）改用時光機畫格＋最新快照，不額外請求。
@@ -1419,14 +1442,13 @@ async function insidersReport(id){
   const cur=read(`insiders/tw-${months.at(-1)}.json`,null),prev=months.length>1?read(`insiders/tw-${months.at(-2)}.json`,null):null;
   return{...buildTwInsiders({id,name:nameOf(id),cur:cur?.data?.[id],prev:prev?.data?.[id]||null,curYm:cur?.ym,prevYm:prev?.ym||null,transfers:read('insiders/tw-transfers.json',[])}),error:insiderJob.error};
 }
-// 籌碼結構：集保股權分散表約 1 年（FinMind 1 個請求，快取 12 小時）＋保存的每月董監事持股明細＋日 K
+// 籌碼結構：集保股權分散表約 1 年（集保結算所，每週一個請求、永久保存）＋保存的每月董監事持股明細＋日 K
 async function ownershipReport(id){
   if(M().id!=='TW')return{id,available:false,reason:t('籌碼結構目前只支援台股')};
-  const fm=finmind('holders');
-  const rows=await cached('own:'+id,12*3600e3,()=>fm('TaiwanStockHoldingSharesPer',{data_id:id,start_date:minusDays(today(),380)},fmOptHi()));
+  const tw=await tdccWeeks(id,{need:12});
   const insiders=insiderMonths().map(ym=>{const s=read(`insiders/tw-${ym}.json`,null),x=insiderTotals(s?.data?.[id]);return x?{ym:s.ym||ym,...x}:null;}).filter(Boolean);
   const price=(await signalRows(id)).map(r=>({date:String(r.date).slice(0,10),close:Number(r.close)}));
-  return buildOwnership({id,name:nameOf(id),weeks:parseHolders(rows),price,insiders});
+  return{...buildOwnership({id,name:nameOf(id),weeks:tw.weeks,price,insiders}),filling:tw.filling?{have:tw.weeks.length,total:tw.total}:null};
 }
 async function shortsReport(id){
   const mk=deepMarket();

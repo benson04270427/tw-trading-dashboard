@@ -338,6 +338,7 @@ node scripts/set-password.mjs     # 設定登入密碼，至少 10 個字元（W
 | `broker-watch/`、`holders-all/` | 分點追蹤紀錄（含認購權證進出）、全市場股權分散表（最近 12 週） |
 | `warrants/` | 權證標的對照表、認購權證行情、個股權證清單與單一權證分點的快取（行情與分點保留 40 天） |
 | `brokers/`、`holders/`、`flows-*.json` | 個股分點、個股大戶、法人與期權籌碼快取 |
+| `tdcc/` | 集保股權分散表每週資料（每檔一個檔案，[籌碼結構](docs/features/ownership.md)與個股大戶持股共用，永久保存） |
 | `daytrade/`、`books/` | 當沖訊號紀錄（含每則訊號當下的大盤環境）、五檔錄製紀錄 |
 | `markets/<市場>/` | 切換市場時，其他市場的資料收在這裡 |
 
