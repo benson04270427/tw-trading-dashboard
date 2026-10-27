@@ -25,6 +25,7 @@ import { buildGroupRanking, compareRanks, quotesFromSnapshot, quotesFromReplay, 
 import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGroup, removeGroup, reorderGroups, addStock, removeStock, importGroups, selectedUpdateIds } from './lib/scope.mjs';
 import { patternSnapshot, clearPatterns, updatePatternData, patternBars } from './lib/pattern-service.mjs';
 import { scanPullback, backtestPullback, PULLBACK_VERSION } from './lib/pullback.mjs';
+import { buildOwnership, insiderTotals } from './lib/ownership.mjs';
 import { permitted as patternPermitted } from './lib/patterns.mjs';
 import { createStreamPool, splitSymbols, spreadSymbols } from './lib/stream.mjs';
 import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV, exportDay } from './lib/bookrec.mjs';
@@ -1418,6 +1419,15 @@ async function insidersReport(id){
   const cur=read(`insiders/tw-${months.at(-1)}.json`,null),prev=months.length>1?read(`insiders/tw-${months.at(-2)}.json`,null):null;
   return{...buildTwInsiders({id,name:nameOf(id),cur:cur?.data?.[id],prev:prev?.data?.[id]||null,curYm:cur?.ym,prevYm:prev?.ym||null,transfers:read('insiders/tw-transfers.json',[])}),error:insiderJob.error};
 }
+// 籌碼結構：集保股權分散表約 1 年（FinMind 1 個請求，快取 12 小時）＋保存的每月董監事持股明細＋日 K
+async function ownershipReport(id){
+  if(M().id!=='TW')return{id,available:false,reason:t('籌碼結構目前只支援台股')};
+  const fm=finmind('holders');
+  const rows=await cached('own:'+id,12*3600e3,()=>fm('TaiwanStockHoldingSharesPer',{data_id:id,start_date:minusDays(today(),380)},fmOptHi()));
+  const insiders=insiderMonths().map(ym=>{const s=read(`insiders/tw-${ym}.json`,null),x=insiderTotals(s?.data?.[id]);return x?{ym:s.ym||ym,...x}:null;}).filter(Boolean);
+  const price=(await signalRows(id)).map(r=>({date:String(r.date).slice(0,10),close:Number(r.close)}));
+  return buildOwnership({id,name:nameOf(id),weeks:parseHolders(rows),price,insiders});
+}
 async function shortsReport(id){
   const mk=deepMarket();
   if(mk==='TW'){if(!data.finmind())throw new UserError('需要 FinMind 才能取得借券賣出資料');const rows=await cached('sbl:'+id,6*3600e3,()=>finmindRequest('TaiwanDailyShortSaleBalances',{data_id:id,start_date:minusDays(today(),200)},fmOptHi()));return buildTwShorts({id,name:nameOf(id),rows,price:await signalRows(id)});}
@@ -2014,7 +2024,7 @@ const server = http.createServer(async (req,res) => {
     if(route==='/api/macro/explain'&&req.method==='POST')return json(res,200,await explainMacro());
     if(route==='/api/zones'&&req.method==='GET')return json(res,200,zonesInfo());
     if(route==='/api/zones/query'&&req.method==='POST'){if(zonesJob.busy)throw new UserError('策略選股計算中，請稍候');void runZones();await new Promise(r=>setTimeout(r,300));return json(res,202,zonesInfo());}
-    {const deep={'/api/financials':financialsReport,'/api/river':riverReport,'/api/dividends':dividendsReport,'/api/insiders':insidersReport,'/api/shorts':shortsReport,'/api/peers':peersReport}[route];
+    {const deep={'/api/financials':financialsReport,'/api/river':riverReport,'/api/dividends':dividendsReport,'/api/insiders':insidersReport,'/api/shorts':shortsReport,'/api/peers':peersReport,'/api/ownership':ownershipReport}[route];
       if(deep&&req.method==='GET'){const id=url.searchParams.get('id');if(!validId(id))throw new UserError('股票代碼格式錯誤');return json(res,200,await once(`${route}:${id}`,()=>deep(id)));}}
     if(route==='/api/portfolio'&&req.method==='GET')return json(res,200,await once('portfolio',()=>portfolioReport()));
     if(route==='/api/portfolio'&&req.method==='POST'){const b=await body(req);const pf=normalizePortfolio(b);for(const h of pf.holdings)if(!validId(h.id))throw new UserError('股票代碼格式錯誤：{id}',{id:h.id});write('portfolio.json',pf);void refreshCalendar(true);return json(res,200,await portfolioReport());}

@@ -1,6 +1,6 @@
 // 衡析 Pocket：盤中分頁（族群／自選即時看板、異動雷達、族群排名、雷達設定）、個股 K 線、熱浪時光機、個股籌碼深度、AI 盤後日報、推播訂閱。
 import { verdictHTML, signalHTML, targetsHTML, zoneHistoryHTML } from './riskvalue-ui.js';
-import { financialsHTML, riverHTML, dividendsHTML, insidersHTML, shortsHTML, peersHTML } from './research-ui.js';
+import { financialsHTML, riverHTML, dividendsHTML, insidersHTML, shortsHTML, peersHTML, ownershipHTML } from './research-ui.js';
 import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, warrantHTML, warrantBrokersHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, rotationData, rotationSVG, replayStocks, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { tx } from './i18n.js';
 import { intradaySVG, readAt, legendHTML, bookHTML, tapeHTML } from './intraday.js';
@@ -411,8 +411,8 @@ export async function fillStockExtras(id) {
 }
 
 // 深入研究分頁：點了才讀取（財報、股利會用到 FinMind 額度）
-const DD_TABS = [['fin', '財報'], ['river', '河流圖'], ['div', '股利'], ['insider', '內部人'], ['short', '放空'], ['peers', '同業']];
-const DD = { fin: ['api/financials?id=', financialsHTML], river: ['api/river?id=', d => riverHTML(d, { kind: DDS.kind })], div: ['api/dividends?id=', dividendsHTML], insider: ['api/insiders?id=', insidersHTML], short: ['api/shorts?id=', shortsHTML], peers: ['api/peers?id=', peersHTML] };
+const DD_TABS = [['fin', '財報'], ['river', '河流圖'], ['div', '股利'], ['insider', '內部人'], ['own', '大戶'], ['short', '放空'], ['peers', '同業']];
+const DD = { fin: ['api/financials?id=', financialsHTML], river: ['api/river?id=', d => riverHTML(d, { kind: DDS.kind })], div: ['api/dividends?id=', dividendsHTML], insider: ['api/insiders?id=', insidersHTML], own: ['api/ownership?id=', ownershipHTML], short: ['api/shorts?id=', shortsHTML], peers: ['api/peers?id=', peersHTML] };
 const DDS = { kind: 'pe', river: null };
 document.addEventListener('click', async e => {
   const b = e.target.closest?.('[data-dd-tab],[data-dd-river]'); if (!b || !C) return;

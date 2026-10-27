@@ -142,7 +142,7 @@ async function api(req, res, url) {
     if (route === 'movers') return send(req, res, 200, await nexus.movers());
     if (route === 'picks') return send(req, res, 200, await nexus.picks());
     if (route === 'targets' || route === 'zones/history') { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await (route === 'targets' ? nexus.targets(q.get('id')) : nexus.zoneHistory(q.get('id')))); }
-    if (['financials', 'river', 'dividends', 'insiders', 'shorts', 'peers'].includes(route)) { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.deep(route, q.get('id'))); }
+    if (['financials', 'river', 'dividends', 'insiders', 'shorts', 'peers', 'ownership'].includes(route)) { if (!validId(q.get('id'))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.deep(route, q.get('id'))); }
     if (route === 'portfolio') return send(req, res, 200, await nexus.portfolio());
     if (route === 'backtest') return send(req, res, 200, await nexus.backtest());
     if (route === 'zones') return send(req, res, 200, await nexus.zones());

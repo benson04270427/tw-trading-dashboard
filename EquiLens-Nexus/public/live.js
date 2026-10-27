@@ -1,6 +1,6 @@
 // 衡析 Nexus：盤中雷達頁（族群／自選即時看板＋異動雷達＋雷達設定）、個股 K 線視窗、桌面通知、新聞推播、個股籌碼深度、AI 盤後日報與排程設定。
 import { verdictHTML, signalHTML, targetsHTML, zoneHistoryHTML } from './riskvalue-ui.js';
-import { financialsHTML, riverHTML, dividendsHTML, insidersHTML, shortsHTML, peersHTML } from './research-ui.js';
+import { financialsHTML, riverHTML, dividendsHTML, insidersHTML, shortsHTML, peersHTML, ownershipHTML } from './research-ui.js';
 import { esc, fmt, pct, cls, sparkSVG, candleSVG, brokerHTML, holderHTML, warrantHTML, warrantBrokersHTML, alertRow, alertMatch, isMove, ALERT_GROUPS, reportHTML, priceRuleForm, priceRulesHTML, priceRuleBody } from './insight-ui.js';
 import { t, tx, translateTree } from './i18n.js';
 import * as MK from './market.js';
@@ -253,7 +253,7 @@ function paintChart() {
 }
 
 /* ---------- 個股即時走勢（K 線視窗的「走勢」分頁）：全日走勢、當日均價線、族群均價線、五檔、成交明細，盤中每 3 秒更新 ---------- */
-const CHART_TABS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K'], ['signal', '訊號'], ['targets', '目標價'], ['zones', '策略'], ['fin', '財報'], ['river', '河流圖'], ['div', '股利'], ['insider', '內部人'], ['short', '放空'], ['peers', '同業']];
+const CHART_TABS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K'], ['signal', '訊號'], ['targets', '目標價'], ['zones', '策略'], ['fin', '財報'], ['river', '河流圖'], ['div', '股利'], ['insider', '內部人'], ['own', '大戶'], ['short', '放空'], ['peers', '同業']];
 // 面板分頁（訊號、目標價、策略入選紀錄）：任何股票都可開
 const PANEL_TABS = {
   signal: { api: 'signal?id=', title: '📶 訊號面板', sub: 'ATR 追蹤線 · 日週月共振 · 交易計畫', eyebrow: 'Signal · ATR Trailing Line', render: d => signalHTML(d, { editable: true }), box: 'ix-signal' },
@@ -263,6 +263,7 @@ const PANEL_TABS = {
   river: { api: 'river?id=', title: '🌊 估價河流圖', sub: '本益比／股價淨值比歷史倍數通道', eyebrow: 'Valuation River', render: d => riverHTML(d, { kind: K.riverKind }), box: 'ix-river' },
   div: { api: 'dividends?id=', title: '💰 股利與除權息', sub: '配息紀錄 · 殖利率 · 填息天數', eyebrow: 'Dividends', render: dividendsHTML, box: 'ix-div' },
   insider: { api: 'insiders?id=', title: '🏛 內部人持股與交易', sub: '董監持股增減 · 申報轉讓 · Form 4', eyebrow: 'Insiders', render: insidersHTML, box: 'ix-insider' },
+  own: { api: 'ownership?id=', title: '🐋 籌碼結構', sub: '股價 × 千張大戶持股比率 × 內部人持股比率', eyebrow: 'Ownership Structure', render: ownershipHTML, box: 'ix-own' },
   short: { api: 'shorts?id=', title: '🩳 借券賣出與放空', sub: '借券賣出餘額 · 融券 · 放空股數 · 回補天數', eyebrow: 'Short Interest', render: shortsHTML, box: 'ix-short' },
   peers: { api: 'peers?id=', title: '🧩 同業比較', sub: '同供應鏈或同產業的估值與成長', eyebrow: 'Peer Comparison', render: peersHTML, box: 'ix-peers' },
 };

@@ -751,3 +751,7 @@ button.kpi.ix-card{border:0;text-align:left;color:inherit;font:inherit;cursor:po
 /* 風控水位：大盤溫度計（參考線） */
 .rv-tline{fill:none;stroke:var(--amber);stroke-width:1.6;opacity:.85;vector-effect:non-scaling-stroke}.rv-tkey{border-top:2px solid var(--amber)}
 .rv-thermo{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;margin-top:8px;font-size:.92em}.rv-thermo b{font-size:1.15em}
+/* 籌碼結構 */
+.own-big{stroke:var(--amber);stroke-width:2}.own-big-dot{fill:var(--amber)}.own-k-big{background:var(--amber)}
+.own-ins{fill:none;stroke:var(--violet,var(--accent));stroke-width:2;vector-effect:non-scaling-stroke}.own-ins-dot{fill:var(--violet,var(--accent))}
+.own-ax-big{fill:var(--amber)}

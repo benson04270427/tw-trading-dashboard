@@ -198,3 +198,38 @@ export function watchAddList(st = {}) {
   if (!st.results.length) return `<p class="wa-tip">找不到「${esc(st.q)}」，請確認名稱或代號。</p>`;
   return st.results.map(x => `<div class="wa-item"><button class="wa-nm" data-alert-stock="${esc(x.id)}" type="button">${esc(x.name)} <small>${esc(x.id)}${x.sector ? `・${esc(x.sector)}` : ''}</small></button>${x.watched ? `<span class="wa-on">已在自選${x.group ? `・${esc(x.group)}` : ''}</span><button class="wa-btn wa-rm" data-wa-remove="${esc(x.id)}" type="button">移除</button>` : `<button class="wa-btn" data-wa-add="${esc(x.id)}" data-wa-name="${esc(x.name)}" type="button">＋ 加入</button>`}</div>`).join('');
 }
+
+// ---- 籌碼結構：股價 × 千張大戶持股比率（每週）× 內部人持股比率（每月） ----
+function ownershipSVG(d) {
+  const W = 640, H = 240, L = 52, R = 588, T = 12, B = 24, pr = d.price, wk = d.weeks;
+  const t0 = Date.parse(d.from), t1 = Date.parse(pr.at(-1)?.[0] > d.to ? pr.at(-1)[0] : d.to), x = s => L + (Date.parse(s) - t0) / Math.max(1, t1 - t0) * (R - L);
+  const closes = pr.map(p => p[1]), pLo = Math.min(...closes) * 0.97, pHi = Math.max(...closes) * 1.03, yP = v => T + (pHi - v) / (pHi - pLo || 1) * (H - T - B);
+  const bs = wk.map(w => w.big1000), bLo = Math.floor(Math.min(...bs) - 0.5), bHi = Math.ceil(Math.max(...bs) + 0.5), yB = v => T + (bHi - v) / (bHi - bLo || 1) * (H - T - B);
+  const right = Array.from({ length: 5 }, (_, k) => bLo + (bHi - bLo) * k / 4).map(v => `<text class="tg-ax own-ax-big" x="${R + 5}" y="${(yB(v) + 3).toFixed(1)}">${fmt(v, 1)}%</text>`).join('');
+  const months = []; for (const p of pr) { const m = p[0].slice(0, 7); if (months.at(-1)?.[0] !== m) months.push([m, p[0]]); }
+  const xl = months.filter((_, i) => i % 2 === 0).map(([m, dd]) => `<text class="tg-ax" x="${x(dd).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(m.slice(2).replace('-', '/'))}</text>`).join('');
+  return `<svg class="tg-chart own-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="股價與千張大戶持股比率">${axisY(pLo, pHi, yP, L, R, 4, v => px(v))}${right}${xl}
+    <path class="tg-price" d="${path(pr.map(p => [x(p[0]), yP(p[1])]))}"/>
+    <path class="own-big" d="${path(wk.map(w => [x(w.date), yB(w.big1000)]))}"/>${wk.map(w => `<circle class="own-big-dot" cx="${x(w.date).toFixed(1)}" cy="${yB(w.big1000).toFixed(1)}" r="1.8"><title>${esc(w.date)} 千張大戶 ${fmt(w.big1000, 2)}%</title></circle>`).join('')}</svg>`;
+}
+function insiderSVG(d) {
+  const ins = d.insiders; if (ins.length < 2) return '';
+  const W = 640, H = 130, L = 52, R = 588, T = 12, B = 22, t0 = Date.parse(d.from), t1 = Date.parse(d.price.at(-1)?.[0] || d.to), x = s => L + Math.min(1, Math.max(0, (Date.parse(s) - t0) / Math.max(1, t1 - t0))) * (R - L);
+  const v = ins.map(i => i.pct), lo = Math.max(0, Math.min(...v) - 0.5), hi = Math.max(...v) + 0.5, y = p => T + (hi - p) / (hi - lo || 1) * (H - T - B);
+  const step = ins.map((i, k) => `${k ? `L${x(i.date).toFixed(1)} ${y(ins[k - 1].pct).toFixed(1)} ` : 'M'}${x(i.date).toFixed(1)} ${y(i.pct).toFixed(1)}`).join(' ');
+  return `<svg class="tg-chart own-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="內部人持股比率">${axisY(lo, hi, y, L, R, 2, p => fmt(p, 1) + '%')}<path class="own-ins" d="${step}"/>${ins.map(i => `<circle class="own-ins-dot" cx="${x(i.date).toFixed(1)}" cy="${y(i.pct).toFixed(1)}" r="2.6"><title>${esc(i.ym)} 內部人 ${fmt(i.pct, 2)}%</title></circle>`).join('')}</svg>`;
+}
+export function ownershipHTML(d) {
+  const e = empty(d); if (e) return e;
+  const l = d.latest, ins = l.insider;
+  const head = tiles([
+    ['千張大戶持股', `${fmt(l.big1000, 2)}%`, `4 週 ${pc(l.chg4, 2)} · 12 週 ${pc(l.chg12, 2)}`],
+    ['400 張以上大戶', `${fmt(l.big400, 2)}%`, `資料日 ${md(l.date)}`],
+    ['股東人數', fmt(l.people, 0), `4 週 ${pc(l.people4, 1)}`],
+    ['內部人持股（董監＋經理人＋大股東）', ins ? `${fmt(ins.pct, 2)}%` : '—', ins ? `董監 ${fmt(ins.boardPct, 2)}% · ${esc(ins.ym)}${ins.chg != null ? ` · 較上月 ${pc(ins.chg, 2)}` : ''}` : '尚無資料'],
+  ]);
+  const tone = l.chg4 == null ? '' : l.chg4 >= 0.5 && (l.people4 == null || l.people4 <= 0) ? '近 4 週大戶加碼、股東人數減少：籌碼往大戶集中。' : l.chg4 <= -0.5 && (l.people4 == null || l.people4 >= 0) ? '近 4 週大戶減碼、股東人數增加：籌碼往散戶分散。' : '近 4 週大戶持股大致持平。';
+  const legend = `<div class="tg-legend"><span><i class="tg-k-price"></i>收盤價（左軸）</span><span><i class="own-k-big"></i>千張大戶持股比率（右軸）</span></div>`;
+  const insPart = d.insiders.length >= 2 ? `<h4 class="dd-h">內部人持股比率（每月）</h4>${insiderSVG(d)}` : `<p class="soft rv-small">內部人持股比率每月公布一次，衡析從開始使用的月份起逐月保存${d.insiders.length ? `（目前有 ${esc(d.insiders.map(i => i.ym).join('、'))}）` : ''}，累積兩個月以上會畫成走勢。</p>`;
+  return `<div class="dd">${head}${tone ? `<p class="soft rv-small">${tone}</p>` : ''}${legend}${ownershipSVG(d)}${insPart}<p class="ix-foot">千張大戶＝集保股權分散表中持有 1,000 張以上的股東合計持股比率（每週五公布，資料日為前一個交易日）；內部人持股比率＝董監事、經理人與大股東本人持股合計 ÷ 集保總股數（每月，證交所／櫃買董監事持股餘額明細）。大戶比率上升代表籌碼往大戶集中，但也包含公司派、法人與 ETF 的持股變化。資料來源：FinMind（集保結算所）、證交所／櫃買開放資料。不是買賣建議。</p></div>`;
+}
