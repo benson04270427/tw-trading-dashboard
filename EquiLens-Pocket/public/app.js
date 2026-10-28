@@ -469,7 +469,7 @@ async function loadFlows(date, query = false) {
 }
 // 籌碼分頁：法人（法人與期權籌碼）、分點追蹤、大戶排行（後兩者需要券商分點能力）
 // 分點追蹤需要 FinMind Sponsor；大戶排行用集保免費資料，台股都能用
-const brokersOn = () => !!S.profile?.capabilities?.brokers, holdersOn = () => brokersOn() || S.profile?.market === 'TW', chipsOn = () => holdersOn();
+const brokersOn = () => !!S.profile?.capabilities?.brokers, holdersOn = () => brokersOn() || (S.profile?.market?.id ?? S.profile?.market) === 'TW', chipsOn = () => holdersOn();
 function flowPage() {
   const seg = chipsOn() ? `<div class="seg" style="margin-bottom:12px">${[['inst', '法人'], ...(brokersOn() ? [['brokers', '分點追蹤']] : []), ['holders', '大戶排行']].map(([v, l]) => `<button class="${S.flows.view === v ? 'on' : ''}" data-fview="${v}">${l}</button>`).join('')}</div>` : '';
   if (brokersOn() && S.flows.view === 'brokers') return seg + brokersView();
