@@ -1249,12 +1249,23 @@ function moversSweep(gap=MOVERS_SWEEP_MS){
 }
 // 沒人看排行時也每 3 分鐘掃一次，讓收盤後能看名單外個股的當天走勢
 setInterval(()=>{if(liveWindow()&&sweepable())moversSweep(Date.now()-moversViewAt<120e3?MOVERS_SWEEP_MS:180e3);},30e3).unref();
+let sweepHeat={key:'',data:null};
+// 掃描畫格 → 快照列（最後一個畫格）
+const sweepRows=day=>{const f=day.frames.at(-1),[h,m]=f.t.split(':');return day.ids.map((id,i)=>{const c=f.p[i]/day.ps,pv=day.prev[i]/day.ps;return c>0?{stock_id:id,date:`${day.date} ${h}:${m}:00`,close:c,change_price:pv>0?Math.round((c-pv)*1e4)/1e4:0,total_volume:f.v[i],total_amount:f.a[i]*day.as}:null;}).filter(Boolean);};
 function moversInfo(){
   const full=h=>h?.date===today()&&(h.total?.count||0)>=100;
   let live=liveWindow()&&full(liveHeat?.data)?liveHeat.data:null;
   const close=latestHeat();
   // 盤中（或收盤後、當天收盤熱浪圖還沒產生前）用全市場掃描的結果
-  if(!live&&sweepable()&&(liveWindow()||close?.date!==today())){if(liveWindow()){moversViewAt=Date.now();moversSweep();}if(full(moversLive?.data))live=moversLive.data;}
+  if(!live&&sweepable()&&(liveWindow()||close?.date!==today())){
+    const td=today(),sw=loadSweep(td),closed=(sw?.frames?.at(-1)?.t||'')>=closeHM(M());
+    if(liveWindow()){moversViewAt=Date.now();moversSweep();}
+    // 收盤後當天還沒掃到收盤價（例如盤中沒開著）：補掃一輪（只在今天有開盤紀錄時）
+    else if(!closed&&listDays().includes(td))moversSweep();
+    if(full(moversLive?.data))live=moversLive.data;
+    // 重新啟動後記憶體沒有掃描結果：用今天最後一個掃描畫格組回排行
+    else if(sw?.frames?.length){const key=`${td}:${sw.frames.length}`;if(sweepHeat.key!==key)sweepHeat={key,data:buildLiveHeatmap(sweepRows(sw),{universe:uniIndex().list,sectorOf:heatSectorOf(),refreshMs:MOVERS_SWEEP_MS})};if(full(sweepHeat.data))live=sweepHeat.data;}
+  }
   const heat=live||close;
   if(!heat)return{available:false};
   return{available:true,source:live?'live':'close',sweeping:!live&&!!moversPending,market:M().id,...movers(heat,{market:M().id,watch:new Set(watchlist)})};
