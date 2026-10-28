@@ -334,6 +334,7 @@ node scripts/set-password.mjs     # 設定登入密碼，至少 10 個字元（W
 | `backtest.json` | [策略回測](docs/features/backtest.md)結果 |
 | `stocks/`、`daily/`、`kbar/` | 個股日資料、非研究名單的日 K 快取、分 K |
 | `heatmap-*.json`、`replay/` | 熱浪圖紀錄、時光機（最近 20 個交易日） |
+| `sweep/` | 漲跌排行的全市場掃描畫格（名單外個股的當天走勢，最近 2 個交易日） |
 | `alerts-*.json` | 每日的雷達、提醒、新聞與日報事件 |
 | `reports/`、`card-*.json` | AI 盤後日報與圖卡數據 |
 | `broker-watch/`、`holders-all/` | 分點追蹤紀錄（含認購權證進出）、全市場股權分散表（每週一份，約 60 週） |

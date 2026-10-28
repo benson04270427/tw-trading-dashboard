@@ -27,6 +27,7 @@ import { patternSnapshot, clearPatterns, updatePatternData, patternBars } from '
 import { scanPullback, backtestPullback, PULLBACK_VERSION } from './lib/pullback.mjs';
 import { buildOwnership, insiderTotals } from './lib/ownership.mjs';
 import { tdccSession, tdccOpenData } from './lib/providers/tdcc.mjs';
+import { recordSweep, loadSweep, sweepDays } from './lib/sweeprec.mjs';
 import { permitted as patternPermitted } from './lib/patterns.mjs';
 import { createStreamPool, splitSymbols, spreadSymbols } from './lib/stream.mjs';
 import { normalizeBooks, checkpoints, buildLiquidity, reduceDay, pickExtras, swapExtras, createBookRecorder, readMeta, writeMeta, compactDay, listBookDays, pruneDays, readStock, toCSV, exportDay } from './lib/bookrec.mjs';
@@ -128,7 +129,7 @@ loadMarketState();
 
 // 換市場：把目前市場的資料（股票清單、族群、自選、行情、紀錄）收進 .local/markets/<市場>/，再把目標市場先前收起來的資料搬回來
 const MARKET_FILE=/^(universe|groups|watchlist|watch-groups|evidence|last-job|news-seen|pattern-active|pattern-calendar|pattern-ledger|bulk-ledger|daytrade-prep|price-alerts|portfolio|portfolio-alerts|backtest)\.json$|^(heatmap|flows|grouprank|alerts|index|card)-\d{4}-\d{2}-\d{2}\.json$/;
-const MARKET_DIRS=['cache','stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','tdcc','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history','insiders'];
+const MARKET_DIRS=['cache','stocks','replay','reports','kbar','daily','brokers','holders','broker-watch','holders-all','tdcc','sweep','warrants','institutions','pattern-snapshots','pattern-stocks','daytrade','daytrade-history','insiders'];
 function switchMarket(next){
   const cur=config().market;if(next===cur)return;
   if(job.running||flowBusy||heatBusy||reportBusy||livePending)throw new UserError('請等待更新完成或停止後，再切換市場');
@@ -504,14 +505,18 @@ async function restQuote(id){
 }
 const usHms=v=>{const n=Number(v);if(!(n>0))return null;return new Date((n>1e14?n/1000:n>1e11?n:n*1000)+tzOffset(M().tz)).toISOString().slice(11,19);};
 async function intradayReport(id,groupId){
-  const date=today(),p=M(),e=dt?.date===date?dt.engine:null,q=e?.bars(id)?.size?e.quote(id):null;
-  let day=null;const replay=()=>day??=loadDay(date);
-  const seriesOf=x=>{const b=e?.bars(x);if(b?.size)return{s:seriesFromBars(b,p),ref:e.quote(x)?.ref};const d=replay();return{s:seriesFromReplay(d,x,p),ref:replayRef(d,x,p)};};
+  // 今天還沒有任何紀錄（開盤前、假日）時，沿用最近一個交易日的走勢，到開盤後才換成當天
+  const td=today(),p=M(),date=liveWindow()||listDays().includes(td)||sweepDays().includes(td)?td:([...listDays(),...sweepDays()].filter(d=>d<td).sort().at(-1)||td);
+  const e=dt?.date===date?dt.engine:null,q=e?.bars(id)?.size?e.quote(id):null;
+  let day=null,sw;const replay=()=>day??=loadDay(date),sweep=()=>sw===undefined?(sw=loadSweep(date)):sw;
+  // 時光機只記研究名單與自選；名單外的股票改用全市場掃描的畫格
+  const seriesOf=x=>{const b=e?.bars(x);if(b?.size)return{s:seriesFromBars(b,p),ref:e.quote(x)?.ref};const d=replay();let s=seriesFromReplay(d,x,p),ref=replayRef(d,x,p),from='replay';
+    if(!s.m.length){const w=sweep();if(w){s=seriesFromReplay(w,x,p);ref=ref??replayRef(w,x,p);from='sweep';}}return{s,ref,from};};
   // 沒有即時推播資料的股票：富果盤中 REST
-  const rest=q?null:await restQuote(id),rq=rest?.quote&&String(rest.quote.date||'')===date?rest.quote:null;
+  const rest=q||date!==td?null:await restQuote(id),rq=rest?.quote&&String(rest.quote.date||'')===date?rest.quote:null;
   let me=seriesOf(id),source=q?'stream':null;
   if(!q&&rq){const s=seriesFromCandles(rest.candles,p);if(s.m.length){me={s,ref:rq.referencePrice??rq.previousClose??me.ref};source='rest';}}
-  if(!source)source=me.s.m.length?'replay':null;
+  if(!source)source=me.s.m.length?me.from||'replay':null;
   const s=me.s,ref=q?.ref??(rq?.referencePrice??rq?.previousClose)??me.ref??null;
   const groups=researchScope.groups.filter(g=>g.stockIds.includes(id)),g=groups.find(x=>x.id===groupId)||groups[0]||null;
   const members=g?g.stockIds.map(x=>x===id?me:seriesOf(x)).filter(x=>x.s.m.length):[];
@@ -1230,22 +1235,26 @@ async function scanSignals(){
 /* ---------- 今日漲跌排行、每日精選 ---------- */
 const latestHeat=()=>{const d=heatFiles().at(-1);return d?read('heatmap-'+d+'.json',null):null;};
 // 漲跌排行：盤中且即時熱浪涵蓋 100 檔以上時用即時資料，否則用最近一個收盤熱浪圖
-// 即時資料源只能逐檔查詢（證交所 MIS）時：有人看漲跌排行才在背景逐批掃全市場普通股，每輪開始間隔 90 秒（一輪約 1 分鐘），供排行使用
+// 即時資料源只能逐檔查詢（證交所 MIS）時：盤中在背景逐批掃全市場普通股（一輪約 1 分鐘），有人看漲跌排行時每輪開始間隔 90 秒、沒人看時 3 分鐘；
+// 每輪結果供排行使用，也存成一個畫格（lib/sweeprec.mjs），讓名單外的股票收盤後也能看當天走勢
 let moversLive=null,moversPending=null;
 const MOVERS_SWEEP_MS=90e3;let moversStart=0;
 const sweepable=()=>M().id==='TW'&&data.snapshotMode()==='symbols'&&data.source('snapshot')==='twsemis';
-function moversSweep(){
-  if(moversPending||!sweepable()||Date.now()-moversStart<MOVERS_SWEEP_MS)return;
+let moversViewAt=0;
+function moversSweep(gap=MOVERS_SWEEP_MS){
+  if(moversPending||!sweepable()||Date.now()-moversStart<gap)return;
   moversStart=Date.now();moversPending=(async()=>{try{await ensureUniverse();const list=uniIndex().list.filter(s=>/^[1-9]\d{3}$/.test(s.id)),exch=new Map(list.map(s=>[s.id,s.market==='上櫃'?'otc':'tse']));
-    const rows=await data.snapshot(list.map(s=>s.id),{exch});moversLive={at:Date.now(),data:buildLiveHeatmap(rows,{universe:uniIndex().list,sectorOf:heatSectorOf(),refreshMs:MOVERS_SWEEP_MS}),error:''};}
+    const rows=await data.snapshot(list.map(s=>s.id),{exch}),x=clock(),ch=closeHM(M());try{recordSweep(today(),x.hm>ch?ch:x.hm,rows,{ps:M().priceScale,as:1e3});}catch(e){console.warn('sweep record',e.message);}moversLive={at:Date.now(),data:buildLiveHeatmap(rows,{universe:uniIndex().list,sectorOf:heatSectorOf(),refreshMs:MOVERS_SWEEP_MS}),error:''};}
     catch(e){moversLive={...(moversLive||{}),at:Date.now(),error:e.message};moversStart=Date.now()+210e3;}finally{moversPending=null;}})(); // 失敗（例如被證交所暫時限流）時至少隔 5 分鐘再試
 }
+// 沒人看排行時也每 3 分鐘掃一次，讓收盤後能看名單外個股的當天走勢
+setInterval(()=>{if(liveWindow()&&sweepable())moversSweep(Date.now()-moversViewAt<120e3?MOVERS_SWEEP_MS:180e3);},30e3).unref();
 function moversInfo(){
   const full=h=>h?.date===today()&&(h.total?.count||0)>=100;
   let live=liveWindow()&&full(liveHeat?.data)?liveHeat.data:null;
   const close=latestHeat();
   // 盤中（或收盤後、當天收盤熱浪圖還沒產生前）用全市場掃描的結果
-  if(!live&&sweepable()&&(liveWindow()||close?.date!==today())){if(liveWindow())moversSweep();if(full(moversLive?.data))live=moversLive.data;}
+  if(!live&&sweepable()&&(liveWindow()||close?.date!==today())){if(liveWindow()){moversViewAt=Date.now();moversSweep();}if(full(moversLive?.data))live=moversLive.data;}
   const heat=live||close;
   if(!heat)return{available:false};
   return{available:true,source:live?'live':'close',sweeping:!live&&!!moversPending,market:M().id,...movers(heat,{market:M().id,watch:new Set(watchlist)})};
