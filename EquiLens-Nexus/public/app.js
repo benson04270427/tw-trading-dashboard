@@ -110,6 +110,13 @@ async function api(path, body) {
 }
 function toast(message) { const p = getPrefs(); if (!p.toast) return; $('#toast').textContent = message; $('#toast').classList.add('show'); clearTimeout(timer); timer = setTimeout(() => $('#toast').classList.remove('show'), p.toastSec * 1000); }
 function applyState(next) { state = next; MK.setMarket(state.marketProfile, state.upColor, state.config?.language); Object.assign(C, MK.upColors()); }
+// 盤中：研究總覽、自選追蹤的收盤／漲跌欄跟著即時報價更新（伺服器的 state 已帶入即時價）
+let lastLiveAt = null;
+function liveRepaint() {
+  if (!state?.liveAt || state.liveAt === lastLiveAt) return; lastLiveAt = state.liveAt;
+  if (!['overview', 'watchlist'].includes(page) || document.querySelector('dialog[open]') || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  const y = window.scrollY; draw(); window.scrollTo(0, y);
+}
 async function load(render = true) { applyState(await api('state')); if (render) draw(); }
 const inScope = id => !!state?.stocks.some(s => s.id === id);
 initHeatmap({ api, toast, state: () => state, inScope, openStock: id => openChart(id, 'live'), redraw: () => { if (page === 'heatmap') draw(); } });
@@ -452,5 +459,5 @@ document.addEventListener('change', e => { const k = e.target.dataset?.prefSelec
 
 try { applyState(await api('state')); await setLanguage(state.config?.language || 'zh-TW'); draw(); if (page === 'patterns') loadPatterns(); if (page === 'home') enterHome(); if (page === 'zones') enterZones(); if (page === 'portfolio') enterPortfolio(); if (page === 'backtest') enterBacktest(); if (page === 'shapes') enterShapes(); if (page === 'pullback') enterPullback(); if (page === 'macro') enterMacro(); if (page === 'live') enterLive(); if (page === 'grouprank') enterGroupRank(); if (page === 'chips') enterChips(); if (page === 'risk') enterRisk(); if (page === 'value') enterValue(); } catch (e) { $('#app').innerHTML = `<div class="boot"><b>NEXUS OFFLINE</b><p>暫時無法連接本機服務：${esc(e.message)}。請重新啟動衡析 Nexus 後重新整理。</p></div>`; }
 let pollBusy = false;
-setInterval(async () => { if (!state || document.hidden || pollBusy) return; pollBusy = true; try { const previous = state.job.running; await load(false); if (previous && !state.job.running && page === 'patterns') await loadPatterns(); if (previous || state.job.running) { if (['settings', 'topics', 'flows', 'heatmap'].includes(page) || document.querySelector('dialog[open]')) return; draw(); if (previous && !state.job.running && $('#detail-dialog').open && selectedId) await openStock(selectedId); } } catch { } finally { pollBusy = false; } }, 5000);
+setInterval(async () => { if (!state || document.hidden || pollBusy) return; pollBusy = true; try { const previous = state.job.running; await load(false); liveRepaint(); if (previous && !state.job.running && page === 'patterns') await loadPatterns(); if (previous || state.job.running) { if (['settings', 'topics', 'flows', 'heatmap'].includes(page) || document.querySelector('dialog[open]')) return; draw(); if (previous && !state.job.running && $('#detail-dialog').open && selectedId) await openStock(selectedId); } } catch { } finally { pollBusy = false; } }, 5000);
 

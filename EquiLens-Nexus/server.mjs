@@ -1252,6 +1252,13 @@ setInterval(()=>{if(liveWindow()&&sweepable())moversSweep(Date.now()-moversViewA
 let sweepHeat={key:'',data:null};
 // 掃描畫格 → 快照列（最後一個畫格）
 const sweepRows=day=>{const f=day.frames.at(-1),[h,m]=f.t.split(':');return day.ids.map((id,i)=>{const c=f.p[i]/day.ps,pv=day.prev[i]/day.ps;return c>0?{stock_id:id,date:`${day.date} ${h}:${m}:00`,close:c,change_price:pv>0?Math.round((c-pv)*1e4)/1e4:0,total_volume:f.v[i],total_amount:f.a[i]*day.as}:null;}).filter(Boolean);};
+// 盤中監控（研究名單＋自選）的最新報價：研究總覽、自選追蹤的收盤／漲跌欄改顯示即時價（不另外請求）
+let lqCache={src:null,map:new Map(),at:null};
+function liveQuotes(){
+  const h=liveHeat?.data;if(!h||h.date!==today())return{map:new Map(),at:null};
+  if(lqCache.src!==h){const map=new Map();for(const x of heatStocks(h))if(x.close>0)map.set(x.id,{close:x.close,change:x.change});lqCache={src:h,map,at:h.asOf||null};}
+  return lqCache;
+}
 function moversInfo(){
   const full=h=>h?.date===today()&&(h.total?.count||0)>=100;
   let live=liveWindow()&&full(liveHeat?.data)?liveHeat.data:null;
@@ -2238,9 +2245,9 @@ const server = http.createServer(async (req,res) => {
       try{const result=await queryFlows(b.date,{requestData:fm,...fmOpt()});if(cacheableFlow(result))write('flows-'+b.date+'.json',result);return json(res,200,{data:result});}finally{flowBusy=false;}
     }
     if (route === '/api/state') {
-      const m = market(), c = config();
+      const m = market(), c = config(), lq=liveQuotes(), liveOver=x=>{const q=lq.map.get(x.id);return q?{...x,price:q.close,change:q.change,live:true}:x;};
       const headlines=m.stocks.flatMap(s=>(raw[s.id]?.news||[]).filter(n=>n.date.slice(0,10)>=minusDays(m.cutoff,30)).map(n=>({stockId:s.id,name:s.name,title:n.title,date:n.date,url:n.link,source:n.source}))).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,60);
-      return json(res,200,{ ...m, appVersion:APP_VERSION, heatDates:heatFiles().slice(-60), heatSummary:heatSummary(),indexSummary:indexSummary(), groups:researchScope.groups, scopeSource:researchScope.source, scopeEntries:researchScope.groups.reduce((n,g)=>n+g.stockIds.length,0), scopeError, stocks:m.stocks.map(({bars,adjustedBars,...s}) => ({...s,chips:{...s.chips,flow:undefined}})), headlines, watchlist, watchGroups, watchExtra:watchExtra(), settings,
+      return json(res,200,{ ...m, appVersion:APP_VERSION, heatDates:heatFiles().slice(-60), heatSummary:heatSummary(),indexSummary:indexSummary(), groups:researchScope.groups, scopeSource:researchScope.source, scopeEntries:researchScope.groups.reduce((n,g)=>n+g.stockIds.length,0), scopeError, stocks:m.stocks.map(({bars,adjustedBars,...s}) => liveOver({...s,chips:{...s.chips,flow:undefined}})), headlines, watchlist, watchGroups, watchExtra:watchExtra().map(liveOver), liveAt:liveQuotes().at, settings,
         config:{market:c.market,language:c.language,setupDone:c.setupDone,publicUrl:c.publicUrl}, marketProfile:clientMarket(M()), upColor:upColor(), capabilities:capabilityMap(), dataConfigured:Object.values(capabilityMap()).some(Boolean),
         tokenConfigured:secretConfigured('finmind','FINMIND_API_TOKEN'), llmConfigured:llmConfigured(), claudeConfigured:llmConfigured(), llm:{provider:c.llm.provider,model:c.llm.model||LLM_INFO[c.llm.provider]?.defaultModel||''},
         viewer:req.accessUser?.email||null, monitor:{enabled:settings.monitor!==false,capable:data.has('snapshot'),window:liveWindow(),error:monitorError,lastAt:liveHeat?.at||null}, csrf, job, evidenceCount:evidence.filter(e=>inScope(e.stockId)).length });
