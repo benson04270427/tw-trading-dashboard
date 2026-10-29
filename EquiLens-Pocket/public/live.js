@@ -186,26 +186,30 @@ const K = { id: null, period: ['day', 'live'].includes(pref('pocket.chartPeriod'
 const chartShown = id => sheetOpen() && !!C.$(`#sheet-body [data-chart="${id}"]`);
 async function openChart(id, period = K.period, group = K.group) {
   IX.id = null; if (C.S) C.S.sheetStock = null; // 換成走勢視窗後，背景更新不再把它換回個股診斷
-  if (K.id !== id) { K.data = null; K.live = null; K.error = ''; }
+  if (K.id !== id) { K.data = null; K.live = null; K.own = null; K.error = ''; }
   K.group = group || '';
-  const shown = chartShown(id); K.id = id; K.period = period; savePref('pocket.chartPeriod', period);
+  const shown = chartShown(id); K.id = id; K.period = period; if (period !== 'own') savePref('pocket.chartPeriod', period);
   if (!shown) C.openSheet(L.board?.stocks.find(x => x.id === id)?.name || id, '');
   paintChart(); await refreshChart();
 }
 async function refreshChart() {
   const id = K.id, period = K.period, seq = ++K.seq;
   try {
-    if (period === 'live') { const d = await C.api(`api/intraday?id=${id}${K.group ? '&group=' + encodeURIComponent(K.group) : ''}`); if (seq !== K.seq) return; K.live = d; K.error = ''; }
+    if (period === 'own') { const d = await C.api('api/ownership?id=' + encodeURIComponent(id)); if (seq !== K.seq) return; K.own = d; K.error = ''; }
+    else if (period === 'live') { const d = await C.api(`api/intraday?id=${id}${K.group ? '&group=' + encodeURIComponent(K.group) : ''}`); if (seq !== K.seq) return; K.live = d; K.error = ''; }
     else { const d = await C.api(`api/chart?id=${id}&period=${period}`); if (seq !== K.seq) return; K.data = d; K.error = ''; }
   }
   catch (e) { if (seq !== K.seq || e.silent) return; K.error = e.message; }
   if (chartShown(id)) paintChart();
 }
-setInterval(() => { if (C && K.id && K.period !== 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+// 大戶分頁還在向集保補資料時每 10 秒重抓
+setInterval(() => { if (C && K.id && K.period === 'own' && K.own?.id === K.id && K.own.filling && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
+setInterval(() => { if (C && K.id && !['live', 'own'].includes(K.period) && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 10000);
 // 即時走勢每 3 秒更新（盤中、畫面開著時）
 setInterval(() => { if (C && K.id && K.period === 'live' && marketOpen() && !document.hidden && chartShown(K.id)) refreshChart(); }, 3000);
 function paintChart() {
   if (K.period === 'live') return paintIntraday();
+  if (K.period === 'own') return paintOwn();
   const id = K.id, d = K.data?.id === id ? K.data : null, s = L.board?.stocks.find(x => x.id === id), body = C.$('#sheet-body');
   const ready = d && d.period === K.period, q = d?.quote ?? s?.quote, dayBar = d?.session || null;
   const price = q?.close ?? dayBar?.[4] ?? d?.daily?.price ?? s?.daily?.price, chg = q?.change ?? d?.daily?.change ?? s?.daily?.change;
@@ -219,11 +223,19 @@ function paintChart() {
   body.innerHTML = `<div data-chart="${id}"><div class="hero"><div><div class="big num ${cls(chg)}">${fmt(price, 2)}</div><div class="num ${cls(chg)}" style="font-weight:700">${pct(chg)}${q?.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</div>
     <div class="meta num">開 ${fmt(info[0], 2)} · 高 ${fmt(info[1], 2)} · 低 ${fmt(info[2], 2)}<br>${q?.volume ? `成交 ${fmt(q.volume)} 張` : dayBar ? `成交 ${fmt(dayBar[5])} 張` : ''}${q?.amount ? ` · ${yi(q.amount)} 億` : ''}${q?.bid ? ` · 委買 ${fmt(q.bid, 2)}／委賣 ${fmt(q.ask, 2)}` : ''}</div></div></div>
     <div class="statusline">${live ? `<span class="pill"><span class="dot live"></span>盤中 · 每 10 秒更新 ${esc(q?.time || '')}</span>` : q?.date ? `<span class="pill">${md(q.date)} ${esc(q.time || '')}</span>` : ''}</div>
-    <div class="seg" style="margin-bottom:10px">${PERIODS.map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
+    <div class="seg" style="margin-bottom:10px">${periodsNow().map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
     <section class="card"><div class="card-b">${chart}${caption ? `<p class="ix-foot">${caption}</p>` : ''}</div></section>
     <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock-detail="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div>${rulesCard({ id, name: d?.name || s?.name || id, close: price })}</div>`;
 }
 
+// 大戶分頁：股價 × 千張大戶持股比率 × 內部人持股比率（畫面與電腦版共用 research-ui.js 的 ownershipHTML）
+function paintOwn() {
+  const id = K.id, d = K.own?.id === id ? K.own : null, s = L.board?.stocks.find(x => x.id === id), body = C.$('#sheet-body'); if (!body) return;
+  C.$('#sheet-title').innerHTML = `${esc(d?.name || s?.name || id)}<small>${id}</small>`;
+  body.innerHTML = `<div data-chart="${id}"><div class="seg" style="margin-bottom:10px">${periodsNow().map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
+    <section class="card"><div class="card-h"><h2>🐋 籌碼結構<small>千張大戶 · 內部人持股</small></h2></div><div class="card-b rv-wrap">${K.error && !d ? `<div class="notice err">${esc(K.error)}</div>` : d ? ownershipHTML(d) : '<div class="empty"><span class="spinner"></span> 讀取中（第一次開啟約 5 秒）…</div>'}</div></section>
+    <div class="upd-row">${C.inScope(id) ? `<button class="btn primary" data-stock-detail="${id}">個股診斷</button>` : '<span></span>'}<button class="btn" data-chart-refresh>⟳ 重新整理</button></div></div>`;
+}
 /* ---------- 任何介面點個股：開啟走勢＋K 線＋五檔／明細（同一個視窗） ---------- */
 export function openQuote(id, group = '') { return openChart(id, 'live', group || (L.board?.stocks.some(x => x.id === id) && L.board.group !== 'watch' ? L.board.group : '')); }
 /* ---------- 指數詳細資訊（加權指數、櫃買指數）：走勢、日 K、成交金額、委買賣、漲跌家數 ---------- */
@@ -260,7 +272,10 @@ function paintIndex() {
       <p class="ix-foot">${IX.id === 'TPEX' ? '上櫃' : '上市'}普通股漲跌家數來自資金熱浪（${esc(b?.date || '—')}）；指數與成交資料來自富果。</p></div></section>
     <div class="upd-row"><span></span><button class="btn" data-ixrefresh>⟳ 重新整理</button></div></div>`;
 }
-const PERIODS = [['live', '走勢'], ['5m', '5分K'], ['day', '日K']];
+const PERIODS_ALL = [['live', '走勢'], ['5m', '5分K'], ['day', '日K'], ['own', '大戶']];
+// 「大戶」（千張大戶與內部人持股，集保每週資料）只有台股
+const twMarket = () => (C?.S?.profile?.market?.id ?? C?.S?.profile?.market) === 'TW';
+const periodsNow = () => PERIODS_ALL.filter(([v]) => v !== 'own' || twMarket());
 // 即時走勢：全日走勢圖（價格、當日均價線、族群均價線、每分鐘量）＋五檔／成交明細
 function paintIntraday() {
   const id = K.id, d = K.live?.id === id ? K.live : null, s = L.board?.stocks.find(x => x.id === id), body = C.$('#sheet-body'); if (!body) return;
@@ -272,7 +287,7 @@ function paintIntraday() {
   body.innerHTML = `<div data-chart="${id}"><div class="hero"><div><div class="big num ${cls(chg)}">${fmt(price, 2)}</div><div class="num ${cls(chg)}" style="font-weight:700">${pct(chg)}${q.changePrice != null ? ` · ${q.changePrice > 0 ? '+' : ''}${fmt(q.changePrice, 2)}` : ''}</div>
     <div class="meta num">開 ${fmt(q.open, 2)} · 高 ${fmt(q.high, 2)} · 低 ${fmt(q.low, 2)}<br>總量 ${fmt(q.volume)} 張${q.lastSize != null ? ` · 單量 ${fmt(q.lastSize)}` : ''} · 均價 <span class="amber">${fmt(q.vwap, 2)}</span></div></div></div>
     <div class="statusline">${live ? `<span class="pill"><span class="dot live"></span>即時推播 · 每 3 秒更新 ${esc(q.time || '')}</span>` : d?.source === 'replay' ? `<span class="pill">每分鐘快照 ${esc(q.time || '')}</span>` : d?.date ? `<span class="pill">${md(d.date)} ${esc(q.time || '')}</span>` : ''}</div>
-    <div class="seg" style="margin-bottom:10px">${PERIODS.map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
+    <div class="seg" style="margin-bottom:10px">${periodsNow().map(([v, l]) => `<button class="${K.period === v ? 'on' : ''}" data-cperiod="${v}">${l}</button>`).join('')}</div>
     <section class="card"><div class="card-b">${d ? legendHTML(d) : ''}${chart}<p class="ix-foot" id="ia-read">${d?.minutes?.m?.length ? '按住或拖曳圖表查看每分鐘價格、均價與族群均價' : ''}</p>
       ${g?.choices?.length > 1 ? `<div class="seg ia-groups">${g.choices.map(x => `<button class="${x.id === g.id ? 'on' : ''}" data-igroup="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div>` : ''}
       <p class="ix-foot">均價＝當日累計成交金額 ÷ 累計成交量；族群均價＝所屬族群各股均價相對參考價的漲跌幅，以成交金額加權後換算到本股價位，股價在其上代表強於族群平均持有成本。</p></div></section>

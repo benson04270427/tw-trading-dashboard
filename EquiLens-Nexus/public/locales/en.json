@@ -4233,5 +4233,8 @@
   "分點追蹤需要 FinMind Sponsor 方案（券商分點）；下方的大戶集中度排行使用集保結算所的免費資料，不受影響。": "Broker-branch tracking needs a FinMind Sponsor plan (broker branches). The big-holder ranking below uses free TDCC data and works without it.",
   "大戶集中度排行只支援台股": "The big-holder ranking supports Taiwan stocks only",
   "集保結算所開放資料": "TDCC open data",
-  "大戶排行只支援台股。": "The big-holder ranking supports Taiwan stocks only."
+  "大戶排行只支援台股。": "The big-holder ranking supports Taiwan stocks only.",
+  "內部人持股": "Insider ownership",
+  "千張大戶 · 內部人持股": "1,000+ lot holders · insider ownership",
+  "讀取中（第一次開啟約 5 秒）…": "Loading (about 5 seconds the first time)…"
 }
