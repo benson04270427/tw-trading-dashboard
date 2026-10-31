@@ -1067,8 +1067,8 @@ const instStore={
   get:(date,want)=>{const c=read(`institutions/${date}.json`,null);if(!c?.ids)return null;const have=new Set(c.ids);return [...want].every(id=>have.has(id))?c.rows.filter(r=>want.has(r.stock_id)):null;},
   set:(date,rows,want)=>{fs.mkdirSync(path.join(LOCAL,'institutions'),{recursive:true});write(`institutions/${date}.json`,{ids:[...want],rows});},
 };
-// 型態清單：不送完整 K 線，只送 90 日收盤（畫縮圖）與每個型態區間在這 90 日中的位置
-function patternListRow(s,bars=[]){const idx=d=>bars.findIndex(b=>b.date===d);return{...s,spark:bars.map(b=>Math.round(b.close*100)/100),matches:s.matches.map(m=>({...m,zone:[idx(m.start),idx(m.end)]}))};}
+// 型態清單：不送日期與成交量，只送 90 日 [開,高,低,收]（畫 K 線縮圖）與每個型態區間在這 90 日中的位置
+function patternListRow(s,bars=[]){const idx=d=>bars.findIndex(b=>b.date===d),r=v=>Math.round(v*100)/100;return{...s,ohlc:bars.map(b=>[r(b.open),r(b.max),r(b.min),r(b.close)]),matches:s.matches.map(m=>({...m,zone:[idx(m.start),idx(m.end)]}))};}
 /* ---------- 法人資金板塊（台股：全市場法人買賣超 × 收盤價，近 21 個交易日） ---------- */
 // 每個交易日 2 個請求（全市場法人買賣超＋全市場單日行情），存成精簡日檔 .local/instflow/<日期>.json，只保留近 30 個交易日
 const ifAvailable=()=>config().market==='TW'&&data.has('institutionalAll')&&data.has('dailyAll');

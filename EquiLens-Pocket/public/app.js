@@ -381,17 +381,16 @@ function mountHeat() {
 }
 
 /* ---------- patterns ---------- */
-// 型態縮圖：90 日收盤線＋型態區間（淺色底）＋頸線／支撐＋轉折點，一眼看出為何歸在這個型態
-function patSpark(r, W = 330, H = 74) {
-  const c = r.spark; if (!c?.length || !r.zone || r.zone[0] < 0) return '';
-  const n = c.length, P = 3, vals = [...c, ...r.lines.flatMap(l => [l.a, l.b])], lo = Math.min(...vals), hi = Math.max(...vals), rg = hi - lo || 1;
-  const x = i => P + i / Math.max(1, n - 1) * (W - 2 * P), y = v => P + (hi - v) / rg * (H - 2 * P);
-  const [s, e] = r.zone, line = c.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  return `<svg class="pspark" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(r.pattern)} 型態區間 ${s + 1}–${(e < 0 ? n - 1 : e) + 1} 日"><rect x="${x(s)}" y="0" width="${Math.max(2, x(e < 0 ? n - 1 : e) - x(s))}" height="${H}" fill="var(--accent)" opacity=".1"/>`
-    + r.lines.map((l, i) => `<line x1="${x(l.from)}" x2="${x(l.to)}" y1="${y(l.a)}" y2="${y(l.b)}" stroke="${i ? 'var(--down)' : 'var(--amber)'}" stroke-width="1.3" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>`).join('')
-    + `<polyline points="${line}" fill="none" stroke="var(--muted)" stroke-width="1.3" vector-effect="non-scaling-stroke"/>`
-    + r.anchors.map(a => `<circle cx="${x(a.index)}" cy="${y(a.price)}" r="2.2" fill="var(--accent)"/>`).join('')
-    + `<circle cx="${x(n - 1)}" cy="${y(c[n - 1])}" r="2.6" fill="${c[n - 1] >= c[Math.max(0, s)] ? 'var(--up)' : 'var(--down)'}"/></svg>`;
+// 型態 K 線縮圖：90 日 K 線＋型態區間（淺色底）＋頸線／支撐＋轉折點，一眼看出為何歸在這個型態
+function patSpark(r, W = 330, H = 96) {
+  const k = r.ohlc; if (!k?.length || !r.zone || r.zone[0] < 0) return '';
+  const n = k.length, P = 3, cw = (W - 2 * P) / n, vals = [...k.flatMap(b => [b[1], b[2]]), ...r.lines.flatMap(l => [l.a, l.b])], lo = Math.min(...vals), hi = Math.max(...vals), rg = hi - lo || 1;
+  const x = i => P + (i + .5) * cw, y = v => P + (hi - v) / rg * (H - 2 * P), [s, e0] = r.zone, e = e0 < 0 ? n - 1 : e0;
+  let g = `<rect x="${x(s) - cw / 2}" y="0" width="${x(e) - x(s) + cw}" height="${H}" fill="var(--accent)" opacity=".1"/>`;
+  k.forEach((b, i) => { const c = b[3] >= b[0] ? 'var(--up)' : 'var(--down)', top = y(Math.max(b[0], b[3])); g += `<line x1="${x(i)}" x2="${x(i)}" y1="${y(b[1])}" y2="${y(b[2])}" stroke="${c}" stroke-width=".7"/><rect x="${x(i) - cw * .32}" y="${top}" width="${Math.max(.8, cw * .64)}" height="${Math.max(.7, y(Math.min(b[0], b[3])) - top)}" fill="${c}"/>`; });
+  g += r.lines.map((l, i) => `<line x1="${x(l.from)}" x2="${x(l.to)}" y1="${y(l.a)}" y2="${y(l.b)}" stroke="${i ? 'var(--down)' : 'var(--amber)'}" stroke-width="1.3" stroke-dasharray="4 3"/>`).join('');
+  g += r.anchors.map(a => `<circle cx="${x(a.index)}" cy="${y(a.price)}" r="2.3" fill="var(--accent)"/>`).join('');
+  return `<svg class="pspark" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(r.pattern)} 型態區間 ${s + 1}–${e + 1} 日">${g}</svg>`;
 }
 function patCard(r) {
   return `<button class="pcard" data-pat="${r.id}" data-pid="${r.pid}"><div class="top"><b>${esc(r.name)} <small class="soft">${r.id}</small></b><span class="badge ${r.status === '量價確認' ? 'ok' : /突破/.test(r.status) ? 'wait' : ''}">${esc(r.status)}</span></div>

@@ -50,7 +50,7 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
   alerts are unchanged ([details, zh-TW](docs/features/daytrade-market.md)).
 - **Group ranking** – your research groups ranked by turnover-weighted gain, with daily close records.
 - **Pattern scanner** – 10 classic patterns over 90 sessions with conditional entry and stop levels; every row has a
-  90-session thumbnail marking the pattern range, neckline, support and pivots, with the reason it was classified.
+  90-session candlestick thumbnail marking the pattern range, neckline, support and pivots, with the reason it was classified.
 - **AI after-market report** – written by Claude, OpenAI, Gemini or any OpenAI-compatible endpoint (including local
   models), with a short note on every watchlist stock and a downloadable 9:16 summary card.
 - **Chip tracking** (Taiwan, FinMind Sponsor) – track chosen broker branches (each branch's market-wide trades after the
