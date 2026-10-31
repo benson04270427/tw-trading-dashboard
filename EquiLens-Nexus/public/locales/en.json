@@ -3136,5 +3136,12 @@
  "型態區間": "Pattern range",
  "反轉型（頭肩底、雙底、三重底、圓底、下降楔形）：下跌或盤整後在低檔做出底部結構，收盤突破頸線代表由弱轉強。": "Reversal (inverse head and shoulders, double bottom, triple bottom, rounding bottom, falling wedge): after a decline or range, a base forms at the lows; a close above the neckline marks a turn from weak to strong.",
  "延續型（旗形、旗竿三角形、杯柄）：先有一段上漲，短暫整理後再往上突破，代表原本的漲勢延續。": "Continuation (flag, pennant, cup and handle): a prior advance, a short consolidation, then a breakout higher, continuing the uptrend.",
- "整理突破型（上升三角形、突破平台）：在固定壓力下橫盤或低點墊高，收盤突破區間上緣。": "Consolidation breakout (ascending triangle, breakout base): sideways under fixed resistance or with rising lows, then a close above the top of the range."
+ "整理突破型（上升三角形、突破平台）：在固定壓力下橫盤或低點墊高，收盤突破區間上緣。": "Consolidation breakout (ascending triangle, breakout base): sideways under fixed resistance or with rising lows, then a close above the top of the range.",
+ "{who}連買 {n} 天": "{who} bought {n} days in a row",
+ "{who}連買 {n} 天以上": "{who} bought {n}+ days in a row",
+ "{who}連賣 {n} 天": "{who} sold {n} days in a row",
+ "{who}連賣 {n} 天以上": "{who} sold {n}+ days in a row",
+ "千張大戶 4 週 {d}%（{tone}）": "1,000-lot holders 4 weeks {d}% ({tone})",
+ "法人近 {n} 日買超 {v} 億": "Institutions net bought {v} × NT$100M over {n} days",
+ "法人近 {n} 日賣超 {v} 億": "Institutions net sold {v} × NT$100M over {n} days"
 }

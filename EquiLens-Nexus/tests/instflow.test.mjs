@@ -86,3 +86,14 @@ test('too few base days: no ratio, no state', () => {
   assert.equal(r.sectors[0].state, null); assert.equal(r.abnormal.buy.length, 0);
   assert.equal(IF_RULES.minBaseDays, 10);
 });
+
+test('chipSummary: 20-day institutional net and streaks for pattern notes', async () => {
+  const { chipSummary } = await import('../lib/instflow.mjs');
+  const days = dates.map((d, i) => day(d, { '2465': { f: 1e5, t: i >= 16 ? 2e5 : -1e5, close: 100 } }));
+  const s = chipSummary(days, '2465');
+  assert.equal(s.days, 20);
+  // 外資 20 × 0.1 億 = 2 億；投信 15 日賣 + 5 日買 → (−15 + 10) × 0.1 億... 投信 i=1..15 為 −1e5、i=16..20 為 +2e5
+  assert.equal(s.net, 2 + (-15 * 0.1 + 5 * 0.2));
+  assert.equal(s.trust.days, 5); assert.equal(s.foreign.days, 21);
+  assert.equal(chipSummary(days, '9999'), null);
+});

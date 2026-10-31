@@ -32,7 +32,7 @@ import { regimeOf, strengthOf } from './lib/daytrade-market.mjs';
 import { dispositions, tpexDayTrade, callWarrantQuotes } from './lib/providers/twse.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
-import { compactDay as ifCompact, validDay, analyzeFlows, stockFlow, IF_RULES } from './lib/instflow.mjs';
+import { compactDay as ifCompact, validDay, analyzeFlows, stockFlow, chipSummary, IF_RULES } from './lib/instflow.mjs';
 import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
 import { focusNews, weekAgenda } from './lib/briefing.mjs';
 import { normalizeNews, validNewsInput, createNewsState, scanNews, saveNewsState, quietNow } from './lib/newswatch.mjs';
@@ -856,15 +856,18 @@ async function refreshHolders(){
     return dates.at(-1)>had;
   }catch(e){hd.error=e.message;throw e;}finally{hd.busy=false;}
 }
+// 某週與前 1 週、前 4 週的股權分散紀錄：依日期找最接近的紀錄（5–9 天前、26–32 天前）
+function holderTrio(date){
+  const ds=hdDates(),before=ds.filter(d=>d<date),day=d=>d?read(`holders-all/${d}.json`,null):null;
+  const near=(lo,hi)=>before.filter(d=>{const n=(Date.parse(date)-Date.parse(d))/864e5;return n>=lo&&n<=hi;}).at(-1);
+  return {latest:day(date),prev1:day(near(5,9)),prev4:day(near(24,32))};
+}
 function holderRank(scope='mine',date){
   const ds=hdDates();if(!date||date==='latest')date=ds.at(-1);if(!date)return null;
   const key=`${scope}:${date}:${ds.length}:${watchlist.length}:${scopeIds(researchScope).length}`;if(hd.cache.key===key)return hd.cache.data;
   const i=ds.indexOf(date);if(i<0)return null;
-  const day=d=>d?read(`holders-all/${d}.json`,null):null,before=ds.slice(0,i);
-  // 前 1 週與前 4 週：依日期找最接近的紀錄（5–9 天前、26–32 天前）
-  const near=(lo,hi)=>before.filter(d=>{const n=(Date.parse(date)-Date.parse(d))/864e5;return n>=lo&&n<=hi;}).at(-1);
   const {meta}=uniIndex(),research=scopeIds(researchScope),ids=scope==='market'?null:[...new Set([...watchlist,...research])];
-  const r=rankHolders({latest:day(date),prev1:day(near(5,9)),prev4:day(near(24,32))},{ids,meta,watch:new Set(watchlist),research:new Set(research),minPeople:scope==='market'?1000:0});
+  const r=rankHolders(holderTrio(date),{ids,meta,watch:new Set(watchlist),research:new Set(research),minPeople:scope==='market'?1000:0});
   // 全市場只回傳集中與渙散兩端各 60 檔
   const data=r&&scope==='market'?{...r,rows:[...r.rows.slice(0,60),...r.rows.slice(60).slice(-60)]}:r;
   hd.cache={key,data};return data;
@@ -1067,8 +1070,21 @@ const instStore={
   get:(date,want)=>{const c=read(`institutions/${date}.json`,null);if(!c?.ids)return null;const have=new Set(c.ids);return [...want].every(id=>have.has(id))?c.rows.filter(r=>want.has(r.stock_id)):null;},
   set:(date,rows,want)=>{fs.mkdirSync(path.join(LOCAL,'institutions'),{recursive:true});write(`institutions/${date}.json`,{ids:[...want],rows});},
 };
+// 型態清單的籌碼備註：千張大戶 4 週變化（集中／渙散，需有股權分散表紀錄）＋法人近 20 日累計與外資／投信連續天數（需有法人資金板塊資料）
+let patNoteCache={key:'',map:new Map()};
+function patternChipNotes(ids){
+  const hdLast=hdDates().at(-1)||'',ifLast=ifDays().at(-1)||'',key=`${hdLast}|${ifLast}|${ids.join(',')}`;
+  if(patNoteCache.key===key)return patNoteCache.map;
+  const map=new Map(),add=(id,n)=>{if(!map.has(id))map.set(id,[]);map.get(id).push(n);};
+  try{if(hdLast){const r=rankHolders(holderTrio(hdLast),{ids,meta:uniIndex().meta});for(const x of r?.rows||[])if(x.tone==='籌碼集中'||x.tone==='籌碼渙散')add(x.id,{kind:'holders',tone:x.d4>0?'up':'down',text:t('千張大戶 4 週 {d}%（{tone}）',{d:(x.d4>0?'+':'')+x.d4,tone:t(x.tone)}),date:r.date});}}catch{}
+  try{if(ifLast){const days=ifLoad('');for(const id of ids){const s=chipSummary(days,id);if(!s)continue;
+    if(Math.abs(s.net)>=1)add(id,{kind:'inst',tone:s.net>0?'up':'down',text:t(s.net>0?'法人近 {n} 日買超 {v} 億':'法人近 {n} 日賣超 {v} 億',{n:s.days,v:Math.abs(s.net).toFixed(1)}),date:ifLast});
+    for(const [k,label] of [['foreign','外資'],['trust','投信']]){const d=s[k].days;if(Math.abs(d)>=3)add(id,{kind:k,tone:d>0?'up':'down',text:t(Math.abs(d)>=days.length?(d>0?'{who}連買 {n} 天以上':'{who}連賣 {n} 天以上'):(d>0?'{who}連買 {n} 天':'{who}連賣 {n} 天'),{who:t(label),n:Math.abs(d)})+(s[k].accel?' ↑':''),date:ifLast});}
+  }}}catch{}
+  patNoteCache={key,map};return map;
+}
 // 型態清單：不送日期與成交量，只送 90 日 [開,高,低,收]（畫 K 線縮圖）與每個型態區間在這 90 日中的位置
-function patternListRow(s,bars=[]){const idx=d=>bars.findIndex(b=>b.date===d),r=v=>Math.round(v*100)/100;return{...s,ohlc:bars.map(b=>[r(b.open),r(b.max),r(b.min),r(b.close)]),matches:s.matches.map(m=>({...m,zone:[idx(m.start),idx(m.end)]}))};}
+function patternListRow(s,bars=[],notes=null){const idx=d=>bars.findIndex(b=>b.date===d),r=v=>Math.round(v*100)/100;return{...s,ohlc:bars.map(b=>[r(b.open),r(b.max),r(b.min),r(b.close)]),chips:notes?.get(s.id)||[],matches:s.matches.map(m=>({...m,zone:[idx(m.start),idx(m.end)]}))};}
 /* ---------- 法人資金板塊（台股：全市場法人買賣超 × 收盤價，近 21 個交易日） ---------- */
 // 每個交易日 2 個請求（全市場法人買賣超＋全市場單日行情），存成精簡日檔 .local/instflow/<日期>.json，只保留近 30 個交易日
 const ifAvailable=()=>config().market==='TW'&&data.has('institutionalAll')&&data.has('dailyAll');
@@ -1569,7 +1585,7 @@ const server = http.createServer(async (req,res) => {
       if(!raw[b.stockId])raw[b.stockId]=read(`stocks/${b.stockId}.json`,{});
       return json(res,200,{added:result.added,stockId:b.stockId,needsUpdate:!raw[b.stockId]?.price?.length});
     }
-    if(route==='/api/patterns'&&req.method==='GET'){const snapshot=patternSnapshot(universe);return json(res,200,{...snapshot,stocks:snapshot.stocks.map(({bars,...s})=>patternListRow(s,bars)),scope:data.has('dailyAll')?'market':'local'});}
+    if(route==='/api/patterns'&&req.method==='GET'){const snapshot=patternSnapshot(universe);return json(res,200,{...snapshot,stocks:(notes=>snapshot.stocks.map(({bars,...s})=>patternListRow(s,bars,notes)))(patternChipNotes(snapshot.stocks.map(s=>s.id))),scope:data.has('dailyAll')?'market':'local'});}
     if(route==='/api/pattern-detail'&&req.method==='GET'){const s=patternSnapshot(universe).stocks.find(x=>x.id===url.searchParams.get('id'));return s?json(res,200,s):json(res,404,{error:t('此股票目前沒有符合的型態')});}
     if(route==='/api/pattern-update'&&req.method==='POST'){
       if(job.running)return json(res,409,{error:t('已有更新進行中')});

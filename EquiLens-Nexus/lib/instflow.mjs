@@ -164,3 +164,11 @@ export function analyzeFlows(days, { meta = new Map(), sectorsOf = () => [], foc
     rules: { ...rules },
   };
 }
+
+// 型態清單的籌碼備註：近 n 個交易日法人累計淨額（億元）與外資／投信連續買賣超天數；沒有資料時回傳 null
+export function chipSummary(days, id, n = IF_RULES.costDays) {
+  const use = days.slice(-n); let value = 0, have = 0;
+  for (const d of use) { const a = d.s[id]; if (!a) continue; value += netOf(a, 'all').value; have++; }
+  if (!have) return null;
+  return { days: have, net: yi(value), foreign: streak(days, id, 'f'), trust: streak(days, id, 't') };
+}

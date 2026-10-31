@@ -394,7 +394,7 @@ function patSpark(r, W = 330, H = 96) {
 }
 function patCard(r) {
   return `<button class="pcard" data-pat="${r.id}" data-pid="${r.pid}"><div class="top"><b>${esc(r.name)} <small class="soft">${r.id}</small></b><span class="badge ${r.status === '量價確認' ? 'ok' : /突破/.test(r.status) ? 'wait' : ''}">${esc(r.status)}</span></div>
-  <div class="soft" style="font-size:.8rem;margin-top:2px">${esc(r.pattern)} · ${esc(r.category)} · ${esc(r.sector)}</div>${patSpark(r)}${r.description ? `<div class="pwhy">${esc(r.description)}</div>` : ''}<div class="meter"><i style="width:${r.score}%"></i></div>
+  <div class="soft" style="font-size:.8rem;margin-top:2px">${esc(r.pattern)} · ${esc(r.category)} · ${esc(r.sector)}</div>${r.chips?.length ? `<div class="pchips">${r.chips.map(c => `<span class="pchip ${c.tone}" title="${esc(c.date || '')}">${esc(c.text)}</span>`).join('')}</div>` : ''}${patSpark(r)}${r.description ? `<div class="pwhy">${esc(r.description)}</div>` : ''}<div class="meter"><i style="width:${r.score}%"></i></div>
   <div class="plan num"><div><span>強度</span><b>${r.score}</b></div><div><span>進場帶</span><b>${fmt(r.entry, r.entry < 100 ? 2 : 1)}</b></div><div><span>防守</span><b class="down">${fmt(r.stop, r.stop < 100 ? 2 : 1)}</b></div><div><span>R/R</span><b>${fmt(r.rr, 1)}</b></div></div></button>`;
 }
 // 三種類別的判定依據（類別由型態決定，見 Nexus lib/patterns.mjs）
