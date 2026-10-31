@@ -26,7 +26,7 @@ const TABS = [
   ['flows', '籌碼', '<path d="M4 8h14l-3-3M20 16H6l3 3"/>'],
 ];
 // 法人籌碼分頁只在台股 FinMind 可用時顯示
-const tabsNow = () => TABS.filter(([k]) => k !== 'flows' || !S.profile || !!S.profile.capabilities?.flows);
+const tabsNow = () => TABS.filter(([k]) => k !== 'flows' || !S.profile || !!S.profile.capabilities?.flows || !!S.profile.instflow);
 const TITLES = { brief: '今日焦點', home: '今日盤勢', heat: '資金熱浪', live: '盤中雷達', stocks: '個股研究', patterns: '型態選股', flows: '法人籌碼' };
 
 const S = { tab: 'brief', brief: { news: { 0: null, 1: null }, offset: 0, section: 'all', limit: 15, week: null, kind: 'all' }, summary: null, stocks: null, heat: { data: null, dates: [], market: '全部', focus: null, sel: null, loading: false, error: '', tried: false, live: true, liveBusy: false }, pat: null, patStatus: '', patCat: '', patLimit: 20,
@@ -95,7 +95,7 @@ async function load(force = false) {
     else if (S.tab === 'heat') { if (replayActive()) return; if (!S.heat.data || force) await loadHeat(); if (S.heat.live && liveOpen()) await loadLive(); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'live') { await loadLiveTab(); if (!S.stocks) loadStocks(); }
     else if (S.tab === 'patterns') { if (!S.pat || force) S.pat = await api('api/patterns'); }
-    else if (S.tab === 'flows') { if (S.flows.view !== 'inst') await loadChips(force); else if (!S.flows.data || force) await loadFlows(); }
+    else if (S.tab === 'flows') { if (S.flows.view === 'inst' && !S.profile?.capabilities?.flows && moneyOn()) S.flows.view = 'money'; if (S.flows.view === 'money') { if (!MS.res || force) await loadMoney(); } else if (S.flows.view !== 'inst') await loadChips(force); else if (!S.flows.data || force) await loadFlows(); }
     S.error = '';
   } catch (e) { if (!e.silent) { S.error = e.message; } }
   finally { btn?.classList.remove('spin'); draw(); }
@@ -440,6 +440,82 @@ async function openPattern(id, pid) {
   } catch (e) { if (!e.silent) $('#sheet-body').innerHTML = `<div class="notice err">${esc(e.message)}</div>`; }
 }
 
+/* ---------- 法人資金板塊（籌碼分頁 → 資金板塊） ---------- */
+const MS = { res: null, by: 'group', date: '', sel: '', money: 'today', side: 'sell', error: '', loading: false, poll: null, one: null, oneError: '' };
+const M_STATE = { surge: ['漲潮', '加速流入'], rotate: ['輪動', '流入但放緩'], wait: ['觀望', '流出但放緩'], ebb: ['退潮', '加速流出'] };
+const moneyOn = () => !!S.profile?.instflow;
+async function loadMoney() {
+  MS.loading = true; MS.error = '';
+  try { MS.res = await api(`api/instflow?by=${MS.by}${MS.date ? '&date=' + MS.date : ''}`); if (MS.sel && !MS.res.data?.sectors.some(s => s.name === MS.sel)) MS.sel = ''; }
+  catch (e) { if (!e.silent) MS.error = e.message; }
+  MS.loading = false; moneyWatch();
+}
+function moneyWatch() {
+  clearTimeout(MS.poll); if (!MS.res?.query?.busy) return;
+  MS.poll = setTimeout(async () => { if (S.tab !== 'flows' || S.flows.view !== 'money') return; try { const r = await api(`api/instflow?by=${MS.by}${MS.date ? '&date=' + MS.date : ''}`); MS.res = r; draw(); if (!r.query.busy) toast('法人資金板塊已更新'); else moneyWatch(); } catch { moneyWatch(); } }, 3000);
+}
+const mslog = v => Math.sign(v) * Math.log10(1 + Math.abs(v));
+function moneyBubbles(d) {
+  const W = 360, H = 300, P = { l: 34, r: 8, t: 22, b: 30 }, list = d.sectors.filter(s => s.state);
+  if (!list.length) return '<div class="empty">前面累積的交易日不足 10 日，還不能和平常比較。</div>';
+  const mx = Math.max(1, ...list.map(s => Math.abs(mslog(s.flow5)))), my = Math.max(1, ...list.map(s => Math.abs(mslog(s.bias))));
+  const X = v => P.l + (mslog(v) / mx * .86 + 1) / 2 * (W - P.l - P.r), Y = v => P.t + (1 - (mslog(v) / my * .84 + 1) / 2) * (H - P.t - P.b);
+  const mt = Math.max(1, ...list.map(s => Math.abs(s.today))), R = v => 6 + Math.sqrt(Math.abs(v) / mt) * 20;
+  const col = { surge: 'var(--up)', rotate: 'var(--amber)', wait: 'var(--soft)', ebb: 'var(--down)' };
+  const ticks = m => { const out = [0]; for (let p = 0; p <= 4; p++) { const v = 10 ** p; if (mslog(v) <= m) out.push(v, -v); } return out; };
+  const lbl = new Set([...list].sort((a, b) => Math.abs(b.flow5) - Math.abs(a.flow5)).slice(0, 8).map(s => s.name));
+  let g = ticks(mx).map(v => `<line x1="${X(v)}" x2="${X(v)}" y1="${P.t}" y2="${H - P.b}" stroke="var(--line${v ? '' : '2'})"/><text x="${X(v)}" y="${H - P.b + 13}" font-size="9" fill="var(--soft)" text-anchor="middle">${v > 0 ? '+' : ''}${fmt(v)}</text>`).join('')
+    + ticks(my).map(v => `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line${v ? '' : '2'})"/><text x="${P.l - 4}" y="${Y(v) + 3}" font-size="9" fill="var(--soft)" text-anchor="end">${v > 0 ? '+' : ''}${fmt(v)}</text>`).join('');
+  g += `<text x="${P.l}" y="12" font-size="10" fill="var(--muted)">↑ 今天比平常更偏買（億）</text><text x="${W - P.r}" y="${H - 3}" font-size="10" fill="var(--muted)" text-anchor="end">近 5 日資金流入（億）→</text>`;
+  g += [...list].sort((a, b) => Math.abs(b.today) - Math.abs(a.today)).map(s => `<g data-msec="${esc(s.name)}"><circle cx="${X(s.flow5)}" cy="${Y(s.bias)}" r="${R(s.today)}" fill="${col[s.state]}" fill-opacity="${MS.sel === s.name ? .55 : .25}" stroke="${col[s.state]}" stroke-width="${MS.sel === s.name ? 2.2 : 1}"/>${lbl.has(s.name) || MS.sel === s.name ? `<text x="${X(s.flow5)}" y="${Y(s.bias) + 3}" font-size="9.5" fill="var(--text)" text-anchor="middle" style="paint-order:stroke;stroke:var(--surface);stroke-width:3px;pointer-events:none">${esc(s.name.length > 6 ? s.name.slice(0, 6) + '…' : s.name)}</text>` : ''}</g>`).join('');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="板塊法人資金泡泡圖">${g}</svg>`;
+}
+const mCost = c => c?.avg == null ? '—' : `${fmt(c.avg, 2)} <small class="${cls(c.deviation)}">${c.deviation >= 0 ? '高' : '低'} ${fmt(Math.abs(c.deviation), 1)}%</small>`;
+const mStreak = (who, s) => !s?.days ? '' : `<span class="pchip ${s.days > 0 ? 'up' : 'down'}">${who}連續${s.days > 0 ? '流入' : '流出'} ${Math.abs(s.days)} 天${s.accel ? ' ↑' : ''}</span>`;
+const mCostRow = x => `<button class="row" data-stock="${x.id}" style="grid-template-columns:minmax(0,1fr) auto"><span class="nm">${esc(x.name)}<small>${x.id} · 收 ${fmt(x.close, 2)} <span class="${cls(x.change)}">${pct(x.change)}</span></small></span><span class="num ${cls(x.net)}" style="text-align:right">${sign(x.net, 2)} 億${x.ratio != null ? `<small class="soft" style="display:block">平常 ${fmt(x.ratio, 1)} 倍</small>` : ''}</span>
+  <span class="mcost" style="grid-column:1/-1"><span>法人均價 ${mCost(x.cost.all)}</span><span>外資 ${mCost(x.cost.foreign)}</span><span>投信 ${mCost(x.cost.trust)}</span></span><span class="pchips" style="grid-column:1/-1;margin-top:2px">${mStreak('外資', x.streak.foreign)}${mStreak('投信', x.streak.trust)}</span></button>`;
+function moneyView() {
+  const r = MS.res, d = r?.data, q = r?.query, dates = r?.dates || [];
+  const ctl = `<div class="toolbar"><div class="field"><select data-mdate aria-label="分析日期" style="flex:1"><option value="">最新交易日</option>${dates.slice().reverse().map(x => `<option value="${x}" ${MS.date === x ? 'selected' : ''}>${x}</option>`).join('')}</select><button class="btn primary" data-mquery ${q?.busy ? 'disabled' : ''}>${q?.busy ? '<span class="spinner"></span>' : '⟳'} 更新資料</button></div>
+    <div class="seg">${[['group', '研究族群'], ['industry', '產業別']].map(([k, l]) => `<button class="${MS.by === k ? 'on' : ''}" data-mby="${k}">${l}</button>`).join('')}</div></div>`;
+  const status = q?.busy ? `<div class="notice"><span class="spinner"></span> 補資料中 ${q.done}/${q.total}${q.current ? ' · ' + q.current : ''}（每日 2 個請求）</div>` : q?.errors?.length ? `<div class="notice warn">${q.errors.length} 個交易日未取得（今天的資料約在收盤後 1.5 小時公布）</div>` : '';
+  const err = (MS.error ? `<div class="notice err">${esc(MS.error)}</div>` : '') + (q?.error ? `<div class="notice err">${esc(q.error)}</div>` : '');
+  if (!d) return ctl + err + status + (MS.loading ? loadingBox() : '<div class="empty">尚無資料，按「更新資料」補齊近 21 個交易日（第一次約需 1–2 分鐘）。</div>');
+  const few = d.baseDays < d.rules.minBaseDays ? `<div class="notice warn">目前只有 ${d.days} 個交易日，前面不足 ${d.rules.minBaseDays} 日時無法和平常比較。</div>` : '';
+  const sel = d.sectors.find(s => s.name === MS.sel);
+  const detail = sel ? `<div class="card-b"><b>${esc(sel.name)}</b> <span class="pill">${sel.state ? M_STATE[sel.state][0] : '累積中'}</span><div class="soft" style="font-size:.8rem;margin:4px 0 6px">${sel.count} 檔 · 今天 <b class="${cls(sel.today)}">${sign(sel.today, 1)} 億</b> · 近 5 日 <b class="${cls(sel.flow5)}">${sign(sel.flow5, 1)} 億</b>${sel.ratio != null ? ` · 約平常 ${fmt(sel.ratio, 1)} 倍` : ''}</div>${sel.stocks.map(x => `<button class="row" data-stock="${x.id}" style="min-height:44px"><span class="nm">${esc(x.name)}<small>${x.id}</small></span><span class="num"><b class="${cls(x.net)}">${sign(x.net, 2)} 億</b> <small class="${cls(x.change)}">${pct(x.change)}</small></span></button>`).join('')}</div>` : '<div class="foot">點泡泡或下方板塊名稱，查看成分股的法人買賣。</div>';
+  const m = d.money[MS.money], mmax = Math.max(1, ...[...m.buy, ...m.sell].map(x => Math.abs(x.value)));
+  const bars = (list, c) => list.map(x => `<button class="row" data-msec="${esc(x.name)}" style="min-height:44px"><span class="nm">${esc(x.name)}<span class="meter" style="display:block;margin-top:6px"><i style="width:${Math.max(3, Math.abs(x.value) / mmax * 100)}%;background:var(--${c})"></i></span></span><b class="num ${c}">${sign(x.value)} 億</b></button>`).join('') || '<div class="foot">無</div>';
+  const ins = d.insights.map(x => x.type === 'spike' ? `<li><b>${esc(x.sector)}</b> 今天${x.today > 0 ? '買' : '賣'}超 <b class="${cls(x.today)}">${fmt(Math.abs(x.today))} 億</b>，約是近 20 日單日平均的 ${fmt(x.ratio, 1)} 倍</li>` : `<li><b>${esc(x.sector)}</b> 今天${x.today > 0 ? '買' : '賣'}超 <b class="${cls(x.today)}">${fmt(Math.abs(x.today))} 億</b>，前 4 天合計${x.prior4 > 0 ? '買' : '賣'}超 <b class="${cls(x.prior4)}">${fmt(Math.abs(x.prior4))} 億</b>（買賣換邊）</li>`).join('');
+  const ab = d.abnormal[MS.side];
+  const costs = d.costs.filter(x => x.focus).sort((a, b) => (a.cost.all.deviation ?? 1e9) - (b.cost.all.deviation ?? 1e9));
+  return ctl + err + status + few + `<div class="statusline"><span class="pill">${d.date}</span><span class="pill">比較基準 ${d.baseDays} 日</span><span class="pill">列入板塊 ${fmt(d.coverage.sectored)} 檔</span></div>
+    <section class="card"><div class="card-h"><h2>板塊資金四象限<small>泡泡大小 = 今天淨額</small></h2></div><div class="kpis" style="grid-template-columns:repeat(4,1fr)">${Object.entries(M_STATE).map(([k, [n, sub]]) => `<div class="kpi" title="${sub}"><span>${n}</span><b class="num ${k === 'surge' ? 'up' : k === 'ebb' ? 'down' : ''}" style="${k === 'rotate' ? 'color:var(--amber)' : ''}">${d.counts[k]}</b></div>`).join('')}</div><div class="card-b">${moneyBubbles(d)}<div class="legend" style="display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.72rem">${Object.values(M_STATE).map(([n, sub]) => `<span>${n}＝${sub}</span>`).join('')}</div></div>${detail}</section>
+    <section class="card"><div class="card-h"><h2>錢流去哪</h2><div class="seg">${[['today', '今天'], ['five', '近 5 日']].map(([k, l]) => `<button class="${MS.money === k ? 'on' : ''}" data-mmoney="${k}">${l}</button>`).join('')}</div></div><div class="foot" style="text-align:left;padding:0 16px"><span class="up">●</span> 法人買最多</div>${bars(m.buy, 'up')}<div class="foot" style="text-align:left;padding:8px 16px 0"><span class="down">●</span> 法人賣最多</div>${bars(m.sell, 'down')}${ins ? `<div class="card-b"><b style="font-size:.9rem">跟平常比・買賣換邊</b><ul class="reasons">${ins}</ul></div>` : ''}</section>
+    <section class="card"><div class="card-h"><h2>個股異常<small>≥ 平常 ${d.rules.abnormalRatio} 倍且 ≥ ${fmt(d.rules.abnormalMin / 1e8)} 億</small></h2><div class="seg">${[['buy', '爆買'], ['sell', '爆賣']].map(([k, l]) => `<button class="${MS.side === k ? 'on' : ''}" data-mside="${k}">${l}</button>`).join('')}</div></div>${ab.map(x => `<button class="row" data-stock="${x.id}"><span class="nm">${esc(x.name)}<small>${x.id} · ${x.ratio == null ? '平常無買賣' : '平常 ' + fmt(x.ratio, 1) + ' 倍'}</small></span><span class="num" style="text-align:right"><b class="${cls(x.net)}">${sign(x.net, 1)} 億</b><small class="${cls(x.change)}" style="display:block">${pct(x.change)}</small></span></button>`).join('') || '<div class="empty">今天沒有符合條件的股票</div>'}</section>
+    <section class="card"><div class="card-h"><h2>法人成本與乖離<small>近 ${d.rules.costDays} 日買進均價 · 越接近成本越前面</small></h2></div><form data-mone class="field" style="padding:0 16px 10px"><input name="id" placeholder="查任一代號" aria-label="查詢個股代號" inputmode="numeric" class="minput" style="flex:1"><button class="btn">查詢</button></form>${MS.one ? mCostRow(MS.one) : MS.oneError ? `<div class="notice err">${esc(MS.oneError)}</div>` : ''}${costs.map(mCostRow).join('') || '<div class="empty">自選與研究名單在這天沒有法人資料</div>'}</section>
+    <div class="foot">金額 = 法人淨買賣股數 × 當日收盤；均價只計買進側，是成本的近似值。只呈現事實，不構成投資建議。</div>`;
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-mquery],[data-mby],[data-msec],[data-mmoney],[data-mside]'); if (!t || S.tab !== 'flows') return;
+  const ds = t.dataset;
+  try {
+    if ('mquery' in ds) { const r = await api('api/instflow/query', MS.date ? { date: MS.date } : {}); MS.res = { ...(MS.res || {}), query: r.query }; draw(); return moneyWatch(); }
+    if (ds.mby) { MS.by = ds.mby; MS.sel = ''; draw(); await loadMoney(); return draw(); }
+    if (ds.msec) { MS.sel = MS.sel === ds.msec ? '' : ds.msec; return draw(); }
+    if (ds.mmoney) { MS.money = ds.mmoney; return draw(); }
+    if (ds.mside) { MS.side = ds.mside; return draw(); }
+  } catch (err) { if (!err.silent) toast(err.message); }
+});
+document.addEventListener('change', async e => { if (e.target.matches?.('[data-mdate]')) { MS.date = e.target.value; await loadMoney(); draw(); } });
+document.addEventListener('submit', async e => {
+  const f = e.target.closest?.('[data-mone]'); if (!f) return; e.preventDefault();
+  const id = f.elements.id.value.trim(); if (!id) return;
+  try { const r = await api(`api/instflow/stock?id=${encodeURIComponent(id)}${MS.date ? '&date=' + MS.date : ''}`); MS.one = r.data; MS.oneError = r.data ? '' : `${id} 這段期間沒有法人資料`; }
+  catch (err) { MS.one = null; if (!err.silent) MS.oneError = err.message; }
+  draw();
+});
+
 /* ---------- flows ---------- */
 async function loadFlows(date, query = false) {
   const F = S.flows; F.loading = true; F.error = ''; if (S.tab === 'flows') draw();
@@ -453,9 +529,13 @@ async function loadFlows(date, query = false) {
 // 籌碼分頁：法人（法人與期權籌碼）、分點追蹤、大戶排行（後兩者需要券商分點能力）
 const chipsOn = () => !!S.profile?.capabilities?.brokers;
 function flowPage() {
-  const seg = chipsOn() ? `<div class="seg" style="margin-bottom:12px">${[['inst', '法人'], ['brokers', '分點追蹤'], ['holders', '大戶排行']].map(([v, l]) => `<button class="${S.flows.view === v ? 'on' : ''}" data-fview="${v}">${l}</button>`).join('')}</div>` : '';
-  if (chipsOn() && S.flows.view === 'brokers') return seg + brokersView();
-  if (chipsOn() && S.flows.view === 'holders') return seg + holdersView();
+  // 籌碼分頁的子頁：法人（FinMind）、資金板塊（全市場法人＋行情）、分點追蹤與大戶排行（券商分點）
+  const views = [[S.profile?.capabilities?.flows, 'inst', '法人'], [moneyOn(), 'money', '資金板塊'], [chipsOn(), 'brokers', '分點'], [chipsOn(), 'holders', '大戶']].filter(v => v[0]);
+  if (!views.some(v => v[1] === S.flows.view) && views.length) S.flows.view = views[0][1];
+  const seg = views.length > 1 ? `<div class="seg" style="margin-bottom:12px">${views.map(([, v, l]) => `<button class="${S.flows.view === v ? 'on' : ''}" data-fview="${v}">${l}</button>`).join('')}</div>` : '';
+  if (S.flows.view === 'brokers') return seg + brokersView();
+  if (S.flows.view === 'holders') return seg + holdersView();
+  if (S.flows.view === 'money') return seg + moneyView();
   return seg + instPage();
 }
 function instPage() {

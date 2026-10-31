@@ -78,6 +78,10 @@ export const chipwatchQuery = b => call('chipwatch/query', { body: b, timeout: 6
 export const chipwatchSettings = b => call('chipwatch/settings', { body: b });
 export const brokerSearch = q => call('chipwatch/branches?' + qs({ q }), { timeout: 60000 });
 export const holderRank = (scope, date) => call('holders/rank?' + qs({ scope, date }));
+// 法人資金板塊（Nexus 補資料在背景執行，畫面輪詢 instflow 的 query.busy）
+export const instflow = (by, date) => call('instflow?' + qs({ by, date }), { timeout: 30000 });
+export const instflowQuery = date => call('instflow/query', { body: date ? { date } : {}, timeout: 30000 });
+export const instflowStock = (id, date) => call('instflow/stock?' + qs({ id, date }));
 export const holderRankQuery = () => call('holders/rank/query', { body: {}, timeout: 300000 });
 export const grouprank = date => call('grouprank?' + qs({ date }));
 export const grouprankQuery = () => call('grouprank/query', { body: {}, timeout: 60000 });

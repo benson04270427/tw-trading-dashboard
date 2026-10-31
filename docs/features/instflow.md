@@ -5,8 +5,8 @@
 ## 在哪裡
 
 - 電腦版：左側選單「MARKET → 法人資金板塊」。
+- 手機版：「籌碼」分頁 →「資金板塊」。只有全市場法人與行情、沒有 FinMind 時，籌碼分頁仍會出現並直接開啟資金板塊。
 - 只在台股，且啟用的資料源有「全市場法人買賣超」與「全市場單日行情」時顯示（證交所／櫃買開放資料免金鑰即可；FinMind 需 Sponsor）。
-- 手機版目前沒有這一頁。
 
 ## 內容
 
@@ -58,4 +58,4 @@
 
 ## 相關檔案
 
-`EquiLens-Nexus/lib/instflow.mjs`（計算）、`server.mjs`（取資料與 API：`GET /api/instflow?date=&by=group|industry`、`POST /api/instflow/query`、`GET /api/instflow/stock?id=`）、`public/instflow.js`（畫面）、`tests/instflow.test.mjs`；資料 `.local/instflow/<日期>.json`（精簡日檔，只保留近 30 個交易日，切換市場時隨台股資料收起）。
+`EquiLens-Nexus/lib/instflow.mjs`（計算）、`server.mjs`（取資料與 API：`GET /api/instflow?date=&by=group|industry`、`POST /api/instflow/query`、`GET /api/instflow/stock?id=`）、`public/instflow.js`（電腦版畫面）、`EquiLens-Pocket/public/app.js` 的「資金板塊」（手機版畫面，經 Pocket 轉送 `api/instflow*`）、`tests/instflow.test.mjs`；資料 `.local/instflow/<日期>.json`（精簡日檔，只保留近 30 個交易日，切換市場時隨台股資料收起）。
