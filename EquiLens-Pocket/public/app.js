@@ -381,17 +381,32 @@ function mountHeat() {
 }
 
 /* ---------- patterns ---------- */
+// 型態縮圖：90 日收盤線＋型態區間（淺色底）＋頸線／支撐＋轉折點，一眼看出為何歸在這個型態
+function patSpark(r, W = 330, H = 74) {
+  const c = r.spark; if (!c?.length || !r.zone || r.zone[0] < 0) return '';
+  const n = c.length, P = 3, vals = [...c, ...r.lines.flatMap(l => [l.a, l.b])], lo = Math.min(...vals), hi = Math.max(...vals), rg = hi - lo || 1;
+  const x = i => P + i / Math.max(1, n - 1) * (W - 2 * P), y = v => P + (hi - v) / rg * (H - 2 * P);
+  const [s, e] = r.zone, line = c.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return `<svg class="pspark" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(r.pattern)} 型態區間 ${s + 1}–${(e < 0 ? n - 1 : e) + 1} 日"><rect x="${x(s)}" y="0" width="${Math.max(2, x(e < 0 ? n - 1 : e) - x(s))}" height="${H}" fill="var(--accent)" opacity=".1"/>`
+    + r.lines.map((l, i) => `<line x1="${x(l.from)}" x2="${x(l.to)}" y1="${y(l.a)}" y2="${y(l.b)}" stroke="${i ? 'var(--down)' : 'var(--amber)'}" stroke-width="1.3" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>`).join('')
+    + `<polyline points="${line}" fill="none" stroke="var(--muted)" stroke-width="1.3" vector-effect="non-scaling-stroke"/>`
+    + r.anchors.map(a => `<circle cx="${x(a.index)}" cy="${y(a.price)}" r="2.2" fill="var(--accent)"/>`).join('')
+    + `<circle cx="${x(n - 1)}" cy="${y(c[n - 1])}" r="2.6" fill="${c[n - 1] >= c[Math.max(0, s)] ? 'var(--up)' : 'var(--down)'}"/></svg>`;
+}
 function patCard(r) {
   return `<button class="pcard" data-pat="${r.id}" data-pid="${r.pid}"><div class="top"><b>${esc(r.name)} <small class="soft">${r.id}</small></b><span class="badge ${r.status === '量價確認' ? 'ok' : /突破/.test(r.status) ? 'wait' : ''}">${esc(r.status)}</span></div>
-  <div class="soft" style="font-size:.8rem;margin-top:2px">${esc(r.pattern)} · ${esc(r.category)} · ${esc(r.sector)}</div><div class="meter"><i style="width:${r.score}%"></i></div>
+  <div class="soft" style="font-size:.8rem;margin-top:2px">${esc(r.pattern)} · ${esc(r.category)} · ${esc(r.sector)}</div>${patSpark(r)}${r.description ? `<div class="pwhy">${esc(r.description)}</div>` : ''}<div class="meter"><i style="width:${r.score}%"></i></div>
   <div class="plan num"><div><span>強度</span><b>${r.score}</b></div><div><span>進場帶</span><b>${fmt(r.entry, r.entry < 100 ? 2 : 1)}</b></div><div><span>防守</span><b class="down">${fmt(r.stop, r.stop < 100 ? 2 : 1)}</b></div><div><span>R/R</span><b>${fmt(r.rr, 1)}</b></div></div></button>`;
 }
+// 三種類別的判定依據（類別由型態決定，見 Nexus lib/patterns.mjs）
+const PAT_CAT = { 反轉型: '反轉型（頭肩底、雙底、三重底、圓底、下降楔形）：下跌或盤整後在低檔做出底部結構，收盤突破頸線代表由弱轉強。', 延續型: '延續型（旗形、旗竿三角形、杯柄）：先有一段上漲，短暫整理後再往上突破，代表原本的漲勢延續。', 整理突破型: '整理突破型（上升三角形、突破平台）：在固定壓力下橫盤或低點墊高，收盤突破區間上緣。' };
 function patternPage() {
   const p = S.pat; if (!p) return errBox() + loadingBox();
   const rows = p.rows.filter(r => (!S.patStatus || r.status === S.patStatus) && (!S.patCat || r.category === S.patCat));
   return `${errBox()}<div class="statusline"><span class="pill">${p.from || '—'} → ${p.asOf || '—'}</span><span class="pill">${fmt(p.matched)} 檔 · ${fmt(p.count)} 筆型態</span>${S.job?.running ? '' : '<button class="btn" data-pat-update style="min-height:32px;margin-left:auto">⟳ 更新型態資料</button>'}</div>
     <div class="toolbar"><div class="seg">${[['', '全部'], ['量價確認', '量價確認'], ['突破待次日確認', '待次日確認'], ['突破待量確認', '待量確認'], ['接近突破', '接近突破']].map(([v, l]) => `<button class="${S.patStatus === v ? 'on' : ''}" data-pstatus="${v}">${l}</button>`).join('')}</div>
     <div class="chips">${['', '反轉型', '延續型', '整理突破型'].map(c => `<button class="chip ${S.patCat === c ? 'on' : ''}" data-pcat="${c}">${c || '所有類別'}</button>`).join('')}</div></div>
+    ${S.patCat ? `<div class="notice">${PAT_CAT[S.patCat]}</div>` : ''}
     ${p.eligible === 0 ? '<div class="notice warn">型態資料已超過 7 天或不足 90 日，請按上方「更新型態資料」。</div>' : ''}
     <section class="card">${rows.slice(0, S.patLimit).map(patCard).join('') || '<div class="empty">沒有符合條件的型態</div>'}</section>
     ${rows.length > S.patLimit ? `<button class="btn block" data-more-pat>再載入（共 ${rows.length} 筆）</button>` : ''}<div class="foot">強度為規則吻合程度，不是勝率；價位為條件式技術試算</div>`;

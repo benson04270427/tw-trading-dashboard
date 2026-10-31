@@ -3130,5 +3130,11 @@
  "錢流去哪": "Where the money goes",
  "點泡泡或下方板塊名稱，查看成分股的法人買賣。": "Click a bubble or a sector name below to see institutional trades in its members.",
  "，前 4 天合計{0}超": ", previous 4 days net {0}",
- "，約是近 20 日單日平均的 {0} 倍": ", about {0}× the 20-day daily average"
+ "，約是近 20 日單日平均的 {0} 倍": ", about {0}× the 20-day daily average",
+ "{0} 型態區間": "{0} pattern range",
+ "{0} 型態區間 {1}–{2} 日": "{0} pattern range, days {1}–{2}",
+ "型態區間": "Pattern range",
+ "反轉型（頭肩底、雙底、三重底、圓底、下降楔形）：下跌或盤整後在低檔做出底部結構，收盤突破頸線代表由弱轉強。": "Reversal (inverse head and shoulders, double bottom, triple bottom, rounding bottom, falling wedge): after a decline or range, a base forms at the lows; a close above the neckline marks a turn from weak to strong.",
+ "延續型（旗形、旗竿三角形、杯柄）：先有一段上漲，短暫整理後再往上突破，代表原本的漲勢延續。": "Continuation (flag, pennant, cup and handle): a prior advance, a short consolidation, then a breakout higher, continuing the uptrend.",
+ "整理突破型（上升三角形、突破平台）：在固定壓力下橫盤或低點墊高，收盤突破區間上緣。": "Consolidation breakout (ascending triangle, breakout base): sideways under fixed resistance or with rising lows, then a close above the top of the range."
 }
