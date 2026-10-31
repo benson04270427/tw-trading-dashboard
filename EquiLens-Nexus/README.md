@@ -20,6 +20,7 @@
 |---|---|
 | 今日焦點 | AI 盤後日報（含自選股逐檔短評）、盤前焦點新聞（鉅亨網，台股或中文介面時顯示）、本周經濟數據與科技財報 |
 | 資金熱浪 | 板塊熱浪圖（面積＝成交金額、顏色＝漲跌幅）、盤中即時更新、⏱ 時光機回放與板塊輪動 |
+| 法人資金板塊 | 台股：近 21 個交易日全市場法人買賣超 × 收盤價的板塊資金四象限泡泡圖、錢流去哪、跟平常比與買賣換邊、個股異常爆買爆賣、法人／外資／投信近 20 日均價與乖離（見 docs/features/instflow.md） |
 | 盤中雷達 | 族群／自選即時看板（全日走勢圖、日 K／5 分 K，以盤中快照每 10 秒更新）、異動雷達、**自訂提醒**（價位、漲跌幅、預估量，條件成立時推播）、雷達與新聞推播設定（新聞：FinMind＋台股另加鉅亨網，每分鐘檢查）、浮動雷達視窗；有富果金鑰時異動雷達改用 WebSocket 即時推播，熱浪圖、時光機與看板仍用快照；當沖掃描（觀察名單四層確認、三種做多與兩種風險提醒、收盤後分版本檢討，見 docs/DAYTRADE.zh-TW.md；每個訊號記下加權／櫃買指數狀態，檢討依大盤環境分組，只記錄、不影響訊號，見 docs/features/daytrade-market.md） |
 | 族群排名 | 研究族群的量能加權漲幅排名與每日收盤紀錄 |
 | 研究總覽／市場族群 | 四維評分（技術、籌碼、話題、行業）與族群脈動 |
@@ -34,7 +35,7 @@
 ## 資料位置
 
 所有資料都在 `.local/`（或環境變數 `EQUITY_DATA_DIR` 指定的資料夾）：`config.json`、`settings.json`、`groups.json`、
-`watchlist.json`、`price-alerts.json`（自訂提醒）、`stocks/`（研究個股行情）、`heatmap-*.json`、`replay/`（時光機）、`alerts-*.json`、`reports/`、`broker-watch/`（分點追蹤，含認購權證進出）、`warrants/`（權證標的對照、行情與分點快取）、`holders-all/`（全市場股權分散表）等。
+`watchlist.json`、`price-alerts.json`（自訂提醒）、`stocks/`（研究個股行情）、`heatmap-*.json`、`replay/`（時光機）、`instflow/`（法人資金板塊日檔）、`alerts-*.json`、`reports/`、`broker-watch/`（分點追蹤，含認購權證進出）、`warrants/`（權證標的對照、行情與分點快取）、`holders-all/`（全市場股權分散表）等。
 切換研究市場時，目前市場的資料會移到 `.local/markets/<市場>/`，切回時搬回。
 
 金鑰由作業系統加密保存（Windows DPAPI、macOS 鑰匙圈、Linux Secret Service），頁面與 API 不會讀回。

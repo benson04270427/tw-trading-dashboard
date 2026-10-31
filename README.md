@@ -32,6 +32,9 @@ component's `.local/` folder; API keys are encrypted by the operating system (se
   stock in *your* research groups, with transparent reasons, missing-data handling and an effective-weight disclosure.
 - **Sector heatmap** – turnover-sized, change-colored treemap of the whole market (or of your research groups when the
   data source has no whole-market data), live during the session, with a per-minute **time machine** replay.
+- **Institutional money map** (Taiwan) – whole-market institutional net buying × close over the last 21 trading days:
+  sector quadrants (surge / rotation / wait / ebb), where the money goes, unusual heavy buying and selling, and the
+  institutional / foreign / trust 20-day average buy price and deviation for your watchlist.
 - **Intraday radar** – volume spikes, surges and plunges, price-limit touches, pattern entries and stop breaks for your
   watchlist and research groups, plus a live board with daily / 5-minute candles. **Custom alerts** let you set price,
   % change or projected-volume conditions on any stock; they are pushed to your phone when met (one-time or repeating). With a Fugle key the radar runs on a

@@ -759,3 +759,21 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 .ia-book .ia-head{font-size:.75rem;color:var(--muted);font-family:var(--sans)}.ia-size{color:var(--amber)}.ia-book .ia-tot{border-bottom:0;color:var(--muted)}
 .ia-ratio{display:flex;height:4px;margin:8px 0 2px;border-radius:2px;overflow:hidden}
 .ia-tape{max-height:420px;overflow:auto}.ia-tape .ia-trow{display:grid;grid-template-columns:1.3fr 1fr .8fr .8fr;gap:6px;padding:4px 2px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:.86rem}.ia-tape .ia-trow span:not(:first-child){text-align:right}.ia-tape .ia-head{font-size:.75rem;color:var(--muted);font-family:var(--sans)}
+/* 法人資金板塊 */
+.if-states{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 18px 12px}
+.if-state{border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;display:flex;flex-direction:column;gap:2px;background:var(--panel2)}
+.if-state small{font-size:.78rem;color:var(--muted)}.if-state b{font-size:1.5rem;font-family:var(--mono)}.if-state span{font-size:.72rem;color:var(--soft)}
+.if-state.surge b{color:var(--up)}.if-state.rotate b{color:var(--amber)}.if-state.wait b{color:var(--muted)}.if-state.ebb b{color:var(--down)}
+.if-chartwrap{padding:0 12px}.if-chart{width:100%;height:auto;display:block}
+.if-chart .if-grid{stroke:var(--line);stroke-width:1}.if-chart .if-grid.zero{stroke:var(--line3)}
+.if-chart .if-tick{fill:var(--soft);font-size:10px;font-family:var(--mono)}.if-chart .if-axis{fill:var(--muted);font-size:11px}
+.if-chart .if-lbl{fill:var(--ink);font-size:10.5px;pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3px}
+.if-dot{cursor:pointer}.if-dot:hover circle,.if-dot:focus circle,.if-dot.sel circle{fill-opacity:.55;stroke-width:2.5}.if-dot:focus{outline:none}
+.if-detail{padding:4px 18px 16px}.if-detail h3{margin:6px 0}
+.if-grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px;margin:16px 0}
+.if-table{width:100%;border-collapse:collapse;font-size:.84rem}.if-table th{font-weight:500;color:var(--muted);text-align:left;padding:7px 10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.if-table td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}.if-table td.num{text-align:right}
+.sector-bar.neg i{background:linear-gradient(90deg,var(--down),var(--cyan2))}
+.inline-form{display:flex;gap:6px}.inline-form input{width:7em}
+@media (max-width:900px){.if-grid2{grid-template-columns:1fr}.if-states{grid-template-columns:repeat(2,1fr)}}
+.if-table .stocklink{text-align:left;padding:0}.if-table th{text-align:right}.if-table th.l{text-align:left}.if-table td{vertical-align:middle;text-align:left}.if-table td.num{text-align:right}
