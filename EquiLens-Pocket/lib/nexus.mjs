@@ -113,6 +113,9 @@ export function slimPatternRows(p) {
     id: s.id, name: s.name, sector: s.sector, market: s.market, price: s.price, avg5: s.avg5,
     pid: m.id, pattern: m.name, category: m.category, score: m.score, status: m.status,
     entry: m.plan?.entry, entryMax: m.plan?.entryMax, stop: m.plan?.stop, target: m.plan?.target, rr: m.plan?.rr, action: m.plan?.action,
+    // 縮圖：90 日 K 線 [開,高,低,收]、型態區間、頸線／支撐、轉折點與判定理由
+    ohlc: s.ohlc || null, zone: m.zone || null, description: m.description || '',
+    lines: (m.lines || []).map(l => ({ from: l.from, to: l.to, a: l.a, b: l.b })), anchors: (m.anchors || []).map(a => ({ index: a.index, price: a.price })),
   }))).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 }
 export function slimDetail(s) {
