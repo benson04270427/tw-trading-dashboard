@@ -42,7 +42,7 @@ import { buildMacro } from './lib/macro.mjs';
 import { buildContrarian, parseFearGreed } from './lib/contrarian.mjs';
 import { fetchJSON, rocDate } from './lib/providers/common.mjs';
 import { nyseHolidays } from './lib/providers/nasdaq.mjs';
-import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS } from './lib/valuescreen.mjs';
+import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS, valueRetryDue } from './lib/valuescreen.mjs';
 import { SCOPES, AI_INDEX, AI_CHAIN, US_AI_INDEX, US_AI_CHAIN, TW_PEER_INDEX, TW_PEER_GROUPS, TECH_SECTORS } from './lib/aichain.mjs';
 import { buildShapes } from './lib/shapes.mjs';
 import { PICKS_VERSION, heatStocks, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh } from './lib/picks.mjs';
@@ -1129,6 +1129,8 @@ setInterval(()=>{
   // 美股：FRED 與 Cboe 在美國收盤後陸續更新，以台北時間每天 08:40 與 20:40 各取一次
   if(M().id==='US'){const d=`${tp('year')}-${tp('month')}-${tp('day')}`,hm=`${tp('hour')}:${tp('minute')}`;for(const slot of ['08:40','20:40']){const k=d+slot;if(hm>=slot&&!riskJob.slots[k]&&!riskJob.busy){riskJob.slots[k]=1;runRisk();break;}}return;}
   if(!screenJob.busy&&!screenJob.booted){screenJob.booted=1;if(!read('value/inputs.json',null))runScreen();}
+  // 本益比資料仍落後最新交易日（證交所晚間才更新）：每 2 小時重取，含週末
+  if(!screenJob.busy&&valueRetryDue({valDate:read('value/inputs.json',null)?.valDate,latest:heatFiles().at(-1),today:x.date,hm:x.hm,lastTry:screenJob.retryAt||0})){screenJob.retryAt=Date.now();if(x.hm>='18:40')screenJob.ran=x.date;runScreen();}
   if(x.weekday<1||x.weekday>5)return;
   for(const slot of ['15:40','21:40']){const k=x.date+slot;if(x.hm>=slot&&!riskJob.slots[k]&&!riskJob.busy){riskJob.slots[k]=1;runRisk();break;}}
   if(x.hm>='18:40'&&screenJob.ran!==x.date&&!screenJob.busy){screenJob.ran=x.date;runScreen();}

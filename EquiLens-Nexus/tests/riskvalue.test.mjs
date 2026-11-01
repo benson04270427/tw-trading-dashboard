@@ -126,3 +126,19 @@ test('低估選股範圍：AI 供應鏈、電子科技、全市場', async () =>
   assert.equal(r.find(x => x.id === '2330').chain, '晶圓代工與 IC 設計'); assert.equal(r.find(x => x.id === '1234').chain, '研究族群');
   assert.equal(AI_INDEX.get('3017'), '散熱'); assert.equal(scopeOf({ id: '9999', sector: '光電業' }, 'tech'), true);
 });
+
+test('低估選股：本益比資料落後最新交易日時每 2 小時重取', async () => {
+  const { valueRetryDue, VALUE_RETRY_MS } = await import('../lib/valuescreen.mjs');
+  const now = Date.parse('2026-11-01T02:00:00Z');
+  // 週五 18:40 取到週四的本益比，週末仍落後 → 重取
+  assert.equal(valueRetryDue({ valDate: '2026-10-29', latest: '2026-10-30', today: '2026-11-01', hm: '10:00', lastTry: 0, now }), true);
+  // 距上次嘗試不到 2 小時 → 不重取
+  assert.equal(valueRetryDue({ valDate: '2026-10-29', latest: '2026-10-30', today: '2026-11-01', hm: '10:00', lastTry: now - VALUE_RETRY_MS + 60e3, now }), false);
+  // 已跟上最新交易日 → 不重取
+  assert.equal(valueRetryDue({ valDate: '2026-10-30', latest: '2026-10-30', today: '2026-11-01', hm: '10:00', now }), false);
+  // 當天收盤後、18:40 前 → 等排程，不提早重取
+  assert.equal(valueRetryDue({ valDate: '2026-10-29', latest: '2026-10-30', today: '2026-10-30', hm: '16:00', now }), false);
+  assert.equal(valueRetryDue({ valDate: '2026-10-29', latest: '2026-10-30', today: '2026-10-30', hm: '20:41', now }), true);
+  // 沒有資料或沒有熱浪圖 → 交給原本的流程
+  assert.equal(valueRetryDue({ valDate: null, latest: '2026-10-30', today: '2026-11-01', hm: '10:00', now }), false);
+});

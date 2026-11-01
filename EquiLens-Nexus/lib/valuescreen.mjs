@@ -21,6 +21,15 @@ export const STRATEGIES = {
 // scope：ai（AI 與周邊供應鏈，預設）、tech（電子科技類產業）、all（全市場）；同業比較仍以全市場的同產業為基準
 export const DEFAULTS = { strategy: 'value', minTurnover: 1e7, limit: 60, scope: 'ai' };
 
+// 證交所／櫃買的本益比開放資料有時晚間才換成當天：18:40 取到的若仍落後最新交易日（latest＝最近一個熱浪圖日期），
+// 之後每 2 小時重取一次（含週末），直到跟上；當天的資料要等 18:40 後才重取
+export const VALUE_RETRY_MS = 2 * 3600e3;
+export function valueRetryDue({ valDate, latest, today, hm, lastTry = 0, now = Date.now() }) {
+  if (!valDate || !latest || valDate >= latest) return false;
+  if (latest === today && hm < '18:40') return false;
+  return now - lastTry >= VALUE_RETRY_MS;
+}
+
 // ---- 開放資料 → 每檔一列 ----
 export function mergeInputs(raw) {
   const out = new Map(), get = id => { if (!out.has(id)) out.set(id, { id }); return out.get(id); };
