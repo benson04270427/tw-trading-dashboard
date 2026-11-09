@@ -127,7 +127,7 @@ server {
 - 主機名稱白名單：本機、電腦版設定的網域（Cloudflare 臨時網址模式另允許 `*.trycloudflare.com`）；經 Tailscale Serve 轉入的 `*.ts.net` 請求（帶身分標頭、來自本機、無 Cloudflare 標頭）一律允許。
 - `config.json` 設 `tailnetNoPassword: true`（或環境變數 `MOBILE_TAILNET_NO_PASSWORD=1`）時，只有上述 Tailscale 請求免密碼，其他來源照常要求登入；Funnel（公開）請求沒有身分標頭，不會免密碼。
 - CSP、禁止被嵌入框架、不傳 Referrer；搜尋引擎 noindex。
-- 手機端可以閱讀、查詢熱浪圖與法人、加減自選、更新行情與型態資料、調整雷達與新聞推播；資料來源、金鑰、AI 模型、研究族群與遠端存取只能在電腦版設定。
+- 手機端可以閱讀、查詢熱浪圖與法人（含法人資金板塊）、加減自選、更新行情與型態資料、調整雷達與新聞推播；資料來源、金鑰、AI 模型、研究族群與遠端存取只能在電腦版設定。
 
 ## 檔案
 

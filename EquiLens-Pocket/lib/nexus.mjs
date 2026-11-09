@@ -78,6 +78,10 @@ export const chipwatchQuery = b => call('chipwatch/query', { body: b, timeout: 6
 export const chipwatchSettings = b => call('chipwatch/settings', { body: b });
 export const brokerSearch = q => call('chipwatch/branches?' + qs({ q }), { timeout: 60000 });
 export const holderRank = (scope, date) => call('holders/rank?' + qs({ scope, date }));
+// 法人資金板塊（Nexus 補資料在背景執行，畫面輪詢 instflow 的 query.busy）
+export const instflow = (by, date) => call('instflow?' + qs({ by, date }), { timeout: 30000 });
+export const instflowQuery = date => call('instflow/query', { body: date ? { date } : {}, timeout: 30000 });
+export const instflowStock = (id, date) => call('instflow/stock?' + qs({ id, date }));
 export const holderRankQuery = () => call('holders/rank/query', { body: {}, timeout: 300000 });
 export const grouprank = date => call('grouprank?' + qs({ date }));
 export const grouprankQuery = () => call('grouprank/query', { body: {}, timeout: 60000 });
@@ -127,7 +131,7 @@ export function slimStock(s, watch = []) {
     id: s.id, name: s.name, market: s.market, sector: s.sector, groups: s.groupNames || [], asOf: s.asOf,
     price: s.price, change: s.change, volume: s.volume, score: s.score, rating: s.rating, complete: s.complete, coverage: s.coverage,
     f: [s.technical?.score, s.chips?.score, s.topic?.score, s.industry?.score].map(r1),
-    spark: (s.spark || []).filter((_, i, a) => i % 2 === 0 || i === a.length - 1),
+    spark: (s.spark || []).filter((_, i, a) => i % 2 === 0 || i === a.length - 1), sparkKind: s.sparkKind || '30d',
     watch: watch.includes(s.id),
   };
 }
@@ -137,6 +141,9 @@ export function slimPatternRows(p) {
     id: s.id, name: s.name, sector: s.sector, market: s.market, price: s.price, avg5: s.avg5,
     pid: m.id, pattern: m.name, category: m.category, score: m.score, status: m.status,
     entry: m.plan?.entry, entryMax: m.plan?.entryMax, stop: m.plan?.stop, target: m.plan?.target, rr: m.plan?.rr, action: m.plan?.action,
+    // 縮圖：90 日 K 線 [開,高,低,收]、型態區間、頸線／支撐、轉折點與判定理由
+    ohlc: s.ohlc || null, chips: s.chips || [], zone: m.zone || null, description: m.description || '',
+    lines: (m.lines || []).map(l => ({ from: l.from, to: l.to, a: l.a, b: l.b })), anchors: (m.anchors || []).map(a => ({ index: a.index, price: a.price })),
   }))).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 }
 export function slimDetail(s) {

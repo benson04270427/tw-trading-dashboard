@@ -7,3 +7,21 @@ test('empty provider response retains old rows without marking success; same-day
 test('fatal provider error keeps partial progress for resume',async()=>{const e=Object.assign(new Error('quota'),{fatal:true});await assert.rejects(fetchStock('2330',{},{cutoff:'2026-09-18',sources:[{keys:['price'],label:'daily',fetch:async()=>[{date:'2026-09-18',close:1}]},{keys:['revenue'],label:'revenue',fetch:async()=>{throw e;}}]}),err=>err.partial.checked.price==='2026-09-18'&&err.partial.errors.revenue==='quota');});
 test('saved old calendar cannot hide a newer market session',()=>{const calendar=fixture.price.map(x=>x.date),date='2026-09-21';const raw={[fixture.stock.id]:{price:[...fixture.price,{...fixture.price.at(-1),date}],adjusted:fixture.adjusted}};const result=screenPatterns([fixture.stock],raw,date,calendar);assert.equal(result.asOf,date);assert.equal(result.eligible,0);});
 test('first-day volume breakout does not satisfy next-day confirmation',()=>{const fixtures=JSON.parse(fs.readFileSync(new URL('./pattern-fixtures.json',import.meta.url),'utf8'));let checked=0;for(const f of fixtures){const p=structuredClone(f.adjusted),raw=structuredClone(f.price);for(const m of detectPatterns(p,raw)){if(m.breakoutDate===p.at(-1).date){assert.notEqual(m.status,'量價確認');checked++;}}}assert(checked>0,'regression set must include a latest-day breakout');});
+
+test('emerging (興櫃) stocks in the research list keep a daily close from the TPEx emerging quote table instead of failing every update', async () => {
+  const { esbRaw } = await import('../lib/research.mjs');
+  const { summarize } = await import('../lib/engine.mjs');
+  const q = { name: '凌嘉科', close: 412, prev: 400 };
+  let raw = esbRaw({}, q, '2026-11-06');
+  assert.deepEqual(raw.errors, {});
+  assert.equal(raw.price.length, 1);
+  raw = esbRaw(raw, { ...q, close: 420 }, '2026-11-09');
+  raw = esbRaw(raw, { ...q, close: 425 }, '2026-11-09');
+  assert.deepEqual(raw.price.map(r => [r.date, r.close]), [['2026-11-06', 412], ['2026-11-09', 425]]);
+  assert.equal(raw.esb.name, '凌嘉科');
+  const s = summarize({ id: '3644', name: '凌嘉科', sector: '興櫃' }, raw, [], '2026-11-09', 1000);
+  assert.equal(s.price, 425);
+  assert.equal(s.asOf, '2026-11-09');
+  assert.equal(s.stale, false);
+  assert.equal(s.change, 3.16);
+});

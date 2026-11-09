@@ -10,6 +10,12 @@ export function backtestPage() { return `${errBox(B.error)}<section class="panel
 function repaint(page, box, html) { if (C.page() !== page) return; const el = document.getElementById(box); if (el) el.innerHTML = html(); else { const pc = document.getElementById('pagecontent'); if (pc) pc.innerHTML = page === 'portfolio' ? portfolioPage() : page === 'shapes' ? shapesPage() : backtestPage(); } }
 const paintP = () => repaint('portfolio', 'pf-box', () => portfolioHTML(P.info, { editable: true })), paintB = () => repaint('backtest', 'bt-box', () => backtestHTML(B.info));
 export async function enterPortfolio() { try { P.info = await C.api('portfolio'); P.error = ''; } catch (e) { P.error = e.message; } paintP(); if (P.info?.calendarBusy) pollCalendar(); }
+// 盤中每 30 秒重新整理持股（現價與今日損益）；正在輸入表單時不打斷
+import('./market.js').then(MK => setInterval(async () => {
+  if (!C || C.page() !== 'portfolio' || document.hidden || !MK.isOpen()) return;
+  const a = document.activeElement; if (a && document.getElementById('pf-box')?.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
+  try { P.info = await C.api('portfolio'); P.error = ''; paintP(); } catch { }
+}, 30e3));
 let calPolling = false;
 async function pollCalendar() { if (calPolling) return; calPolling = true; try { do { await sleep(4000); if (C.page() !== 'portfolio') return; P.info = await C.api('portfolio'); paintP(); } while (P.info?.calendarBusy); } catch { } finally { calPolling = false; } }
 export async function enterBacktest() { try { B.info = await C.api('backtest'); B.error = ''; } catch (e) { B.error = e.message; } paintB(); if (B.info?.busy) pollBacktest(); }

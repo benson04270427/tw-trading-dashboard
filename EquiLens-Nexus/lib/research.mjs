@@ -68,3 +68,10 @@ export async function fetchNews(id, previous = [], { cutoff, signal } = {}) {
   for (let i = 0; i < 3; i++) rows.push(...await data.news(id, minusDays(cutoff, i), { signal }));
   return [...new Map(rows.filter(r => String(r.date).slice(0, 10) >= minusDays(cutoff, 90)).map(r => [r.link || r.title, r])).values()];
 }
+
+// 研究名單／自選中的興櫃股票：上市櫃日資料查不到，改存興櫃最新成交價（每天一筆、逐日累積），不再每天記為更新失敗
+export function esbRaw(prev={},q,date){
+  const row={date,open:q.close,max:q.close,min:q.close,close:q.close},keep=(prev.price||[]).filter(r=>r.date!==date&&r.date<date);
+  const price=[...keep,row].slice(-400);
+  return{...prev,price,adjusted:price,adjustedIsRaw:true,institutions:[],revenue:prev.revenue||[],valuation:[],esb:{name:q.name,close:q.close,date},errors:{},checked:{...(prev.checked||{}),price:date,adjusted:date},fetchedAt:new Date().toISOString()};
+}

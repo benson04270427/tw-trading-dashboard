@@ -107,4 +107,9 @@ test('catch-up after a missed after-close update: weekends and next morning, onc
   assert.equal(catchupDue(at('2026-10-27', 2, '16:00'), { ...o, newest: '2026-10-23' }), true);
   assert.equal(catchupDue(at('2026-10-27', 2, '20:00'), { ...o, newest: '2026-10-23' }), false);
   assert.equal(catchupDue(at('2026-10-27', 2, '08:00'), { ...o, newest: null }), false);
+  // 補抓查的是前一個平日，不是今天（平日開盤前今天的行情尚未公布）
+  const { catchupDate } = await import('../lib/markets.mjs');
+  assert.equal(catchupDate('2026-11-09'), '2026-11-06');
+  assert.equal(catchupDate('2026-11-07'), '2026-11-06');
+  assert.equal(catchupDate('2026-11-10'), '2026-11-09');
 });

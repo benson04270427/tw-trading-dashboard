@@ -28,8 +28,13 @@ const Z = { info: null, tab: 'value' }, MC = { info: null };
 export function zonesView() { return `<div class="rv-wrap">${zonesHTML(Z.info, { tab: Z.tab, limit: 60 })}</div><section class="card"><div class="card-h"><h2>策略回測<small>勝率 · 平均報酬 · 最大回撤</small></h2></div><div class="card-b rv-wrap">${backtestHTML(BT.info)}</div></section>`; }
 // 盤勢分頁的持股健檢（唯讀；持股在電腦版輸入）
 const PF = { info: null }, BT = { info: null };
-export function portfolioCard() { return !PF.info?.count ? '' : `<section class="card"><div class="card-h"><h2>持股健檢<small>${PF.info.count} 檔</small></h2></div><div class="card-b rv-wrap">${portfolioHTML(PF.info)}</div></section>`; }
+export function portfolioCard() { return !PF.info?.count ? '' : `<section class="card" data-pf-card><div class="card-h"><h2>持股健檢<small>${PF.info.count} 檔</small></h2></div><div class="card-b rv-wrap">${portfolioHTML(PF.info)}</div></section>`; }
 export async function loadPortfolio() { try { PF.info = await X.api('api/portfolio'); } catch { } }
+// 盤中（報價為即時快照時）每 60 秒更新持股卡片
+setInterval(async () => {
+  if (!X || X.S.tab !== 'home' || document.hidden || !PF.info?.quoteLive) return;
+  try { PF.info = await X.api('api/portfolio'); const el = document.querySelector('[data-pf-card]'); if (el) el.outerHTML = portfolioCard(); } catch { }
+}, 60e3);
 export function macroCard() { return MC.info && !MC.info.capable ? '' : `<section class="card"><div class="card-h"><h2>總經大地圖<small>${MC.info?.data?.indexName || ''}</small></h2></div><div class="card-b rv-wrap">${macroHTML(MC.info)}</div></section>`; }
 export async function loadZones() { try { [Z.info, BT.info] = await Promise.all([X.api('api/zones'), X.api('api/backtest')]); } catch { } if (Z.info?.busy || BT.info?.busy) pollZ(); }
 export async function loadMacro() { try { MC.info = await X.api('api/macro'); } catch { } }

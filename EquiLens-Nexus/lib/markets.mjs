@@ -68,6 +68,9 @@ export function catchupDue(x, { updateTime, newest, last, open = 0, close = 0 })
   if (weekday && x.minute >= open && x.minute < close + 90) return false;
   return newest < prevWeekday(x.date);
 }
+// 補抓時要查的交易日：前一個平日（休市日由熱浪圖的交易日曆往前找）。不能查「今天」：平日開盤前交易日曆已列出今天，
+// 但當天行情尚未公布，查詢會失敗，補抓就整天不再執行（美股週一早上補抓週五的情況）
+export const catchupDate = date => prevWeekday(date);
 export const minuteOf = t => { const m = /(\d{2}):(\d{2})/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
 
 // 盤中（含收盤後撮合的緩衝時間）：平日、開盤到收盤＋settle 分鐘；國定假日由資料日期判斷
