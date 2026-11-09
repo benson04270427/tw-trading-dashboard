@@ -2333,8 +2333,10 @@ const server = http.createServer(async (req,res) => {
       const m = market(), c = config(), lq=liveQuotes(), liveOver=x=>{const q=lq.map.get(x.id);if(!q)return x;
         // 走勢小圖也接上最新價：日資料停在前一日時補上今天這一點（同一天則換掉最後一點），顏色才會跟著當天漲跌
         const sp=v=>{if(!Array.isArray(v)||!v.length||!(x.price>0))return v;const p=Math.round(v.at(-1)*q.close/x.price*100)/100;return x.asOf&&x.asOf>=lq.date?[...v.slice(0,-1),p]:[...v.slice(1),p];};
-        if(lq.live)return{...x,price:q.close,change:q.change,live:true,spark:sp(x.spark)};
-        return !x.asOf||x.asOf<lq.date?{...x,price:q.close,change:q.change,asOf:lq.date,spark:sp(x.spark)}:x;};
+        // 日資料正好停在前一交易日時，今日漲跌幅以日資料收盤為準（收盤後報價源的漲跌可能已換成盤後漲跌）
+        const prevDay=heatFiles().filter(d=>d<lq.date).at(-1),change=x.price>0&&x.asOf===prevDay?Math.round((q.close/x.price-1)*1e4)/100:q.change;
+        if(lq.live)return{...x,price:q.close,change,live:true,spark:sp(x.spark)};
+        return !x.asOf||x.asOf<lq.date?{...x,price:q.close,change,asOf:lq.date,spark:sp(x.spark)}:x;};
       const headlines=m.stocks.flatMap(s=>(raw[s.id]?.news||[]).filter(n=>n.date.slice(0,10)>=minusDays(m.cutoff,30)).map(n=>({stockId:s.id,name:s.name,title:n.title,date:n.date,url:n.link,source:n.source}))).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,60);
       return json(res,200,{ ...m, appVersion:APP_VERSION, heatDates:heatFiles().slice(-60), heatSummary:heatSummary(),indexSummary:indexSummary(), groups:researchScope.groups, scopeSource:researchScope.source, scopeEntries:researchScope.groups.reduce((n,g)=>n+g.stockIds.length,0), scopeError, stocks:m.stocks.map(({bars,adjustedBars,...s}) => liveOver({...s,chips:{...s.chips,flow:undefined}})), headlines, watchlist, watchGroups, watchExtra:watchExtra().map(liveOver), liveAt:liveQuotes().at, settings,
         config:{market:c.market,language:c.language,setupDone:c.setupDone,publicUrl:c.publicUrl}, marketProfile:clientMarket(M()), upColor:upColor(), capabilities:capabilityMap(), instflow:ifAvailable(), dataConfigured:Object.values(capabilityMap()).some(Boolean),
