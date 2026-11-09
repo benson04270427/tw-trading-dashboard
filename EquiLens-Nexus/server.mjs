@@ -2487,7 +2487,12 @@ setInterval(() => {
   if (!['TW','US'].includes(M().id) || job.running || flowBusy || heatBusy || !(data.has('dailyAll')||data.has('heatAll'))) return;
   const x = clock(), date = x.date;
   if (x.weekday < 1 || x.weekday > 5 || x.minute < M().close + 20 || x.hm >= settings.updateTime) return;
-  if (closeFetch.date !== date) closeFetch = { date, at:0, done:false };
+  if (closeFetch.date !== date) closeFetch = { date, at:0, done:false, index:false };
+  // 大盤卡（加權／櫃買指數）平常由盤中快照寫入；當天盤中沒有快照（電腦或衡析盤中沒開）時，收盤後補查一次指數收盤
+  if (M().id === 'TW' && !closeFetch.index && data.has('snapshot') && !fs.existsSync(path.join(LOCAL, `index-${date}.json`))) {
+    closeFetch.index = true;
+    void data.snapshot([]).then(rows => { const ix = id => rows.find(r => r.stock_id === id && String(r.date).slice(0, 10) === date); if (ix('001')) write(`index-${date}.json`, { twse:indexRow(ix('001')), tpex:indexRow(ix('101')) }); }).catch(e => console.error(t('收盤後指數補查失敗：') + e.message));
+  }
   if (closeFetch.done || heatFiles().includes(date)) { closeFetch.done = true; return; }
   if (Date.now() - closeFetch.at < 15*60e3) return;
   closeFetch.at = Date.now();

@@ -4377,6 +4377,7 @@
  "金額 = 法人淨買賣股數 × 當日收盤；均價只計買進側，是成本的近似值。只呈現事實，不構成投資建議。": "Amount = institutional net shares × that day's close; the average counts the buy side only and approximates cost. Facts only, not investment advice.",
  "（買賣換邊）": " (side flip)",
  "收盤後行情自動更新失敗：": "After-close quotes auto update failed: ",
+ "收盤後指數補查失敗：": "After-close index lookup failed: ",
  "盤中即時 ": "Live ",
  "收盤價 ": "Close ",
  "今日走勢": "Today's trend"
