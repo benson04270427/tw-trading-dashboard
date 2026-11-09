@@ -39,6 +39,14 @@ export async function fetchStock(id, previous = {}, { cutoff, signal, onDataset 
   raw.fetchedAt = new Date().toISOString(); return raw;
 }
 
+// 每日自動更新要不要重試：部分個股本來就沒有營收（外國發行人、ETF），「營收沒回傳」只有在全部個股都沒回傳時才算失敗
+export function blockingJobErrors(errors = [], total = 0) {
+  const noData = t('本次未回傳資料；既有資料保留原日期');
+  const isEmptyRevenue = e => e.dataset === 'revenue' && e.message === noData;
+  const empty = errors.filter(isEmptyRevenue).length;
+  return empty >= Math.max(total, 1) ? errors : errors.filter(e => !isEmptyRevenue(e));
+}
+
 // 法人買賣超只能以「全市場單日」取得的資料源（例如證交所開放資料）：逐日取得近 days 個交易日並存檔（同一天只抓一次），
 // 再分配給研究名單個股；回傳 Map(id → rows)。今天的資料公布前不存檔，下次再試。
 export const isBulkInstitutional = () => data.has('institutionalAll') && data.pick('institutional')?.caps.institutional === 'bulk';

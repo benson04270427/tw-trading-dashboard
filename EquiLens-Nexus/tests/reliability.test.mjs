@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
-import {fetchStock} from '../lib/research.mjs';import {screenPatterns,detectPatterns} from '../lib/patterns.mjs';
+import {fetchStock,blockingJobErrors} from '../lib/research.mjs';import {screenPatterns,detectPatterns} from '../lib/patterns.mjs';
 // 模擬資料源：日成交（含還原）、法人、營收、估值四項
 const mockSources=fn=>[{keys:['price','adjusted'],label:'daily',fetch:async()=>{const r=await fn();return {price:r,adjusted:r};}},...['institutions','revenue','valuation'].map(k=>({keys:[k],label:k,fetch:fn}))];
 const fixture=JSON.parse(fs.readFileSync(new URL('./pattern-fixtures.json',import.meta.url),'utf8'))[0];
@@ -25,3 +25,4 @@ test('emerging (興櫃) stocks in the research list keep a daily close from the 
   assert.equal(s.stale, false);
   assert.equal(s.change, 3.16);
 });
+test('a stock without revenue (foreign issuer) does not block the daily update; all empty or other errors still do',()=>{const none='本次未回傳資料；既有資料保留原日期',e=(id,dataset='revenue',message=none)=>({id,dataset,message});assert.deepEqual(blockingJobErrors([e('NBIS')],6),[]);assert.equal(blockingJobErrors([e('A'),e('B')],2).length,2);assert.equal(blockingJobErrors([e('NBIS'),e('INTC','price','timeout')],6).length,1);assert.equal(blockingJobErrors([e('INTC','revenue','HTTP 500')],6).length,1);});

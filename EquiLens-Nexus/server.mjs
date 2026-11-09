@@ -20,7 +20,7 @@ import { warrantMaster, branchWarrants, turnoverByTarget, stockWarrants, WARRANT
 import { remoteConfig, isRemoteHost, verifyAccessJwt } from './lib/access.mjs';
 import { FUTURES, nearMonth, retailPosition, marginSummary, indexRow, assembleCard } from './lib/market-card.mjs';
 import { buildMarket, marketToday, WEIGHTS, FACTORS, minusDays, bars as priceBars } from './lib/engine.mjs';
-import { fetchStock, fetchNews, isBulkInstitutional, bulkInstitutions, defaultSources, esbRaw } from './lib/research.mjs';
+import { fetchStock, fetchNews, isBulkInstitutional, bulkInstitutions, defaultSources, esbRaw, blockingJobErrors } from './lib/research.mjs';
 import { buildGroupRanking, compareRanks, quotesFromSnapshot, quotesFromReplay, quotesFromDaily, RANK_RULES } from './lib/grouprank.mjs';
 import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGroup, removeGroup, reorderGroups, addStock, removeStock, importGroups, selectedUpdateIds } from './lib/scope.mjs';
 import { patternSnapshot, clearPatterns, updatePatternData, patternBars } from './lib/pattern-service.mjs';
@@ -2471,13 +2471,13 @@ setInterval(() => {
   const heat=async()=>{if(!heatFiles().includes(date)){try{await runHeatmap(date);}catch(e){console.error(t('熱浪圖自動更新失敗：')+e.message);}}};
   void (async()=>{
     if(data.has('dailyAll')||data.has('heatAll'))await heat();
-    await refresh(settings.autoScope,[]);const firstOk=!job.errors.length;
+    await refresh(settings.autoScope,[]);const blocked=()=>blockingJobErrors(job.errors,job.total).length,firstOk=!blocked();
     if(!data.has('dailyAll')&&!data.has('heatAll'))await heat();
     if(controller?.signal.aborted){settings.lastAutoDate=date;saveSettings();return;}
     if(data.has('dailyAll'))await refreshPatternMarket();
     if(ifAvailable()&&!controller?.signal.aborted&&!ifq.busy){try{await runInstFlow();}catch(e){console.error(t('法人資金板塊自動更新失敗：')+e.message);}}
     if(!firstOk){job.errors.push({message:t('族群研究更新未全部成功，稍後自動重試')});job.message+=t('；族群研究仍有更新失敗項目');write('last-job.json',job);}
-    if(controller?.signal.aborted||firstOk&&!job.errors.length){settings.lastAutoDate=date;saveSettings();}
+    if(controller?.signal.aborted||firstOk&&!blocked()){settings.lastAutoDate=date;saveSettings();}
   })();
 },30000).unref();
 // 收盤後自動抓當日收盤行情（熱浪圖）：收盤 20 分鐘後到每日更新時間之間，每 15 分鐘試一次，直到交易所公布當日資料。
