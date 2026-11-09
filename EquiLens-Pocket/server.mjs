@@ -126,6 +126,8 @@ async function api(req, res, url) {
     if (route === 'price-alerts') return send(req, res, 200, await nexus.priceAlerts());
     if (route === 'chipwatch') { const date = q.get('date'); if (date && date !== 'latest' && !validDate(date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.chipwatch(date)); }
     if (route === 'chipwatch/branches') { const k = String(q.get('q') || '').trim(); if (k.length > 30) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.brokerSearch(k)); }
+    if (route === 'instflow') { const by = q.get('by') || 'group', date = q.get('date') || ''; if (!['group', 'industry'].includes(by) || (date && !validDate(date))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.instflow(by, date)); }
+    if (route === 'instflow/stock') { const date = q.get('date') || ''; if (!validId(q.get('id')) || (date && !validDate(date))) throw Object.assign(new Error('股票代碼格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.instflowStock(q.get('id'), date)); }
     if (route === 'holders/rank') { const scope = q.get('scope') || 'mine', date = q.get('date'); if (!['mine', 'market'].includes(scope) || (date && date !== 'latest' && !validDate(date))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.holderRank(scope, date)); }
     if (route === 'push/key') return send(req, res, 200, { publicKey: push.publicKey(), count: push.subscriptionCount(), subscribed: q.get('endpoint') ? push.hasSubscription(q.get('endpoint')) : null });
     if (route === 'job') { const { job: j = {}, busy } = await nexus.job(); return send(req, res, 200, { running: !!j.running, busy: !!busy, done: j.done || 0, total: j.total || 0, current: j.current || null, message: j.message || '', errors: (j.errors || []).length, finishedAt: j.finishedAt || null }); }
@@ -166,6 +168,7 @@ async function api(req, res, url) {
     }
     if (route === 'price-alerts/delete') { if (typeof b.id !== 'string' || !/^[\w-]{1,40}$/.test(b.id)) throw Object.assign(new Error('資料格式錯誤'), { status: 400 }); return send(req, res, 200, await nexus.priceAlertDelete(b.id)); }
     if (route === 'chipwatch/query') { if (b.date && !validDate(b.date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 202, await nexus.chipwatchQuery(b.date ? { date: b.date } : {})); }
+    if (route === 'instflow/query') { if (b.date && !validDate(b.date)) throw Object.assign(new Error('日期格式錯誤'), { status: 400 }); return send(req, res, 202, await nexus.instflowQuery(b.date || '')); }
     if (route === 'holders/rank/query') return send(req, res, 200, await nexus.holderRankQuery());
     if (route === 'chipwatch/settings') {
       const br = b.branches; if (br !== undefined && (!Array.isArray(br) || br.length > 20 || !br.every(x => x && typeof x.id === 'string' && /^[\w]{1,10}$/.test(x.id) && typeof x.name === 'string' && x.name.length <= 40))) throw Object.assign(new Error('資料格式錯誤'), { status: 400 });
