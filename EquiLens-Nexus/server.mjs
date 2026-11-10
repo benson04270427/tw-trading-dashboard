@@ -1867,6 +1867,7 @@ async function refresh(scope, ids) {
   write('last-job.json',job);
   try {
     const options = { signal:controller.signal }, cutoff = cutoffForUpdate();
+    let session = null; try { session = (await data.calendar(minusDays(cutoff,20), options)).map(d => typeof d === 'string' ? d : d?.date).filter(d => d && d <= cutoff).sort().at(-1) || null; } catch {}
     // 股票清單只是名稱與產業的參考：取不到時沿用上次清單與研究族群的股票資料，不中斷個股更新
     if (data.has('universe')) {
       try { const list = await data.universe(options); if (!list.length) throw new UserError('股票清單為空，保留上次資料'); universe = list; write('universe.json', universe); invalidate(); }
@@ -1891,7 +1892,7 @@ async function refresh(scope, ids) {
       if (!listed.has(id) && esb.get(id)?.close > 0) { raw[id] = esbRaw(raw[id], esb.get(id), cutoff); write(`stocks/${id}.json`, raw[id]); job.done++; invalidate(); continue; }
       // 次要資料（營收、估值、法人）的資料源額度用完或方案不足時：本次更新略過該項，股價等其他資料照常更新
       for (;;) {
-        try { raw[id] = await fetchStock(id, raw[id], { ...options, cutoff, onDataset: d => job.dataset = d, sources: defaultSources(options).filter(s => !skipped.has(s.label)) }); break; }
+        try { raw[id] = await fetchStock(id, raw[id], { ...options, cutoff, session, onDataset: d => job.dataset = d, sources: defaultSources(options).filter(s => !skipped.has(s.label)) }); break; }
         catch (e) {
           if (e.partial) raw[id] = e.partial;
           if (e.source && e.source !== 'daily' && !controller.signal.aborted && ['quota', 'plan', 'auth'].includes(e.code)) { skipped.add(e.source); job.errors.push({ dataset:e.source, message:e.message }); continue; }

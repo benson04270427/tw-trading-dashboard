@@ -17,7 +17,8 @@ export function defaultSources(opts = {}) {
   return src;
 }
 
-export async function fetchStock(id, previous = {}, { cutoff, signal, onDataset = () => { }, sources = defaultSources({ signal }) } = {}) {
+// session（選用）：cutoff 當天或之前最近的交易日。日 K 最後一天早於 session 時（資料源尚未收錄），不記為「今天已成功」，下次更新再重抓。
+export async function fetchStock(id, previous = {}, { cutoff, session = null, signal, onDataset = () => { }, sources = defaultSources({ signal }) } = {}) {
   const raw = { ...previous, errors: { ...(previous.errors || {}) }, checked: { ...(previous.checked || {}) }, checkedBy: { ...(previous.checkedBy || {}) } };
   for (const s of sources) {
     // 同一天已成功、且仍是同一個資料源取得的項目不重抓（換了資料源時重抓一次）
@@ -30,7 +31,9 @@ export async function fetchStock(id, previous = {}, { cutoff, signal, onDataset 
       const byKey = Array.isArray(got) ? { [s.keys[0]]: got } : got || {};
       for (const key of s.keys) {
         const rows = byKey[key] || [];
-        if (rows.length) { raw[key] = rows; raw.checked[key] = cutoff; if (by) raw.checkedBy[key] = by; delete raw.errors[key]; }
+        const behind = session && (key === 'price' || key === 'adjusted') && rows.length && rows.reduce((m, r) => (r?.date > m ? r.date : m), '') < session;
+        if (rows.length && behind) { raw[key] = rows; delete raw.checked[key]; delete raw.errors[key]; }
+        else if (rows.length) { raw[key] = rows; raw.checked[key] = cutoff; if (by) raw.checkedBy[key] = by; delete raw.errors[key]; }
         else { if (!raw[key]?.length) raw[key] = []; delete raw.checked[key]; raw.errors[key] = t('本次未回傳資料；既有資料保留原日期'); }
       }
       if (byKey.adjustedIsRaw) raw.adjustedIsRaw = true; else if (s.keys.includes('adjusted')) delete raw.adjustedIsRaw;
