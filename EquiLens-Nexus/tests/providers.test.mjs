@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseTwseDaily, parseTpexDaily, parseTwseInstitutional, parseTpexInstitutional } from '../lib/providers/twse.mjs';
-import { parseQuotes } from '../lib/providers/twelvedata.mjs';
+import twelvedata, { parseQuotes } from '../lib/providers/twelvedata.mjs';
 import fugle, { parseSnapshot, aggregateRow } from '../lib/providers/fugle.mjs';
 import { parseNews } from '../lib/providers/alphavantage.mjs';
 import { httpError, DataError, rocDate, weekdays } from '../lib/providers/common.mjs';
@@ -40,6 +40,17 @@ test('Twelve Data quotes: single and batch responses become snapshot rows', () =
   const batch = { AAPL: one, MSFT: { ...one, symbol: 'MSFT', close: '500', change: null, previous_close: '490' }, BAD: { symbol: 'BAD', close: '0' } };
   const rows = parseQuotes(batch, ['AAPL', 'MSFT', 'BAD']);
   assert.deepEqual(rows.map(r => [r.stock_id, r.change_price]), [['AAPL', 4], ['MSFT', 10]]);
+});
+
+test('Twelve Data daily: end_date covers the whole last day so that day\'s bar is included', async () => {
+  const orig = globalThis.fetch; let asked;
+  globalThis.fetch = async u => { asked = new URL(String(u)); return new Response(JSON.stringify({ status: 'ok', values: [
+    { datetime: '2026-11-10', open: '1', high: '1', low: '1', close: '12', volume: '1' }, { datetime: '2026-11-09', open: '1', high: '1', low: '1', close: '11', volume: '1' }, { datetime: '2026-11-06', open: '1', high: '1', low: '1', close: '10', volume: '1' }] }), { status: 200 }); };
+  try {
+    const got = await twelvedata.daily('COHR', '2026-10-01', '2026-11-09', { key: 'k', perMinute: 100, market: { id: 'US' } });
+    assert.equal(asked.searchParams.get('end_date'), '2026-11-09 23:59:59');
+    assert.deepEqual(got.price.map(r => r.date), ['2026-11-06', '2026-11-09']);
+  } finally { globalThis.fetch = orig; }
 });
 
 test('Fugle snapshot: volume unit is detected (lots or shares) and normalized to lots', () => {

@@ -65,10 +65,11 @@ export default {
     for (const s of b?.data || []) if (ctx.market.symbolRe.test(s.symbol) && !seen.has(s.symbol)) seen.set(s.symbol, { id: s.symbol, name: s.name, sector: '', market: s.exchange });
     return [...seen.values()].sort((a, b) => a.id.localeCompare(b.id));
   },
+  // Twelve Data 的 end_date 只給日期時不含當天（例如 end_date=11-09 只回到 11-06），因此帶到當天 23:59:59，再濾掉 to 之後的資料
   daily: async (id, from, to, ctx) => {
-    const b = await get('/time_series', { symbol: id, ...where(ctx.market), interval: '1day', start_date: from, end_date: to, order: 'asc', outputsize: 5000 }, ctx);
+    const b = await get('/time_series', { symbol: id, ...where(ctx.market), interval: '1day', start_date: from, end_date: to ? `${to} 23:59:59` : to, order: 'asc', outputsize: 5000 }, ctx);
     let prev = null; const price = [];
-    for (const v of seriesRows(b, id)) { price.push({ date: v.datetime.slice(0, 10), stock_id: id, open: v.open, max: v.high, min: v.low, close: v.close, Trading_Volume: v.volume, Trading_money: v.volume * v.close, spread: prev != null ? Math.round((v.close - prev) * 1e4) / 1e4 : null }); prev = v.close; }
+    for (const v of seriesRows(b, id).filter(v => !to || v.datetime.slice(0, 10) <= to)) { price.push({ date: v.datetime.slice(0, 10), stock_id: id, open: v.open, max: v.high, min: v.low, close: v.close, Trading_Volume: v.volume, Trading_money: v.volume * v.close, spread: prev != null ? Math.round((v.close - prev) * 1e4) / 1e4 : null }); prev = v.close; }
     return { price, adjusted: price, adjustedIsRaw: true };
   },
   // 批次報價：每次最多 120 檔，每檔 1 點
