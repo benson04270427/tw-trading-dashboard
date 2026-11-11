@@ -109,6 +109,8 @@ Australia, Singapore, India.**
 | [Twelve Data](https://twelvedata.com) | all 12 markets | free / paid | stock list, daily bars, live quotes, minute bars |
 | [Alpha Vantage](https://www.alphavantage.co) | US, GB, CA, DE, IN | free / premium | daily bars, quotes, news sentiment, P/E, quarterly revenue |
 
+TWSE/TPEx publish the monthly revenue roll-up around mid-month; from the 11th, if it still lacks last month, the research list asks other enabled monthly-revenue sources (such as FinMind) instead.
+
 Enable several sources and EquiLens picks a source per capability (in your order, or as you specify under
 *Data & Settings → Data sources → Advanced*). Features a source can't support are hidden or fall back to your
 research list's local data — the settings page shows exactly which features are available.

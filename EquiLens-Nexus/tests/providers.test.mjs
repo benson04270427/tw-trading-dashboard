@@ -98,3 +98,14 @@ test('common helpers: HTTP errors carry pause codes; ROC dates; weekdays', () =>
   assert.equal(rocDate('1151008'), '2026-10-08'); assert.equal(rocDate('115/10/08'), '2026-10-08'); assert.equal(rocDate('x'), null);
   assert.deepEqual(weekdays('2026-10-09', '2026-10-13'), ['2026-10-09', '2026-10-12', '2026-10-13']);
 });
+
+test('monthly revenue: from the 11th, a source still missing last month counts as behind', async () => {
+  const { revenueBehind } = await import('../lib/providers/index.mjs');
+  const sep = [{ revenue_year: 2026, revenue_month: 9 }], oct = [...sep, { revenue_year: 2026, revenue_month: 10 }];
+  assert.equal(revenueBehind(sep, '2026-11-10'), false);
+  assert.equal(revenueBehind(sep, '2026-11-11'), true);
+  assert.equal(revenueBehind(oct, '2026-11-11'), false);
+  assert.equal(revenueBehind([{ revenue_year: 2026, revenue_month: 11 }], '2027-01-12'), true);
+  assert.equal(revenueBehind([{ revenue_year: 2026, revenue_month: 12 }], '2027-01-12'), false);
+  assert.equal(revenueBehind([], '2026-11-20'), true);
+});

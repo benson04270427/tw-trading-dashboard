@@ -59,6 +59,25 @@ async function call(cap, args, opts) {
   return p[cap](...args, ctx);
 }
 
+// 月營收：首選資料源（例如證交所開放資料，約每月中旬才出表）每月 11 日後仍缺上個月時，改用其他支援月營收的資料源
+export function revenueBehind(rows, to) {
+  const d = String(to || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number(d.slice(8)) < 11) return false;
+  let y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)) - 1; if (!m) { y--; m = 12; }
+  const last = (rows || []).reduce((mx, r) => r?.revenue_month ? Math.max(mx, Number(r.revenue_year) * 12 + Number(r.revenue_month)) : mx, 0);
+  return last < y * 12 + m;
+}
+async function revenueWithFallback(id, from, to, opts) {
+  const p = pick('revenue'), rows = await call('revenue', [id, from, to], opts);
+  if (!p || p.caps.revenue !== 'monthly' || !revenueBehind(rows, to)) return rows;
+  for (const q of enabledProviders()) {
+    if (q === p || !hasKey(q) || !supports(q, 'revenue') || q.caps.revenue !== 'monthly') continue;
+    try { const alt = await q.revenue(id, from, to, await ctxOf(q, opts)); if (alt?.length && !revenueBehind(alt, to)) return alt; }
+    catch (e) { if (opts?.signal?.aborted) throw e; }
+  }
+  return rows;
+}
+
 export const data = {
   pick, has, source: cap => pick(cap)?.id || null,
   snapshotMode: () => pick('snapshot')?.snapshotMode || null,
@@ -88,7 +107,7 @@ export const data = {
   news: (id, date, opts) => call('news', [id, date], opts),
   marketNews: (date, opts) => call('marketNews', [date], opts),
   valuation: (id, from, to, opts) => call('valuation', [id, from, to], opts),
-  revenue: (id, from, to, opts) => call('revenue', [id, from, to], opts),
+  revenue: (id, from, to, opts) => revenueWithFallback(id, from, to, opts),
   institutional: (id, from, to, opts) => call('institutional', [id, from, to], opts),
   institutionalAll: (date, opts) => call('institutionalAll', [date], opts),
   // 台股在地模組（法人籌碼、分點、股權分散、期貨、融資）目前只有 FinMind 提供，直接使用其資料集介面
