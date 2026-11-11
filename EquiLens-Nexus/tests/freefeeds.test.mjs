@@ -77,6 +77,9 @@ test('Nasdaq 篩選器：判斷資料日期、轉成熱浪圖行情', () => {
   assert.equal(screenerSession(rows, live, cal, '2026-10-23'), '2026-10-22'); // 盤中：篩選器是昨收
   const closed = [{ symbol: 'AAPL', lastSalePrice: '$348.22', previousClosePrice: '$344', lastTradeTimestampDateTime: '2026-10-22T16:00:00-04:00' }];
   assert.equal(screenerSession(rows, closed, cal, '2026-10-23'), '2026-10-22'); // 盤前：最新成交即昨收
+  // 盤前（Pre Market）：成交日是今天，previousClosePrice 仍是前前一日收盤、lastSalePrice 是盤前價，都對不上篩選器
+  const pre = [{ symbol: 'AAPL', lastSalePrice: '$348.00', previousClosePrice: 343.99, lastTradeTimestampDateTime: '2026-10-23T09:16:53.74-04:00', marketStatus: 'Pre Market' }];
+  assert.equal(screenerSession(rows, pre, cal, '2026-10-23'), '2026-10-22');
   const r = screenerRows(rows, '2026-10-22');
   assert.equal(r.length, 3); assert.equal(r[0].Trading_money, 46899225 * 348.22); assert.equal(r[2].stock_id, 'BRK.B');
   assert.equal(SECTOR_ZH.Technology, '科技');

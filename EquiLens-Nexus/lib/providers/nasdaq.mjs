@@ -91,16 +91,20 @@ async function screener(ctx) {
   if (rows.length) screenerCache = { at: Date.now(), rows };
   return rows;
 }
-// 篩選器沒有日期：與幾檔大型股的即時報價比對，價格等於「最新成交」就是最新交易日，等於「昨收」就是前一交易日
+// 篩選器沒有日期：與幾檔大型股的即時報價比對，價格等於「最新成交」就是最新交易日，等於「昨收」就是前一交易日。
+// 盤前（marketStatus 為 Pre Market）報價的成交日已是今天，但 previousClosePrice 仍是前前一交易日的收盤、lastSalePrice 是盤前價，
+// 兩者都對不上篩選器；此時篩選器一定是今天之前最近的交易日。
 export function screenerSession(rows, quotes, calendar, today) {
   const by = new Map(rows.map(r => [String(r.symbol).toUpperCase(), money(r.lastsale)]));
-  let sameLast = 0, samePrev = 0, lastDay = null;
+  let sameLast = 0, samePrev = 0, lastDay = null, preMarket = false;
   for (const q of quotes) {
     const v = by.get(String(q.symbol).toUpperCase()), lp = money(q.lastSalePrice), pc = money(q.previousClosePrice); if (v == null) continue;
-    const day = String(q.lastTradeTimestampDateTime || '').slice(0, 10); if (day) lastDay = day;
+    const day = String(q.lastTradeTimestampDateTime || '').slice(0, 10); if (/^\d{4}-\d{2}-\d{2}$/.test(day)) lastDay = day;
+    if (/pre/i.test(q.marketStatus || '')) preMarket = true;
     if (lp != null && Math.abs(v - lp) < 1e-6) sameLast++; else if (pc != null && Math.abs(v - pc) < 1e-6) samePrev++;
   }
   const days = calendar.filter(d => d <= (lastDay || today));
+  if (preMarket && lastDay) return calendar.filter(d => d < lastDay).at(-1) || null;
   if (!lastDay || (!sameLast && !samePrev)) return days.at(-1) || null;
   return sameLast >= samePrev ? (days.includes(lastDay) ? lastDay : days.at(-1)) : days.filter(d => d < lastDay).at(-1) || null;
 }
