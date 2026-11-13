@@ -62,12 +62,15 @@ export function parseHistorical(data, id) {
 export function parseWatchlist(list, now = new Date()) {
   const tzNow = now.toLocaleString('sv-SE', { timeZone: 'America/New_York' });
   return (Array.isArray(list) ? list : []).map(q => {
-    const close = money(q.lastSalePrice), prev = money(q.previousClosePrice), open = money(q.openingPrice), vol = money(q.volume) ?? 0;
+    const last = money(q.lastSalePrice), prev = money(q.previousClosePrice), open = money(q.openingPrice), vol = money(q.volume) ?? 0, nc = money(q.netChange);
+    // 盤後時段（After Hours）lastSalePrice 是盤後成交價、netChange 是「盤後價－今日收盤」，今日收盤＝lastSalePrice－netChange
+    // （2026-11-13 INTC：批次報價 59.0905／-0.5695，個股頁收盤 59.66）
+    const close = /after/i.test(q.marketStatus || '') && last != null && nc != null ? Math.round((last - nc) * 1e4) / 1e4 : last;
     const day = String(q.lastTradeTimestampDateTime || '').slice(0, 10) || tzNow.slice(0, 10);
     const time = /open/i.test(q.marketStatus || '') && day === tzNow.slice(0, 10) ? tzNow.slice(11, 19) : '16:00:00';
-    // 收盤後（盤後時段）netChange／percentageChange 會改成盤後漲跌，lastSalePrice 仍是收盤價；非盤中一律用「收盤－昨收」
+    // 非盤中 netChange／percentageChange 不是今日漲跌（盤後時段是盤後漲跌），一律用「收盤－昨收」
     const byPrev = close != null && prev > 0 ? Math.round((close - prev) * 1e4) / 1e4 : null, closed = !/open/i.test(q.marketStatus || '');
-    const ch = closed && byPrev != null ? byPrev : money(q.netChange) ?? byPrev;
+    const ch = closed && byPrev != null ? byPrev : nc ?? byPrev;
     const rate = closed && byPrev != null ? Math.round(byPrev / prev * 1e4) / 100 : money(q.percentageChange);
     return close > 0 ? { stock_id: String(q.symbol).toUpperCase(), date: `${day} ${time}`, open, high: null, low: null, close, change_price: ch, change_rate: rate, total_volume: vol, total_amount: vol * close, yesterday_volume: null, buy_price: null, sell_price: null } : null;
   }).filter(Boolean);

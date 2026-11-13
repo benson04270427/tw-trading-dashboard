@@ -24,8 +24,9 @@ test('nasdaq: historical, quotes and chart', () => {
   const q = parseWatchlist([{ symbol: 'COHR', lastSalePrice: '$207.82', netChange: '-29.71', percentageChange: '-12.51%', lastTradeTimestampDateTime: '2026-10-22T00:00:00', volume: '12,538,425', previousClosePrice: 237.53, openingPrice: 224.56, marketStatus: 'Market Closed' }], new Date('2026-10-23T06:00:00Z'));
   assert.equal(q[0].stock_id, 'COHR'); assert.equal(q[0].close, 207.82); assert.equal(q[0].change_price, -29.71); assert.equal(q[0].date, '2026-10-22 16:00:00'); assert.equal(q[0].open, 224.56);
   // 盤後時段：netChange 是盤後漲跌，今日漲跌要用收盤－昨收；盤中照用 netChange
-  const ah = parseWatchlist([{ symbol: 'MRVL', lastSalePrice: '$155.52', netChange: '0.86', percentageChange: '0.56%', lastTradeTimestampDateTime: '2026-11-09T16:04:00', volume: '100', previousClosePrice: '$141.20', marketStatus: 'After-Hours' }], new Date('2026-11-09T21:05:00Z'));
-  assert.equal(ah[0].change_price, 14.32); assert.equal(ah[0].change_rate, 10.14);
+  // 盤後時段 lastSalePrice 是盤後成交價：收盤＝lastSalePrice－netChange（2026-11-13 LITE 收盤 596.62、-4.49%）
+  const ah = parseWatchlist([{ symbol: 'LITE', lastSalePrice: '$591.11', netChange: '-5.51', percentageChange: '-0.92%', lastTradeTimestampDateTime: '2026-11-13T16:14:17.78-05:00', volume: '100', previousClosePrice: 624.65, marketStatus: 'After Hours' }], new Date('2026-11-13T21:15:00Z'));
+  assert.equal(ah[0].close, 596.62); assert.equal(ah[0].change_price, -28.03); assert.equal(ah[0].change_rate, -4.49);
   const op = parseWatchlist([{ symbol: 'MRVL', lastSalePrice: '$150', netChange: '8.80', percentageChange: '6.23%', lastTradeTimestampDateTime: '2026-11-09T11:00:00', volume: '100', previousClosePrice: '$141.20', marketStatus: 'Market Open' }], new Date('2026-11-09T16:00:00Z'));
   assert.equal(op[0].change_price, 8.8); assert.equal(op[0].change_rate, 6.23);
   const c = parseChart({ chart: [{ x: Date.parse('2026-10-22T04:00:00Z'), y: 224.45 }, { x: Date.parse('2026-10-22T09:30:00Z'), y: 223.1 }, { x: Date.parse('2026-10-22T15:59:00Z'), y: 208 }] }, '2026-10-22');
