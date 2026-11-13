@@ -871,7 +871,7 @@ a.ix-alert{color:inherit;text-decoration:none}a.ix-alert:hover .ix-ab>small{colo
 @media (max-width:560px){.mv-row{grid-template-columns:1.4em minmax(0,1fr) 4.4em 4.6em 2em}.mv-sec,.mv-amt{display:none}}
 .pk-list{display:flex;flex-direction:column;gap:10px}
 .pk-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-.pk-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}.pk-px{margin-left:auto}
+.pk-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}.pk-px{margin-left:auto}.pk-live{font-size:.72em;color:var(--amber,#e0a030);margin-left:2px;white-space:nowrap}
 .pk-news{margin:6px 0 0;padding-left:1.1em;font-size:.8rem;line-height:1.6}.pk-news a{color:inherit}
 
 /* 目標價 */

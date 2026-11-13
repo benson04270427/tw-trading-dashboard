@@ -4380,5 +4380,12 @@
  "收盤後指數補查失敗：": "After-close index lookup failed: ",
  "盤中即時 ": "Live ",
  "收盤價 ": "Close ",
- "今日走勢": "Today's trend"
+ "今日走勢": "Today's trend",
+ "{0} 收盤 {1}（{2}）": "{0} close {1} ({2})",
+ "{0} 收盤選出": "Picked at {0} close",
+ "{0} 收盤選出 · 候選 {1} 檔{2}{3}{4}": "Picked at {0} close · {1} candidates{2}{3}{4}",
+ "· 股價即時更新": "· prices update live",
+ "· 股價即時更新（{0}）": "· prices update live ({0})",
+ "候選 {1} 檔{2}{3}{4}": "{1} candidates{2}{3}{4}",
+ "即時 {0}": "Live {0}"
 }

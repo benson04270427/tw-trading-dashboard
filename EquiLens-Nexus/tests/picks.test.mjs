@@ -46,3 +46,15 @@ test('台股聚焦：只看研究、自選與 AI 供應鏈', () => {
   const ids = candidates({ heat, market: 'TW', research: new Set(['2454']), chain: new Map([['3324', '散熱']]), flows: new Map([['2330', { foreignRank: 1 }]]), top: 5, focus: true }).map(x => x.id).sort();
   assert.deepEqual(ids, ['2454', '3324']);
 });
+test('每日精選即時價：只用精選日之後的報價，前面的來源優先', async () => {
+  const { livePicks } = await import('../lib/picks.mjs');
+  const picks = [{ id: '2330', close: 1000, change: 1 }, { id: '2454', close: 1500, change: 2 }, { id: '9999', close: 10, change: 0 }];
+  const mon = { heat: { date: '2026-11-13', asOf: '2026-11-13T10:01:00', sectors: [{ name: '半導體', stocks: [{ id: '2330', close: 1010, change: 1.5 }] }] } };
+  const sweep = { heat: { date: '2026-11-13', asOf: '2026-11-13T10:00:00', sectors: [{ name: '半導體', stocks: [{ id: '2330', close: 1005, change: 0.5 }, { id: '2454', close: 1480, change: -1.33 }] }] } };
+  const old = { heat: { date: '2026-11-12', sectors: [{ name: 'x', stocks: [{ id: '9999', close: 11, change: 10 }] }] } };
+  const out = livePicks(picks, [mon, sweep, old, null], '2026-11-12');
+  assert.deepEqual(out[0].live, { close: 1010, change: 1.5, date: '2026-11-13', at: '2026-11-13T10:01:00' });
+  assert.equal(out[0].close, 1000);
+  assert.equal(out[1].live.close, 1480);
+  assert.equal(out[2].live, undefined);
+});

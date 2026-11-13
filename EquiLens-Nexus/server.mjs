@@ -45,7 +45,7 @@ import { nyseHolidays } from './lib/providers/nasdaq.mjs';
 import { mergeInputs, screen, STRATEGIES, DEFAULTS as SCREEN_DEFAULTS, valueRetryDue } from './lib/valuescreen.mjs';
 import { SCOPES, AI_INDEX, AI_CHAIN, US_AI_INDEX, US_AI_CHAIN, TW_PEER_INDEX, TW_PEER_GROUPS, TECH_SECTORS } from './lib/aichain.mjs';
 import { buildShapes } from './lib/shapes.mjs';
-import { PICKS_VERSION, heatStocks, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh } from './lib/picks.mjs';
+import { PICKS_VERSION, heatStocks, movers, flowMap, flowMapFromRows, scoreStock, choose, candidates, signalOf, relevantNews, newHigh, livePicks } from './lib/picks.mjs';
 import { request as finmindRequest } from './lib/finmind.mjs';
 import { generateJSON } from './lib/llm.mjs';
 import { buildVerdict } from './lib/verdict.mjs';
@@ -1274,7 +1274,8 @@ function liveQuotes(){
   if(lqCache.src!==h){const map=new Map();for(const x of heatStocks(h))if(x.close>0)map.set(x.id,{close:x.close,change:x.change});lqCache={src:h,map,at:live?(h.asOf||null):null,date:h.date,live};}
   return lqCache;
 }
-function moversInfo(){
+// 盤中全市場掃描的最新熱浪（今日漲跌排行與每日精選即時價共用）；呼叫時盤中會觸發掃描
+function moversLiveHeat(){
   const full=h=>h?.date===today()&&(h.total?.count||0)>=100;
   let live=liveWindow()&&full(liveHeat?.data)?liveHeat.data:null;
   const close=latestHeat();
@@ -1288,7 +1289,10 @@ function moversInfo(){
     // 重新啟動後記憶體沒有掃描結果：用今天最後一個掃描畫格組回排行
     else if(sw?.frames?.length){const key=`${td}:${sw.frames.length}`;if(sweepHeat.key!==key)sweepHeat={key,data:buildLiveHeatmap(sweepRows(sw),{universe:uniIndex().list,sectorOf:heatSectorOf(),refreshMs:MOVERS_SWEEP_MS})};if(full(sweepHeat.data))live=sweepHeat.data;}
   }
-  const heat=live||close;
+  return live;
+}
+function moversInfo(){
+  const live=moversLiveHeat(),heat=live||latestHeat();
   if(!heat)return{available:false};
   return{available:true,source:live?'live':'close',sweeping:!live&&!!moversPending,market:M().id,...movers(heat,{market:M().id,watch:new Set(watchlist)})};
 }
@@ -1327,7 +1331,13 @@ async function runPicks({push=true}={}){
     if(push&&picks.length&&prev?.date!==date)addAlerts(today(),[{type:'picks',title:t('每日精選 {n} 檔',{n:picks.length}),detail:picks.map(p=>`${p.name} ${p.id}`).join('、'),stockId:'',name:'',t:clock().hms,level:'hi',watch:false,date}]);
   }catch(e){picksJob.error=e.message;}finally{picksJob.busy=false;}
 }
-function picksInfo(){const d=read('picks/latest.json',null),w=new Set(watchlist);return{data:d?{...d,picks:d.picks.map(p=>({...p,watch:w.has(p.id)}))}:null,busy:picksJob.busy,error:picksJob.error,news:data.has('news'),market:M().id};}
+// 盤中（及收盤後、下一份精選產生前）精選股附上即時價：盤中監控（研究名單＋自選）優先，其次全市場掃描
+function picksInfo(){
+  const d=read('picks/latest.json',null),w=new Set(watchlist);if(!d)return{data:null,busy:picksJob.busy,error:picksJob.error,news:data.has('news'),market:M().id};
+  let picks=d.picks.map(p=>({...p,watch:w.has(p.id)})),liveAt=null;
+  try{const lq=liveQuotes(),mon=lq.live?liveHeat?.data:null,sw=moversLiveHeat();picks=livePicks(picks,[{heat:mon},{heat:sw}],d.date);liveAt=picks.map(p=>p.live?.at).filter(Boolean).sort().at(-1)||null;}catch(e){console.warn('picks live',e.message);}
+  return{data:{...d,picks},live:picks.some(p=>p.live),liveAt,liveWindow:liveWindow(),busy:picksJob.busy,error:picksJob.error,news:data.has('news'),market:M().id};
+}
 /* ---------- 總經大地圖：指數十年日線（台股 FinMind TAIEX、美股 FRED SP500），每天更新一次 ---------- */
 let macroJob={busy:false,error:'',explainBusy:false};
 async function runMacro(){

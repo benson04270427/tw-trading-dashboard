@@ -19,7 +19,13 @@ function repaintHome() { const el = document.getElementById('home-rank'); if (el
 export async function enterHome() { try { [H.movers, H.picks] = await Promise.all([C.api('movers'), C.api('picks')]); } catch (e) { H.error = e.message; } repaintHome(); if (H.picks?.busy) pollPicks(); }
 let picksPolling = false;
 async function pollPicks() { if (picksPolling) return; picksPolling = true; try { do { await sleep(3000); if (C.page() !== 'home') return; H.picks = await C.api('picks'); repaintHome(); } while (H.picks?.busy); } finally { picksPolling = false; } }
-setInterval(async () => { if (C?.page() === 'home' && (H.movers?.source === 'live' || H.movers?.sweeping) && !document.hidden) { try { H.movers = await C.api('movers'); repaintHome(); } catch { } } }, 30e3);
+setInterval(async () => {
+  if (C?.page() !== 'home' || document.hidden) return;
+  const mv = H.movers?.source === 'live' || H.movers?.sweeping, pk = !H.picks?.busy && (H.picks?.live || H.picks?.liveWindow);
+  if (!mv && !pk) return;
+  // 每日精選的股價跟著盤中報價更新（約每 30 秒）
+  try { const [m, p] = await Promise.all([mv ? C.api('movers') : H.movers, pk ? C.api('picks') : H.picks]); H.movers = m; H.picks = p; repaintHome(); } catch { }
+}, 30e3);
 
 // 策略選股頁、總經大地圖頁
 const Z = { info: null, tab: 'value', error: '' }, MC = { info: null, error: '' };

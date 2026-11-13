@@ -118,3 +118,14 @@ export function candidates({ heat, market = 'TW', research = new Set(), watch = 
 }
 // 研究名單的本機資料 → 訊號（只算有日 K 的股票）
 export function signalOf(rows, p) { if (!rows?.length) return null; const s = buildSignal({ rows, p }); return s.available && s.signal ? { side: s.signal.side, age: s.signal.age, date: s.signal.date, stopped: !!s.signal.stopped } : null; }
+
+// 每日精選的即時價：sources 依序為較新的報價來源（盤中監控、全市場掃描），每個 { heat }，
+// 只取日期晚於精選日的即時資料，價格放在 p.live（精選當時的收盤 close／change 保留不動）
+export function livePicks(picks = [], sources = [], pickDate = '') {
+  const map = new Map();
+  for (const src of sources) {
+    const h = src?.heat; if (!h?.date || !(h.date > pickDate)) continue;
+    for (const x of heatStocks(h)) if (x.close > 0 && !map.has(x.id)) map.set(x.id, { close: x.close, change: x.change ?? null, date: h.date, at: h.asOf || null });
+  }
+  return picks.map(p => map.has(p.id) ? { ...p, live: map.get(p.id) } : p);
+}

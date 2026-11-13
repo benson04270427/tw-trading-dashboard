@@ -66,6 +66,20 @@
 - 第一次啟動時，若已有收盤熱浪圖、還沒有精選，會先產生一次（不推播）。
 - 同一個交易日只推播一次。
 
+### 即時股價
+
+精選是用前一個收盤挑出來的，但卡片上的股價會跟著盤中報價走：
+
+| 項目 | 內容 |
+|---|---|
+| 顯示 | 有即時價時，漲跌幅與價格改為即時值，旁邊標「即時 HH:MM」（報價時間）；滑鼠移到價格上看精選當日的收盤價與漲跌 |
+| 來源 | 先用盤中監控（研究名單＋自選）的報價，其次用今日漲跌排行的全市場掃描（台股約每 1 分半一輪；美股市值前 500 大）。不另外發請求 |
+| 範圍 | 只採用日期晚於精選日的報價；收盤後到下一份精選產生前，顯示當天最後的報價 |
+| 更新 | 電腦版首頁與手機版「盤勢」分頁打開時每 30 秒更新一次 |
+| 沒有即時價 | 精選股不在監控與掃描範圍內（例如掃描尚未完成）時，照舊顯示精選當日收盤 |
+
+卡片上方的說明會寫「MM/DD 收盤選出 · 股價即時更新（HH:MM）」。精選的分數與理由不會因盤中價格改變，隔天每日更新後才重算。
+
 ## 資料來源與請求量
 
 - 收盤熱浪圖：不另外請求（沿用資金熱浪的資料）。
@@ -75,8 +89,8 @@
 
 ## 相關檔案
 
-- `EquiLens-Nexus/lib/picks.mjs`：排行、候選、評分、挑選（純函式）
-- `EquiLens-Nexus/server.mjs`：`GET /api/movers`、`GET /api/picks`、`POST /api/picks/query`、`runPicks`
+- `EquiLens-Nexus/lib/picks.mjs`：排行、候選、評分、挑選、即時價 `livePicks`（純函式）
+- `EquiLens-Nexus/server.mjs`：`GET /api/movers`、`GET /api/picks`、`POST /api/picks/query`、`runPicks`、`picksInfo`（附即時價）、`moversLiveHeat`
 - `EquiLens-Nexus/public/riskvalue-ui.js`（與 Pocket 共用）：`moversHTML`、`picksHTML`
 - `EquiLens-Nexus/public/riskvalue.js`（首頁）、`EquiLens-Pocket/public/rv.js`（盤勢分頁）
 - `.local/picks/latest.json`、`.local/picks/<日期>.json`

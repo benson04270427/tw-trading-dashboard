@@ -189,15 +189,23 @@ export function moversHTML(d, { tab = 'gainers', n = 20 } = {}) {
   const rows = list.length ? list.map((x, i) => `<div class="mv-row"><span class="mv-rank num">${i + 1}</span><button class="ix-cw-stock mv-name" data-alert-stock="${esc(x.id)}">${esc(x.name)} <small class="num">${esc(x.id)}</small></button><small class="soft mv-sec">${esc(x.sector || '')}</small>${chg(x.change)}<span class="num mv-px">${fmt(x.close, 2)}</span><span class="num soft mv-amt">${moneyText(x.money, d.market)}</span>${star(x.id, x.watch)}</div>`).join('') : '<p class="ix-empty">沒有符合條件的股票。</p>';
   return `${head}<div class="mv-list">${rows}</div>`;
 }
+// 精選股價：有即時價時顯示即時漲跌與價格（標「即時」），滑過看精選當日收盤
+const hm = s => String(s || '').slice(11, 16);
+function pickPx(p, date) {
+  if (!p.live) return `<span class="pk-px">${chg(p.change)} <span class="num soft">${fmt(p.close, 2)}</span></span>`;
+  const pct = p.change == null ? '—' : sign(p.change, 2) + '%', stamp = p.live.at ? `即時 ${esc(hm(p.live.at))}` : '即時';
+  return `<span class="pk-px" title="${esc(date)} 收盤 ${fmt(p.close, 2)}（${pct}）">${chg(p.live.change)} <span class="num">${fmt(p.live.close, 2)}</span> <small class="pk-live">${stamp}</small></span>`;
+}
 export function picksHTML(info) {
   if (!info) return '<p class="ix-empty">讀取中…</p>';
   const d = info.data, btn = `<button class="rv-btn" data-rv="picks-query" ${info.busy ? 'disabled' : ''}>${info.busy ? '<i class="spinner"></i>挑選中…' : '⟳ 重新挑選'}</button>`;
   const err = info.error ? `<p class="rv-err">${esc(info.error)}</p>` : '';
+  const liveNote = !info.live ? '' : info.liveAt ? ` · 股價即時更新（${esc(hm(info.liveAt))}）` : ' · 股價即時更新';
   if (!d) return `<div class="rv-empty"><p>${info.busy ? '正在整理籌碼、訊號與新聞…' : '還沒有每日精選。每日更新完成後自動產生，也可以按「重新挑選」。'}</p>${btn}${err}</div>`;
-  const cards = d.picks.length ? d.picks.map((p, i) => `<div class="pk-card"><div class="pk-head"><span class="rv-rank num">${i + 1}</span><button class="ix-cw-stock rv-sname" data-alert-stock="${esc(p.id)}">${esc(p.name)} <small class="num">${esc(p.id)}</small></button>${p.chain ? `<span class="rv-chain">${esc(p.chain)}</span>` : `<small class="soft">${esc(p.sector || '')}</small>`}<span class="pk-px">${chg(p.change)} <span class="num soft">${fmt(p.close, 2)}</span></span><span class="rv-sscore num" title="精選分數">${fmt(p.score)}</span>${star(p.id, p.watch)}</div>
+  const cards = d.picks.length ? d.picks.map((p, i) => `<div class="pk-card"><div class="pk-head"><span class="rv-rank num">${i + 1}</span><button class="ix-cw-stock rv-sname" data-alert-stock="${esc(p.id)}">${esc(p.name)} <small class="num">${esc(p.id)}</small></button>${p.chain ? `<span class="rv-chain">${esc(p.chain)}</span>` : `<small class="soft">${esc(p.sector || '')}</small>`}${pickPx(p, d.date)}<span class="rv-sscore num" title="精選分數">${fmt(p.score)}</span>${star(p.id, p.watch)}</div>
     <div class="rv-why">${p.reasons.map(r => `<span>✓ ${esc(r)}</span>`).join('')}</div>${p.warnings.length ? `<div class="rv-warn">${p.warnings.map(x => `<span>⚠ ${esc(x)}</span>`).join('')}</div>` : ''}
     ${p.news.length ? `<ul class="pk-news">${p.news.map(n => `<li>${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}${n.source ? ` <small class="soft">${esc(n.source)}</small>` : ''}</li>`).join('')}</ul>` : ''}</div>`).join('') : '<p class="ix-empty">今天沒有同時符合多項條件的股票。</p>';
-  return `<div class="pk-meta"><span class="soft">${esc(d.date)} 收盤 · 候選 ${fmt(d.candidates)} 檔${d.market === 'TW' ? (d.flows ? ' · 含法人買賣超' : ' · 法人資料未取得') : ''}${info.news ? ' · 含近兩日新聞' : ''}</span>${btn}</div>${err}<div class="pk-list">${cards}</div>
+  return `<div class="pk-meta"><span class="soft">${esc(d.date)} 收盤選出 · 候選 ${fmt(d.candidates)} 檔${liveNote}${d.market === 'TW' ? (d.flows ? ' · 含法人買賣超' : ' · 法人資料未取得') : ''}${info.news ? ' · 含近兩日新聞' : ''}</span>${btn}</div>${err}<div class="pk-list">${cards}</div>
   <p class="ix-foot">依固定規則加總：法人買超排行${d.market === 'TW' ? '（外資、投信）' : ''}、ATR 追蹤線訊號、當日量價、營收年增、近兩日新聞${d.market === 'TW' ? '與 AI 供應鏈' : ''}；同一供應鏈或產業最多 2 檔。這是研究清單，不是買賣建議。</p>`;
 }
 
