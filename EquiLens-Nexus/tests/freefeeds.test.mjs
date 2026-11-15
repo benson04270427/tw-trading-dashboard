@@ -66,7 +66,15 @@ test('SEC EDGAR：6 月結帳的公司，換標籤後的季度與年報推得的
   assert.deepEqual(parseFacts(facts, 'LITE').map(r => [r.revenue_year, r.revenue_quarter, r.revenue]), [[2025, 1, 425], [2025, 3, 534], [2025, 4, 665], [2026, 1, 808], [2026, 2, 1007]]);
 });
 
-import { nyseCalendar, nyseHolidays, screenerSession, screenerRows, SECTOR_ZH } from '../lib/providers/nasdaq.mjs';
+import { nyseCalendar, nyseHolidays, screenerSession, screenerRows, sameCloses, SECTOR_ZH } from '../lib/providers/nasdaq.mjs';
+test('Nasdaq：篩選器仍是本機已存那天的資料時不當成新的一天', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => ({ symbol: 'S' + i, lastsale: '$' + (100 + i), marketCap: String(1e9 * (30 - i)) }));
+  const same = rows.map(r => ({ stock_id: r.symbol, close: Number(r.lastsale.slice(1)) }));
+  assert.equal(sameCloses(rows, same), true);
+  const moved = same.map((r, i) => ({ ...r, close: i < 5 ? r.close : r.close + 1 }));
+  assert.equal(sameCloses(rows, moved), false);
+  assert.equal(sameCloses(rows.slice(0, 10), same), false); // 可比對的檔數太少不下結論
+});
 test('Nasdaq：紐約證交所休市日與交易日曆', () => {
   assert.deepEqual([...nyseHolidays(2027)].sort(), ['2027-01-01', '2027-01-18', '2027-02-15', '2027-03-26', '2027-05-31', '2027-06-18', '2027-07-05', '2027-09-06', '2027-11-25', '2027-12-24']);
   assert.deepEqual(nyseCalendar('2026-07-01', '2026-07-07'), ['2026-07-01', '2026-07-02', '2026-07-06', '2026-07-07']);

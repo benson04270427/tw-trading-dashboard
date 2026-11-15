@@ -123,11 +123,24 @@ export function screenerRows(rows, date, re = /^[A-Z][A-Z0-9.\-]{0,9}$/) {
 const DIR = () => path.join(LOCAL, 'nasdaq-daily');
 const saveDay = (date, rows) => { try { fs.mkdirSync(DIR(), { recursive: true }); fs.writeFileSync(path.join(DIR(), date + '.json'), JSON.stringify(rows.map(r => [r.stock_id, r.close, r.spread, r.Trading_Volume]))); const files = fs.readdirSync(DIR()).filter(f => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort(); for (const f of files.slice(0, -30)) fs.unlinkSync(path.join(DIR(), f)); } catch { } };
 const loadDay = date => { try { return JSON.parse(fs.readFileSync(path.join(DIR(), date + '.json'), 'utf8')).map(([id, close, spread, vol]) => ({ date, stock_id: id, close, spread, Trading_Volume: vol, Trading_money: vol * close, open: null, max: null, min: null })); } catch { return []; } };
+// 篩選器與本機已存的某一天收盤價幾乎相同（市值前 100 檔有 9 成以上一樣）＝篩選器仍是那一天的資料。
+// 收盤後（盤後時段）報價的最新成交是盤後價、昨收不一定是前一交易日，比對失準時會把舊資料標成今天，熱浪圖就變成前一天的複本。
+export function sameCloses(rows, saved, top = 100) {
+  const by = new Map(saved.map(r => [r.stock_id, r.close]));
+  const big = rows.map(r => [String(r.symbol || '').trim().toUpperCase().replace('/', '.'), money(r.lastsale), money(r.marketCap) ?? 0]).filter(([id, c]) => c > 0 && by.has(id)).sort((a, b) => b[2] - a[2]).slice(0, top);
+  if (big.length < 20) return false;
+  return big.filter(([id, c]) => Math.abs(by.get(id) - c) < 1e-6).length >= big.length * 0.9;
+}
+const savedDays = () => { try { return fs.readdirSync(DIR()).filter(f => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).map(f => f.slice(0, 10)).sort(); } catch { return []; } };
 async function heatAll(date, ctx) {
   const rows = await screener(ctx), cal = nyseCalendar(minusDays(nyDate(), 20), nyDate());
   const quotes = (await get(`/quote/watchlist?${['aapl', 'msft', 'nvda', 'amzn', 'googl'].map(s => `symbol=${s}%7cstocks`).join('&')}`, ctx)) || [];
   const session = screenerSession(rows, quotes, cal, nyDate());
-  if (session === date) { const out = screenerRows(rows, date, ctx.market?.symbolRe); if (out.length > 1000) saveDay(date, out); return out; }
+  if (session === date) {
+    const prev = savedDays().filter(d => d < date).at(-1);
+    if (prev && sameCloses(rows, loadDay(prev))) return loadDay(date);
+    const out = screenerRows(rows, date, ctx.market?.symbolRe); if (out.length > 1000) saveDay(date, out); return out;
+  }
   return loadDay(date);
 }
 const minusDays = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') - n * 864e5).toISOString().slice(0, 10);
