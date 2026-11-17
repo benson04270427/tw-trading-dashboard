@@ -23,7 +23,11 @@ export async function fetchStock(id, previous = {}, { cutoff, session = null, si
   for (const s of sources) {
     // 同一天已成功、且仍是同一個資料源取得的項目不重抓（換了資料源時重抓一次）
     const by = s.provider ?? null;
-    if (s.keys.every(k => raw.checked[k] === cutoff && (!by || raw.checkedBy[k] === by))) continue;
+    // 日 K 已標記「今天成功」但最後一天仍早於 session（例如資料源當時尚未收錄就被標記）時照樣重抓，不讓日期卡住
+    // （2026-11-17 美股：checked 為 11-16、日 K 停在 11-13，整天更新都略過）
+    const lastOf = k => (raw[k] || []).reduce((m, r) => (r?.date > m ? r.date : m), '');
+    const stuck = session && s.keys.some(k => (k === 'price' || k === 'adjusted') && lastOf(k) < session);
+    if (!stuck && s.keys.every(k => raw.checked[k] === cutoff && (!by || raw.checkedBy[k] === by))) continue;
     onDataset(s.label);
     const from = minusDays(cutoff, Math.max(...s.keys.map(k => LOOKBACK[k] || 400)));
     try {

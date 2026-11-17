@@ -29,6 +29,9 @@ test('nasdaq: historical, quotes and chart', () => {
   assert.equal(ah[0].close, 596.62); assert.equal(ah[0].change_price, -28.03); assert.equal(ah[0].change_rate, -4.49);
   const op = parseWatchlist([{ symbol: 'MRVL', lastSalePrice: '$150', netChange: '8.80', percentageChange: '6.23%', lastTradeTimestampDateTime: '2026-11-09T11:00:00', volume: '100', previousClosePrice: '$141.20', marketStatus: 'Market Open' }], new Date('2026-11-09T16:00:00Z'));
   assert.equal(op[0].change_price, 8.8); assert.equal(op[0].change_rate, 6.23);
+  // 收盤後狀態還是 Market Open、但最新成交已是盤後（16:04）：收盤＝成交價－netChange，漲跌用收盤－昨收
+  const late = parseWatchlist([{ symbol: 'INTC', lastSalePrice: '$55.4208', netChange: '+0.2508', percentageChange: '+0.45%', lastTradeTimestampDateTime: '2026-11-17T16:04:10.1-05:00', volume: '100', previousClosePrice: 55.47, marketStatus: 'Market Open' }], new Date('2026-11-17T21:04:30Z'));
+  assert.equal(late[0].close, 55.17); assert.equal(late[0].change_price, -0.3); assert.equal(late[0].change_rate, -0.54); assert.equal(late[0].date, '2026-11-17 16:00:00');
   const c = parseChart({ chart: [{ x: Date.parse('2026-10-22T04:00:00Z'), y: 224.45 }, { x: Date.parse('2026-10-22T09:30:00Z'), y: 223.1 }, { x: Date.parse('2026-10-22T15:59:00Z'), y: 208 }] }, '2026-10-22');
   assert.deepEqual(c.map(x => x[0]), ['09:30', '15:59']);
 });

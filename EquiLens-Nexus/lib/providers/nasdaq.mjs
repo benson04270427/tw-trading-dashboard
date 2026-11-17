@@ -65,11 +65,14 @@ export function parseWatchlist(list, now = new Date()) {
     const last = money(q.lastSalePrice), prev = money(q.previousClosePrice), open = money(q.openingPrice), vol = money(q.volume) ?? 0, nc = money(q.netChange);
     // 盤後時段（After Hours）lastSalePrice 是盤後成交價、netChange 是「盤後價－今日收盤」，今日收盤＝lastSalePrice－netChange
     // （2026-11-13 INTC：批次報價 59.0905／-0.5695，個股頁收盤 59.66）
-    const close = /after/i.test(q.marketStatus || '') && last != null && nc != null ? Math.round((last - nc) * 1e4) / 1e4 : last;
-    const day = String(q.lastTradeTimestampDateTime || '').slice(0, 10) || tzNow.slice(0, 10);
-    const time = /open/i.test(q.marketStatus || '') && day === tzNow.slice(0, 10) ? tzNow.slice(11, 19) : '16:00:00';
+    // 收盤後幾分鐘內 marketStatus 可能還沒切到 After Hours，但最新成交已是 16:01 之後的盤後成交、netChange 也已改成盤後漲跌
+    // （2026-11-17 16:04 INTC：批次報價 55.4208／+0.45%，實際收盤 55.17／-0.54%）：最新成交時間在 16:01 以後一律視為盤後
+    const stamp = String(q.lastTradeTimestampDateTime || ''), extended = !/pre/i.test(q.marketStatus || '') && (/after/i.test(q.marketStatus || '') || /T\d{2}:\d{2}/.test(stamp) && stamp.slice(11, 16) >= '16:01');
+    const close = extended && last != null && nc != null ? Math.round((last - nc) * 1e4) / 1e4 : last;
+    const day = stamp.slice(0, 10) || tzNow.slice(0, 10);
+    const time = /open/i.test(q.marketStatus || '') && !extended && day === tzNow.slice(0, 10) ? tzNow.slice(11, 19) : '16:00:00';
     // 非盤中 netChange／percentageChange 不是今日漲跌（盤後時段是盤後漲跌），一律用「收盤－昨收」
-    const byPrev = close != null && prev > 0 ? Math.round((close - prev) * 1e4) / 1e4 : null, closed = !/open/i.test(q.marketStatus || '');
+    const byPrev = close != null && prev > 0 ? Math.round((close - prev) * 1e4) / 1e4 : null, closed = extended || !/open/i.test(q.marketStatus || '');
     const ch = closed && byPrev != null ? byPrev : nc ?? byPrev;
     const rate = closed && byPrev != null ? Math.round(byPrev / prev * 1e4) / 100 : money(q.percentageChange);
     return close > 0 ? { stock_id: String(q.symbol).toUpperCase(), date: `${day} ${time}`, open, high: null, low: null, close, change_price: ch, change_rate: rate, total_volume: vol, total_amount: vol * close, yesterday_volume: null, buy_price: null, sell_price: null } : null;
