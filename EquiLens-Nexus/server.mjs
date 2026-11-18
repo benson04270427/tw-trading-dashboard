@@ -1895,11 +1895,13 @@ async function refresh(scope, ids) {
     // 興櫃：不在上市櫃股票清單、但櫃買興櫃行情表有的股票（例如 3644 凌嘉科）
     const listed = new Set(universe.map(s => s.id));
     let esb = new Map();
-    if (config().market === 'TW' && queue.some(id => !listed.has(id))) { try { esb = await esbQuotes(); } catch {} }
+    if (config().market === 'TW' && queue.some(id => !listed.has(id))) { try { esb = await esbQuotes(); } catch (e) { console.error(t('興櫃行情表讀取失敗：') + e.message); } }
     for (const id of queue) {
       if (controller.signal.aborted) break;
       job.current = id; job.message = t('更新 {id}，{done}/{total}', { id, done:job.done, total:job.total });
       if (!listed.has(id) && esb.get(id)?.close > 0) { raw[id] = esbRaw(raw[id], esb.get(id), cutoff); write(`stocks/${id}.json`, raw[id]); job.done++; invalidate(); continue; }
+      // 興櫃行情表有這檔、但今天還沒有成交價（例如開盤前或當天無成交）：上市櫃日資料本來就查不到，保留既有資料、不記成更新失敗
+      if (!listed.has(id) && esb.has(id)) { const q = esb.get(id); raw[id] = { ...(raw[id] || {}), errors:{}, esb:{ ...(raw[id]?.esb || { close:null, date:null }), name:q.name || raw[id]?.esb?.name || '' } }; write(`stocks/${id}.json`, raw[id]); job.done++; invalidate(); continue; }
       // 次要資料（營收、估值、法人）的資料源額度用完或方案不足時：本次更新略過該項，股價等其他資料照常更新
       for (;;) {
         try { raw[id] = await fetchStock(id, raw[id], { ...options, cutoff, session, onDataset: d => job.dataset = d, sources: defaultSources(options).filter(s => !skipped.has(s.label)) }); break; }
