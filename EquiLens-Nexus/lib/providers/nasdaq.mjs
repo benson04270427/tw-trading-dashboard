@@ -51,6 +51,12 @@ export async function get(path, ctx = {}) {
   } finally { release(); }
 }
 
+// 日 K 查詢網址：Nasdaq 的 todate 不含當天（2026-11-19 todate=11-18 只回到 11-17，研究名單日 K 每天停在前兩個交易日），
+// 所以多查一天、回來後再濾掉 to 之後的資料
+export function historicalPath(id, from, to, assetclass = 'stocks') {
+  const end = to ? new Date(Date.parse(to + 'T00:00:00Z') + 864e5).toISOString().slice(0, 10) : to;
+  return `/quote/${encodeURIComponent(id)}/historical?assetclass=${assetclass}&fromdate=${from}&todate=${end}&limit=9999`;
+}
 export function parseHistorical(data, id) {
   const rows = (data?.tradesTable?.rows || []).map(r => ({ date: usDate(r.date), stock_id: id, open: money(r.open), max: money(r.high), min: money(r.low), close: money(r.close), Trading_Volume: money(r.volume) ?? 0 }))
     .filter(r => r.date && r.close > 0).sort((a, b) => a.date.localeCompare(b.date));
@@ -171,7 +177,7 @@ export default {
     return [...seen.values()].sort((a, b) => a.id.localeCompare(b.id));
   },
   daily: async (id, from, to, ctx) => {
-    const price = parseHistorical(await get(`/quote/${encodeURIComponent(id)}/historical?assetclass=stocks&fromdate=${from}&todate=${to}&limit=9999`, ctx), id);
+    const price = parseHistorical(await get(historicalPath(id, from, to), ctx), id).filter(r => !to || r.date <= to);
     return { price, adjusted: price, adjustedIsRaw: true };
   },
   calendar: async (from, ctx) => nyseCalendar(from || minusDays(nyDate(), 400), nyDate()),

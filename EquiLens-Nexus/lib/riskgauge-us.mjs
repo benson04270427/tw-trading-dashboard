@@ -3,7 +3,7 @@
 // 資料全部免金鑰：聖路易聯準銀行 FRED（5 個序列）、Cboe（VIX、VIX3M 歷史）、Nasdaq（RSP、SPY 日 K），每次更新 9 個請求。
 import { assemble, series, change, at, trendSeries } from './riskgauge.mjs';
 import { fetchJSON } from './providers/common.mjs';
-import { parseHistorical } from './providers/nasdaq.mjs';
+import { parseHistorical, historicalPath } from './providers/nasdaq.mjs';
 
 const r2 = v => v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100;
 
@@ -59,7 +59,8 @@ const minus = (date, n) => new Date(Date.parse(date + 'T00:00:00Z') - n * 864e5)
 export const US_RISK_TASKS = (date, days = 430) => {
   const start = minus(date, days), fred = id => ['fred', `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${start}`];
   const cboe = id => ['cboe', `https://cdn.cboe.com/api/global/us_indices/daily_prices/${id}_History.csv`];
-  const etf = id => ['nasdaq', `https://api.nasdaq.com/api/quote/${id}/historical?assetclass=etf&fromdate=${start}&todate=${date}&limit=9999`, id];
+  // Nasdaq 的 todate 不含當天：用 historicalPath 多查一天，回來後濾掉 date 之後的資料
+  const etf = id => ['nasdaq', 'https://api.nasdaq.com/api' + historicalPath(id, start, date, 'etf'), id];
   return [['spx', ...fred('SP500')], ['vix', ...fred('VIXCLS')], ['hy', ...fred('BAMLH0A0HYM2')], ['dgs10', ...fred('DGS10')], ['usd', ...fred('DTWEXBGS')],
     ['vixCboe', ...cboe('VIX')], ['vix3m', ...cboe('VIX3M')], ['rsp', ...etf('RSP')], ['spy', ...etf('SPY')]];
 };
@@ -71,7 +72,7 @@ export async function fetchRiskInputsUS(date, { signal, onProgress = () => {}, f
     try {
       const r = await fetcher(url, { headers: kind === 'nasdaq' ? NASDAQ : UA, signal, timeout: 40000, label: LABEL[kind], text: kind !== 'nasdaq' });
       if (!r.ok) throw new Error(`${LABEL[kind]}：資料服務回應 ${r.status}`);
-      raw[key] = kind === 'fred' ? parseFred(r.body) : kind === 'cboe' ? parseCboe(r.body).filter(([d]) => d >= cut) : parseHistorical(r.body?.data, sym).map(x => [x.date, x.close]);
+      raw[key] = kind === 'fred' ? parseFred(r.body) : kind === 'cboe' ? parseCboe(r.body).filter(([d]) => d >= cut) : parseHistorical(r.body?.data, sym).filter(x => x.date <= date).map(x => [x.date, x.close]);
       if (!raw[key].length) throw new Error(`${LABEL[kind]}：沒有資料`);
     } catch (e) { raw[key] = []; raw.errors[key] = e.message; }
   }

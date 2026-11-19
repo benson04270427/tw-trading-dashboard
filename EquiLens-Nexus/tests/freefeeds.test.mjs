@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseMis } from '../lib/providers/twsemis.mjs';
-import { parseHistorical, parseWatchlist, parseChart, money } from '../lib/providers/nasdaq.mjs';
+import { parseHistorical, historicalPath, parseWatchlist, parseChart, money } from '../lib/providers/nasdaq.mjs';
 
 test('twse mis: stock and index rows', () => {
   const body = { rtcode: '0000', msgArray: [
@@ -18,6 +18,9 @@ test('twse mis: stock and index rows', () => {
 });
 
 test('nasdaq: historical, quotes and chart', () => {
+  // todate 不含當天：多查一天
+  assert.equal(historicalPath('INTC', '2026-11-01', '2026-11-18'), '/quote/INTC/historical?assetclass=stocks&fromdate=2026-11-01&todate=2026-11-19&limit=9999');
+  assert.match(historicalPath('BRK.B', '2026-11-01', '2026-11-30'), /todate=2026-12-01&/);
   assert.equal(money('$1,207.82'), 1207.82); assert.equal(money('-12.51%'), -12.51); assert.equal(money('N/A'), null);
   const h = parseHistorical({ tradesTable: { rows: [{ date: '10/22/2026', close: '$207.82', volume: '12,538,390', open: '$223.15', high: '$224.56', low: '$204.38' }, { date: '10/21/2026', close: '$237.53', volume: '5,000,001', open: '$240.44', high: '$243.6357', low: '$232.8616' }] } }, 'COHR');
   assert.deepEqual(h.map(x => x.date), ['2026-10-21', '2026-10-22']); assert.equal(h[1].spread, -29.71); assert.equal(h[1].max, 224.56); assert.equal(h[1].Trading_Volume, 12538390);
