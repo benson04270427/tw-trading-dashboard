@@ -78,7 +78,7 @@ function pickFact(xs) {
 }
 function instants(list) { const m = new Map(); for (const x of list) { if (!x.end || x.start || !Number.isFinite(x.val)) continue; if (!m.has(x.end) || String(x.filed) > String(m.get(x.end).filed)) m.set(x.end, { end: x.end, val: x.val, filed: x.filed }); } return m; }
 const CONCEPTS = {
-  revenue: ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet', 'RevenueFromContractWithCustomerIncludingAssessedTax', 'ifrs:Revenue'],
+  revenue: ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet', 'RevenueFromContractWithCustomerIncludingAssessedTax', 'RevenuesNetOfInterestExpense', 'ifrs:Revenue'],
   grossProfit: ['GrossProfit', 'ifrs:GrossProfit'], opIncome: ['OperatingIncomeLoss', 'ifrs:ProfitLossFromOperatingActivities'],
   netIncome: ['NetIncomeLoss', 'NetIncomeLossAvailableToCommonStockholdersBasic', 'ProfitLoss', 'ifrs:ProfitLossAttributableToOwnersOfParent', 'ifrs:ProfitLoss'], eps: ['EarningsPerShareDiluted', 'EarningsPerShareBasicAndDiluted', 'EarningsPerShareBasic', 'ifrs:DilutedEarningsLossPerShare'],
   cfo: ['NetCashProvidedByUsedInOperatingActivities', 'ifrs:CashFlowsFromUsedInOperatingActivities'], capex: ['PaymentsToAcquirePropertyPlantAndEquipment', 'ifrs:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities'],
