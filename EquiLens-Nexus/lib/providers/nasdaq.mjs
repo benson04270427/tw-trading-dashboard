@@ -73,7 +73,13 @@ export function parseWatchlist(list, now = new Date()) {
     // （2026-11-13 INTC：批次報價 59.0905／-0.5695，個股頁收盤 59.66）
     // 收盤後幾分鐘內 marketStatus 可能還沒切到 After Hours，但最新成交已是 16:01 之後的盤後成交、netChange 也已改成盤後漲跌
     // （2026-11-17 16:04 INTC：批次報價 55.4208／+0.45%，實際收盤 55.17／-0.54%）：最新成交時間在 16:01 以後一律視為盤後
-    const stamp = String(q.lastTradeTimestampDateTime || ''), extended = !/pre/i.test(q.marketStatus || '') && (/after/i.test(q.marketStatus || '') || /T\d{2}:\d{2}/.test(stamp) && stamp.slice(11, 16) >= '16:01');
+    // 2026-11-23 16:04 MRVL：狀態仍是 Market Open、最新成交時間也還沒過 16:01，但成交價 144.48 已是盤後價、netChange／percentageChange（-0.18%）
+    // 是「盤後價－今日收盤」（實際收盤 144.74、+18.37%）。美東 16:00 以後同一天的報價，只要「成交價－netChange」對不上昨收，
+    // 就表示 netChange 是相對今日收盤的盤後漲跌，一律視為盤後
+    const stamp = String(q.lastTradeTimestampDateTime || ''), pre = /pre/i.test(q.marketStatus || '');
+    const afterClose = tzNow.slice(11, 16) >= '16:00' && (stamp.slice(0, 10) || tzNow.slice(0, 10)) === tzNow.slice(0, 10);
+    const offPrev = last != null && nc != null && prev > 0 && Math.abs(last - nc - prev) > 0.005;
+    const extended = !pre && (/after/i.test(q.marketStatus || '') || /T\d{2}:\d{2}/.test(stamp) && stamp.slice(11, 16) >= '16:01' || afterClose && offPrev);
     const close = extended && last != null && nc != null ? Math.round((last - nc) * 1e4) / 1e4 : last;
     const day = stamp.slice(0, 10) || tzNow.slice(0, 10);
     const time = /open/i.test(q.marketStatus || '') && !extended && day === tzNow.slice(0, 10) ? tzNow.slice(11, 19) : '16:00:00';

@@ -35,6 +35,12 @@ test('nasdaq: historical, quotes and chart', () => {
   // 收盤後狀態還是 Market Open、但最新成交已是盤後（16:04）：收盤＝成交價－netChange，漲跌用收盤－昨收
   const late = parseWatchlist([{ symbol: 'INTC', lastSalePrice: '$55.4208', netChange: '+0.2508', percentageChange: '+0.45%', lastTradeTimestampDateTime: '2026-11-17T16:04:10.1-05:00', volume: '100', previousClosePrice: 55.47, marketStatus: 'Market Open' }], new Date('2026-11-17T21:04:30Z'));
   assert.equal(late[0].close, 55.17); assert.equal(late[0].change_price, -0.3); assert.equal(late[0].change_rate, -0.54); assert.equal(late[0].date, '2026-11-17 16:00:00');
+  // 收盤後狀態是 Market Open、成交時間也還沒過 16:01，但成交價已是盤後價、netChange 是盤後漲跌（2026-11-23 16:04 MRVL）
+  const odd = parseWatchlist([{ symbol: 'MRVL', lastSalePrice: '$144.48', netChange: '-0.26', percentageChange: '-0.18%', lastTradeTimestampDateTime: '2026-11-23T16:00:00', volume: '100', previousClosePrice: 122.28, marketStatus: 'Market Open' }], new Date('2026-11-23T21:04:25Z'));
+  assert.equal(odd[0].close, 144.74); assert.equal(odd[0].change_rate, 18.37); assert.equal(odd[0].date, '2026-11-23 16:00:00');
+  // 同一時間還沒有盤後成交的個股（成交價－netChange＝昨收）照用成交價（LITE 544.38、+18.2%）
+  const flat = parseWatchlist([{ symbol: 'LITE', lastSalePrice: '$544.38', netChange: '+83.84', percentageChange: '+18.20%', lastTradeTimestampDateTime: '2026-11-23T16:00:00', volume: '100', previousClosePrice: 460.54, marketStatus: 'Market Open' }], new Date('2026-11-23T21:04:25Z'));
+  assert.equal(flat[0].close, 544.38); assert.equal(flat[0].change_rate, 18.2);
   const c = parseChart({ chart: [{ x: Date.parse('2026-10-22T04:00:00Z'), y: 224.45 }, { x: Date.parse('2026-10-22T09:30:00Z'), y: 223.1 }, { x: Date.parse('2026-10-22T15:59:00Z'), y: 208 }] }, '2026-10-22');
   assert.deepEqual(c.map(x => x[0]), ['09:30', '15:59']);
 });
