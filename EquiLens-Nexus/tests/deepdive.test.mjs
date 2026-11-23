@@ -196,3 +196,14 @@ test('河流圖：倍數高低相差超過 6 倍（景氣循環股）不畫', ()
   const pts = []; for (let i = 0; i < 800; i++) pts.push([new Date(Date.UTC(2023, 0, 1) + i * 864e5).toISOString().slice(0, 10), 100, 100 / (2 + (i % 80))]);
   assert.match(buildRiver(pts).unusable, /6 倍/);
 });
+
+test('財報：銀行改用 RevenuesNetOfInterestExpense 後季報不停在舊年度', () => {
+  const v = (start, end, val) => ({ start, end, val, filed: end });
+  const facts = { facts: { 'us-gaap': {
+    Revenues: { units: { USD: [v('2020-04-01', '2020-06-30', 17836), v('2020-07-01', '2020-09-30', 18862)] } },
+    RevenuesNetOfInterestExpense: { units: { USD: [v('2026-04-01', '2026-06-30', 21000), v('2026-07-01', '2026-09-30', 21400)] } },
+    EarningsPerShareDiluted: { units: { 'USD/shares': [v('2020-04-01', '2020-06-30', -1.01), v('2020-07-01', '2020-09-30', 0.7), v('2026-04-01', '2026-06-30', 1.6), v('2026-07-01', '2026-09-30', 1.7)] } } } } };
+  const q = secQuarters(facts);
+  assert.deepEqual(q.map(x => [x.date, x.revenue]), [['2020-06-30', 17836], ['2020-09-30', 18862], ['2026-06-30', 21000], ['2026-09-30', 21400]]);
+  assert.equal(q.at(-1).eps, 1.7);
+});

@@ -25,8 +25,8 @@ async function cikOf(id, ctx) {
   }
   return tickers.map.get(id.toUpperCase()) || tickers.map.get(id.toUpperCase().replace('.', '-')) || null;
 }
-// 營收標籤（依序嘗試，取資料最新的一個）
-const TAGS = [['us-gaap', 'RevenueFromContractWithCustomerExcludingAssessedTax'], ['us-gaap', 'Revenues'], ['us-gaap', 'SalesRevenueNet'], ['us-gaap', 'RevenueFromContractWithCustomerIncludingAssessedTax'], ['ifrs-full', 'Revenue']];
+// 營收標籤（依序嘗試，取資料最新的一個）；銀行（例如富國銀行 WFC）2021 年起改用 RevenuesNetOfInterestExpense（淨利息收入＋非利息收入）
+const TAGS = [['us-gaap', 'RevenueFromContractWithCustomerExcludingAssessedTax'], ['us-gaap', 'Revenues'], ['us-gaap', 'SalesRevenueNet'], ['us-gaap', 'RevenueFromContractWithCustomerIncludingAssessedTax'], ['us-gaap', 'RevenuesNetOfInterestExpense'], ['ifrs-full', 'Revenue']];
 // companyfacts → 季營收列。
 // 取約 3 個月（80～100 天）的數值為單季；10-K 只報全年時，以全年（350～380 天）扣掉同一年度內的三個單季補出最後一季。
 // 公司常換營收標籤（例如 2025 年起改用 IncludingAssessedTax），因此合併所有標籤：資料越新的標籤優先，缺的季度由其他標籤補。

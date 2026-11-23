@@ -105,3 +105,8 @@ test('Nasdaq 篩選器：判斷資料日期、轉成熱浪圖行情', () => {
   assert.equal(r.length, 3); assert.equal(r[0].Trading_money, 46899225 * 348.22); assert.equal(r[2].stock_id, 'BRK.B');
   assert.equal(SECTOR_ZH.Technology, '科技');
 });
+test('SEC EDGAR：銀行的 RevenuesNetOfInterestExpense 也算營收', () => {
+  const v = (start, end, val) => ({ start, end, val, filed: end });
+  const facts = { facts: { 'us-gaap': { Revenues: { units: { USD: [v('2020-07-01', '2020-09-30', 18862)] } }, RevenuesNetOfInterestExpense: { units: { USD: [v('2026-07-01', '2026-09-30', 21400)] } } } } };
+  assert.deepEqual(parseFacts(facts, 'WFC').map(r => [r.revenue_year, r.revenue_quarter, r.revenue]), [[2020, 3, 18862], [2026, 3, 21400]]);
+});

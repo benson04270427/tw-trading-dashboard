@@ -18,6 +18,7 @@ K 線視窗的兩個分頁：
 
 | 欄位 | 計算 |
 |---|---|
+| 營收 | 台股：綜合損益表營收。美股：SEC 營收標籤依序合併（RevenueFromContractWithCustomerExcludingAssessedTax、Revenues、SalesRevenueNet、RevenueFromContractWithCustomerIncludingAssessedTax、RevenuesNetOfInterestExpense），資料越新的標籤優先、缺的季度由其他標籤補；銀行（例如 WFC）用 RevenuesNetOfInterestExpense（淨利息收入＋非利息收入） |
 | 營收年增 | 與一年前同一季比較 |
 | 毛利率、營業利益率、淨利率 | 毛利、營業利益、歸屬母公司淨利 ÷ 營收 |
 | EPS、EPS 年增 | 單季 EPS。美股：SEC 舊財報的 EPS 有些是分割前的口徑，以「淨利 ÷ EPS」推算每季股數，和較新幾季比較，差距接近分割倍數（2、3、4、5、10、20…倍，誤差 15% 內）時換算成最新口徑；股數變動 50% 以內（增資、買回）不調整。全年或年初累計推算出來的單季 EPS，改用單季淨利 ÷ 同期股數 |
@@ -62,6 +63,7 @@ K 線視窗的兩個分頁：
 
 - 美股只有 Nasdaq 財報時（沒填 SEC email），沒有河流圖。
 - 外國公司（20-F／6-K 申報）在 SEC 可能沒有季資料。
+- 由全年或年初累計推算出的單季數字，和前後幾季差 20 倍以上時視為單位錯誤而不採用；少數真的出現巨額虧損的季度（例如 LITE 2026/06 季全年淨利 -69 億美元）因此會顯示空白。
 - 虧損、獲利大幅變動或產業轉型時，歷史倍數的參考性會下降。
 
 ## 相關檔案
