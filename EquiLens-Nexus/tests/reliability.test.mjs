@@ -28,3 +28,12 @@ test('emerging (興櫃) stocks in the research list keep a daily close from the 
   assert.equal(s.change, 3.16);
 });
 test('a stock without revenue (foreign issuer) does not block the daily update; all empty or other errors still do',()=>{const none='本次未回傳資料；既有資料保留原日期',e=(id,dataset='revenue',message=none)=>({id,dataset,message});assert.deepEqual(blockingJobErrors([e('NBIS')],6),[]);assert.equal(blockingJobErrors([e('A'),e('B')],2).length,2);assert.equal(blockingJobErrors([e('NBIS'),e('INTC','price','timeout')],6).length,1);assert.equal(blockingJobErrors([e('INTC','revenue','HTTP 500')],6).length,1);});
+test('emerging (興櫃) quotes carry their own trading date so a previous-day table is not shown as today', async () => {
+  const { parseEsbLatest, parseEsbOpenApi } = await import('../lib/research.mjs');
+  const live = parseEsbLatest({ stat: 'ok', tables: [{ title: '興櫃股票當日行情表', date: '115年11月25日 13:43:03', fields: ['代號', '名稱', '前日均價', '報買價', '報買量', '報賣價', '報賣量', '日最高', '日最低', '日均價', '成交', '投資人成交買賣別', '暫停交易開始時間(時:分:秒)', '成交量'],
+    data: [['3644', '凌嘉科', '362.23', 295, '1,999', 301, '2,000', '367.00', '283.00', '303.23', '300.00', '買進', '', '360,860'], ['1594', '日高', '6.51', 6.27, '10,000', 6.6, '10,000', '-', '-', '-', '-', '', '', '-']] }] });
+  assert.deepEqual(live.get('3644'), { name: '凌嘉科', close: 300, prev: 362.23, date: '2026-11-25' });
+  assert.equal(live.get('1594').close, null);
+  const old = parseEsbOpenApi([{ Date: '1151124', SecuritiesCompanyCode: '3644', CompanyName: '凌嘉科', PreviousAveragePrice: '278.2', LatestPrice: '373' }]);
+  assert.deepEqual(old.get('3644'), { name: '凌嘉科', close: 373, prev: 278.2, date: '2026-11-24' });
+});

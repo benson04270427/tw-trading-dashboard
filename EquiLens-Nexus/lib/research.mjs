@@ -84,6 +84,21 @@ export async function fetchNews(id, previous = [], { cutoff, signal } = {}) {
   return [...new Map(rows.filter(r => String(r.date).slice(0, 10) >= minusDays(cutoff, 90)).map(r => [r.link || r.title, r])).values()];
 }
 
+// 櫃買興櫃行情：每筆帶行情日期（date），避免把前一天的行情當成今天
+// 1) 網站「興櫃股票當日行情表」（每分鐘更新，date 如「115年11月25日 13:43:03」）
+// 2) OpenAPI tpex_esb_latest_statistics（前一交易日收盤後才更新，Date 如「1151124」），只在 1) 失敗時備援
+const rocIso=s=>{const m=String(s||'').match(/(\d{2,3})\D*?(\d{1,2})\D*?(\d{1,2})/);if(!m)return null;const y=Number(m[1])+1911;return `${y}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;};
+const esbNum=v=>{const n=Number(String(v??'').replace(/,/g,''));return Number.isFinite(n)&&n>0?n:null;};
+export function parseEsbLatest(body){
+  const t=(body?.tables||[]).find(x=>/興櫃/.test(x.title||''))||body?.tables?.[0];if(!t?.data?.length)return new Map();
+  const f=t.fields||[],ix=(re,d)=>{const i=f.findIndex(x=>re.test(x));return i>=0?i:d;},date=rocIso(t.date||t.fileTime);
+  const ci=ix(/^代號/,0),ni=ix(/^名稱/,1),pi=ix(/前日均價/,2),li=ix(/^成交$/,10);
+  return new Map(t.data.map(r=>[String(r[ci]).trim(),{name:String(r[ni]||'').trim(),close:esbNum(r[li]),prev:esbNum(r[pi]),date}]));
+}
+export function parseEsbOpenApi(rows){
+  const d=s=>{const m=String(s||'').match(/^(\d{3})(\d{2})(\d{2})$/);return m?`${Number(m[1])+1911}-${m[2]}-${m[3]}`:null;};
+  return new Map((rows||[]).map(r=>[String(r.SecuritiesCompanyCode).trim(),{name:String(r.CompanyName||'').trim(),close:esbNum(r.LatestPrice),prev:esbNum(r.PreviousAveragePrice),date:d(r.Date)}]));
+}
 // 研究名單／自選中的興櫃股票：上市櫃日資料查不到，改存興櫃最新成交價（每天一筆、逐日累積），不再每天記為更新失敗
 export function esbRaw(prev={},q,date){
   const row={date,open:q.close,max:q.close,min:q.close,close:q.close},keep=(prev.price||[]).filter(r=>r.date!==date&&r.date<date);

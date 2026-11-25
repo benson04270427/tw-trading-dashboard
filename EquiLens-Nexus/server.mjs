@@ -20,7 +20,7 @@ import { warrantMaster, branchWarrants, turnoverByTarget, stockWarrants, WARRANT
 import { remoteConfig, isRemoteHost, verifyAccessJwt } from './lib/access.mjs';
 import { FUTURES, nearMonth, retailPosition, marginSummary, indexRow, assembleCard } from './lib/market-card.mjs';
 import { buildMarket, marketToday, WEIGHTS, FACTORS, minusDays, bars as priceBars } from './lib/engine.mjs';
-import { fetchStock, fetchNews, isBulkInstitutional, bulkInstitutions, defaultSources, esbRaw, blockingJobErrors } from './lib/research.mjs';
+import { fetchStock, fetchNews, isBulkInstitutional, bulkInstitutions, defaultSources, esbRaw, parseEsbLatest, parseEsbOpenApi, blockingJobErrors } from './lib/research.mjs';
 import { buildGroupRanking, compareRanks, quotesFromSnapshot, quotesFromReplay, quotesFromDaily, RANK_RULES } from './lib/grouprank.mjs';
 import { EMPTY_SCOPE, validateScope, scopeIds, resolveScope, addGroup, renameGroup, removeGroup, reorderGroups, addStock, removeStock, importGroups, selectedUpdateIds } from './lib/scope.mjs';
 import { patternSnapshot, clearPatterns, updatePatternData, patternBars } from './lib/pattern-service.mjs';
@@ -1631,8 +1631,12 @@ function pfQuote(id,heatMap){
   const h=heatMap.get(id);if(h?.close>0)return{close:h.close,prev:h.change!=null?h.close/(1+h.change/100):null};
   return null;
 }
-// 櫃買「興櫃股票當日行情表」（免金鑰，10 分鐘快取）：興櫃股票不在上市櫃清單與收盤資料裡
-const esbQuotes=()=>cached('esb',10*60e3,async()=>new Map((await twseGet('https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics',{})).map(r=>[String(r.SecuritiesCompanyCode).trim(),{name:String(r.CompanyName||'').trim(),close:Number(r.LatestPrice)||null,prev:Number(r.PreviousAveragePrice)||null}])));
+// 櫃買「興櫃股票當日行情表」（免金鑰，5 分鐘快取）：興櫃股票不在上市櫃清單與收盤資料裡
+// 每筆帶行情日期；網站行情表失敗時才改用 OpenAPI（那份是前一交易日的資料）
+const esbQuotes=()=>cached('esb',5*60e3,async()=>{
+  try{const m=parseEsbLatest(await twseGet('https://www.tpex.org.tw/www/zh-tw/emerging/latest?response=json',{}));if(m.size)return m;}catch(e){console.error(t('興櫃行情表讀取失敗：')+e.message);}
+  return parseEsbOpenApi(await twseGet('https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics',{}));
+});
 async function portfolioReport({deep=true}={}){
   const mk=M().id,pf=readPortfolio(),heat=heatStocks(latestHeat()),hm=new Map(heat.map(h=>[h.id,h])),quotes=new Map(),rs=new Map(),signals=new Map();
   // 興櫃股票不在上市櫃收盤資料裡：改用櫃買「興櫃股票當日行情表」（免金鑰，10 分鐘快取）
@@ -1645,7 +1649,9 @@ async function portfolioReport({deep=true}={}){
     if(!rows.length&&deep)void signalRows(h.id).catch(()=>{});
     const c=closesOf(rows),last=c.at(-1);
     const e=esb.get(h.id);
-    quotes.set(h.id,{...(q||(last?{close:last[1],prev:c.at(-2)?.[1]??null}:e?.close>0?{close:e.close,prev:e.prev}:{})),name:(meta.name&&meta.name!==h.id?meta.name:null)||hm.get(h.id)?.name||e?.name||h.id,sector:hm.get(h.id)?.sector||meta.sector||(e?'興櫃':''),chain:mk==='TW'?AI_INDEX.get(h.id)||null:null});
+    const eToday=e?.close>0&&e.date===today();
+    // 興櫃：今天的行情表優先；行情表是前一天的（例如網站行情表讀取失敗、改用 OpenAPI）就不算今天漲跌
+    quotes.set(h.id,{...(q||(eToday?{close:e.close,prev:e.prev}:null)||(last?{close:last[1],prev:c.at(-2)?.[1]??null}:e?.close>0?{close:e.close,prev:null}:{})),name:(meta.name&&meta.name!==h.id?meta.name:null)||hm.get(h.id)?.name||e?.name||h.id,sector:hm.get(h.id)?.sector||meta.sector||(e?'興櫃':''),chain:mk==='TW'?AI_INDEX.get(h.id)||null:null});
     if(c.length){const r=relative(c,index);if(r)rs.set(h.id,r);const s=signalOf(rows,M());if(s&&!s.stopped)signals.set(h.id,s.side);}
   }
   const z=read('zones/latest.json',null),pk=read('picks/latest.json',null),ideas=[...(z?.zones?.value||[]).map(x=>({...x,from:'value'})),...(z?.zones?.heat||[]).map(x=>({...x,from:'heat'})),...(pk?.picks||[]).map(x=>({...x,from:'picks'}))].map(x=>({id:x.id,name:x.name,sector:x.sector||hm.get(x.id)?.sector||'',chain:x.chain||null,from:x.from,names:z?.names||ZONE_NAMES[mk]}));
@@ -1899,7 +1905,8 @@ async function refresh(scope, ids) {
     for (const id of queue) {
       if (controller.signal.aborted) break;
       job.current = id; job.message = t('更新 {id}，{done}/{total}', { id, done:job.done, total:job.total });
-      if (!listed.has(id) && esb.get(id)?.close > 0) { raw[id] = esbRaw(raw[id], esb.get(id), cutoff); write(`stocks/${id}.json`, raw[id]); job.done++; invalidate(); continue; }
+      // 行情日期晚於這次更新的截止日（例如開盤前更新時行情表已換成今天）就不存，日期較早時存在行情實際日期
+      if (!listed.has(id) && esb.get(id)?.close > 0 && (esb.get(id).date || cutoff) <= cutoff) { raw[id] = esbRaw(raw[id], esb.get(id), esb.get(id).date || cutoff); write(`stocks/${id}.json`, raw[id]); job.done++; invalidate(); continue; }
       // 興櫃行情表有這檔、但今天還沒有成交價（例如開盤前或當天無成交）：上市櫃日資料本來就查不到，保留既有資料、不記成更新失敗
       if (!listed.has(id) && esb.has(id)) { const q = esb.get(id); raw[id] = { ...(raw[id] || {}), errors:{}, esb:{ ...(raw[id]?.esb || { close:null, date:null }), name:q.name || raw[id]?.esb?.name || '' } }; write(`stocks/${id}.json`, raw[id]); job.done++; invalidate(); continue; }
       // 次要資料（營收、估值、法人）的資料源額度用完或方案不足時：本次更新略過該項，股價等其他資料照常更新
