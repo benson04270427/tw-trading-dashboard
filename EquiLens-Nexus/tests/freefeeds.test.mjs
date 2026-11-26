@@ -19,8 +19,10 @@ test('twse mis: stock and index rows', () => {
 
 test('nasdaq: historical, quotes and chart', () => {
   // todate 不含當天：多查一天
-  assert.equal(historicalPath('INTC', '2026-11-01', '2026-11-18'), '/quote/INTC/historical?assetclass=stocks&fromdate=2026-11-01&todate=2026-11-19&limit=9999');
-  assert.match(historicalPath('BRK.B', '2026-11-01', '2026-11-30'), /todate=2026-12-01&/);
+  assert.equal(historicalPath('INTC', '2026-11-01', '2026-11-18'), '/quote/INTC/historical?assetclass=stocks&fromdate=2026-11-01&todate=2026-11-20&limit=9999');
+  assert.match(historicalPath('INTC', '2026-11-01', '2026-11-25'), /todate=2026-11-30&/); // 感恩節前一天：跳過休市日
+  assert.match(historicalPath('INTC', '2026-11-01', '2026-11-20'), /todate=2026-11-24&/); // 週五：跳過週末
+  assert.match(historicalPath('BRK.B', '2026-11-01', '2026-11-30'), /todate=2026-12-02&/);
   assert.equal(money('$1,207.82'), 1207.82); assert.equal(money('-12.51%'), -12.51); assert.equal(money('N/A'), null);
   const h = parseHistorical({ tradesTable: { rows: [{ date: '10/22/2026', close: '$207.82', volume: '12,538,390', open: '$223.15', high: '$224.56', low: '$204.38' }, { date: '10/21/2026', close: '$237.53', volume: '5,000,001', open: '$240.44', high: '$243.6357', low: '$232.8616' }] } }, 'COHR');
   assert.deepEqual(h.map(x => x.date), ['2026-10-21', '2026-10-22']); assert.equal(h[1].spread, -29.71); assert.equal(h[1].max, 224.56); assert.equal(h[1].Trading_Volume, 12538390);

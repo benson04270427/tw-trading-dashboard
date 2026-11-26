@@ -52,9 +52,10 @@ export async function get(path, ctx = {}) {
 }
 
 // 日 K 查詢網址：Nasdaq 的 todate 不含當天（2026-11-19 todate=11-18 只回到 11-17，研究名單日 K 每天停在前兩個交易日），
-// 所以多查一天、回來後再濾掉 to 之後的資料
+// 所以多查幾天、回來後再濾掉 to 之後的資料。todate 遇到休市日時連前一個交易日也不含（2026-11-26 感恩節：todate=11-26 只回到 11-24，
+// 研究名單停在 11-24），所以 todate 取 to 之後第二個交易日，週末與休市日都不會吃掉 to 當天
 export function historicalPath(id, from, to, assetclass = 'stocks') {
-  const end = to ? new Date(Date.parse(to + 'T00:00:00Z') + 864e5).toISOString().slice(0, 10) : to;
+  const end = to ? nyseCalendar(minusDays(to, -1), minusDays(to, -10)).at(1) : to;
   return `/quote/${encodeURIComponent(id)}/historical?assetclass=${assetclass}&fromdate=${from}&todate=${end}&limit=9999`;
 }
 export function parseHistorical(data, id) {
