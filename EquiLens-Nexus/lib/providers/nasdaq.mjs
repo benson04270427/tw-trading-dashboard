@@ -113,7 +113,12 @@ async function screener(ctx) {
 // 篩選器沒有日期：與幾檔大型股的即時報價比對，價格等於「最新成交」就是最新交易日，等於「昨收」就是前一交易日。
 // 盤前（marketStatus 為 Pre Market）報價的成交日已是今天，但 previousClosePrice 仍是前前一交易日的收盤、lastSalePrice 是盤前價，
 // 兩者都對不上篩選器；此時篩選器一定是今天之前最近的交易日。
-export function screenerSession(rows, quotes, calendar, today) {
+// 美東 16:00 收盤前篩選器不可能是今天的資料（例如 11/27 凌晨 00:00 補抓時報價成交日已換成今天、價格仍是 11/25 收盤，舊判斷會把 11/25 存成 11/27）。
+export function screenerSession(rows, quotes, calendar, today, time = '16:00') {
+  const d = screenerSessionRaw(rows, quotes, calendar, today);
+  return d && d >= today && time < '16:00' ? calendar.filter(x => x < today).at(-1) || null : d;
+}
+function screenerSessionRaw(rows, quotes, calendar, today) {
   const by = new Map(rows.map(r => [String(r.symbol).toUpperCase(), money(r.lastsale)]));
   let sameLast = 0, samePrev = 0, lastDay = null, preMarket = false;
   for (const q of quotes) {
@@ -151,7 +156,7 @@ const savedDays = () => { try { return fs.readdirSync(DIR()).filter(f => /^\d{4}
 async function heatAll(date, ctx) {
   const rows = await screener(ctx), cal = nyseCalendar(minusDays(nyDate(), 20), nyDate());
   const quotes = (await get(`/quote/watchlist?${['aapl', 'msft', 'nvda', 'amzn', 'googl'].map(s => `symbol=${s}%7cstocks`).join('&')}`, ctx)) || [];
-  const session = screenerSession(rows, quotes, cal, nyDate());
+  const ny = new Date().toLocaleString('sv-SE', { timeZone: 'America/New_York' }), session = screenerSession(rows, quotes, cal, ny.slice(0, 10), ny.slice(11, 16));
   if (session === date) {
     const prev = savedDays().filter(d => d < date).at(-1);
     if (prev && sameCloses(rows, loadDay(prev))) return loadDay(date);

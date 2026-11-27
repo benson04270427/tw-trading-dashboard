@@ -103,6 +103,12 @@ test('Nasdaq 篩選器：判斷資料日期、轉成熱浪圖行情', () => {
   // 盤前（Pre Market）：成交日是今天，previousClosePrice 仍是前前一日收盤、lastSalePrice 是盤前價，都對不上篩選器
   const pre = [{ symbol: 'AAPL', lastSalePrice: '$348.00', previousClosePrice: 343.99, lastTradeTimestampDateTime: '2026-10-23T09:16:53.74-04:00', marketStatus: 'Pre Market' }];
   assert.equal(screenerSession(rows, pre, cal, '2026-10-23'), '2026-10-22');
+  // 收盤前（例如假日後凌晨）報價成交日已換成今天、價格仍是前一交易日收盤：不可當成今天
+  const midnight = [{ symbol: 'AAPL', lastSalePrice: '$348.22', previousClosePrice: '$344', lastTradeTimestampDateTime: '2026-10-23T00:00:00-04:00', marketStatus: 'Closed' }];
+  assert.equal(screenerSession(rows, midnight, cal, '2026-10-23'), '2026-10-23');
+  assert.equal(screenerSession(rows, midnight, cal, '2026-10-23', '00:00'), '2026-10-22');
+  assert.equal(screenerSession(rows, [], cal, '2026-10-23', '09:15'), '2026-10-22');
+  assert.equal(screenerSession(rows, midnight, cal, '2026-10-23', '16:05'), '2026-10-23');
   const r = screenerRows(rows, '2026-10-22');
   assert.equal(r.length, 3); assert.equal(r[0].Trading_money, 46899225 * 348.22); assert.equal(r[2].stock_id, 'BRK.B');
   assert.equal(SECTOR_ZH.Technology, '科技');
