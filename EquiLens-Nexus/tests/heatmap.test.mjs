@@ -113,3 +113,12 @@ test('catch-up after a missed after-close update: weekends and next morning, onc
   assert.equal(catchupDate('2026-11-07'), '2026-11-06');
   assert.equal(catchupDate('2026-11-10'), '2026-11-09');
 });
+
+test('heatmapCopyOf：前一交易日的複本不算當天已有收盤熱浪圖', async () => {
+  const { heatmapCopyOf } = await import('../lib/heatmap.mjs');
+  const prev = { total: { count: 6999, money: 787133967568.27, up: 4153, down: 2523 } };
+  assert.equal(heatmapCopyOf({ previousDate: '2026-11-25', total: { ...prev.total } }, prev), true);
+  assert.equal(heatmapCopyOf({ total: { ...prev.total, money: 512e9, up: 5100 } }, prev), false);
+  assert.equal(heatmapCopyOf({ total: prev.total }, null), false);
+  assert.equal(heatmapCopyOf(null, prev), false);
+});

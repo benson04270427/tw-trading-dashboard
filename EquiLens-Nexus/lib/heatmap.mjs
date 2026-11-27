@@ -128,6 +128,12 @@ export async function queryHeatmap(date, { universe = [], requestData = null, fe
 }
 
 export function cacheableHeatmap(result, min = 100) { return result && result.total.count > Math.min(min, 20) && !result.errors.previous; }
+// 某一天的熱浪圖其實是前一交易日的複本（檔數與成交金額完全相同）：例如美股 11/27 凌晨補抓時把 11/25 存成 11/27。
+// 這種檔案不算「當天已有收盤行情」，收盤後自動查詢與每日更新要重新查詢，等資料源公布當天資料後覆蓋
+export function heatmapCopyOf(h, prev) {
+  const a = h?.total, b = prev?.total;
+  return !!(a && b && a.count > 0 && a.count === b.count && a.money > 0 && a.money === b.money && a.up === b.up && a.down === b.down);
+}
 
 /* ---------- 盤中即時（目前資料源的即時快照） ---------- */
 export const LIVE_REFRESH_MS = 10000;

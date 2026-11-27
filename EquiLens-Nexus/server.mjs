@@ -64,7 +64,7 @@ import { get as nasdaqGet } from './lib/providers/nasdaq.mjs';
 import { cnyesNews } from './lib/providers/cnyes.mjs';
 import { queryFlows, validFlowDate, cacheableFlow } from './lib/flows.mjs';
 import { compactDay as ifCompact, validDay, analyzeFlows, stockFlow, chipSummary, IF_RULES } from './lib/instflow.mjs';
-import { queryHeatmap, validHeatDate, cacheableHeatmap, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
+import { queryHeatmap, validHeatDate, cacheableHeatmap, heatmapCopyOf, buildLiveHeatmap, liveWindow, LIVE_REFRESH_MS } from './lib/heatmap.mjs';
 import { focusNews, weekAgenda } from './lib/briefing.mjs';
 import { normalizeNews, validNewsInput, createNewsState, scanNews, saveNewsState, quietNow } from './lib/newswatch.mjs';
 import { normalizeWatchGroups, editWatchGroups, setWatch } from './lib/watchgroups.mjs';
@@ -167,6 +167,8 @@ function watchExtra(){
 }
 function saveSettings() { write('settings.json', settings); }
 function heatFiles(){try{return fs.readdirSync(LOCAL).filter(f=>/^heatmap-\d{4}-\d{2}-\d{2}\.json$/.test(f)).map(f=>f.slice(8,18)).sort();}catch{return [];}}
+// 當天已有真正的收盤熱浪圖（不是前一交易日的複本，見 lib/heatmap.mjs heatmapCopyOf）
+function heatSaved(date){if(!heatFiles().includes(date))return false;const h=read('heatmap-'+date+'.json',null);return !heatmapCopyOf(h,h?.previousDate?read('heatmap-'+h.previousDate+'.json',null):null);}
 function heatSummary(){const date=heatFiles().at(-1);if(!date)return null;if(heatSummaryCache?.date!==date){const h=read('heatmap-'+date+'.json',null);if(!h)return null;heatSummaryCache={date,total:{money:h.total.money,change:h.total.change,up:h.total.up,down:h.total.down,limitUp:h.total.limitUp},top:h.sectors.slice(0,6).map(({name,share,change,moneyChange})=>({name,share,change,moneyChange}))};}return heatSummaryCache;}
 async function ensureUniverse(options={}){if(universe.length||!data.has('universe'))return universe;const list=await data.universe(options);if(!list.length)throw new UserError('股票清單為空');universe=list;write('universe.json',universe);invalidate();return universe;}
 // 熱浪圖分組：股票清單有產業別時用產業；沒有（例如國際資料商的清單）時改用研究族群
@@ -2490,7 +2492,7 @@ setInterval(() => {
   if(autoAttemptDate!==date){autoAttemptDate=date;autoAttempts=0;autoRetryAt=0;}
   if(Date.now()<autoRetryAt||autoAttempts>=3)return;autoAttempts++;autoRetryAt=Date.now()+30*60*1000;
   // 熱浪圖：有全市場單日行情時先查；沒有時等研究名單更新完，再用本機日成交組成
-  const heat=async()=>{if(!heatFiles().includes(date)){try{await runHeatmap(date);}catch(e){console.error(t('熱浪圖自動更新失敗：')+e.message);}}};
+  const heat=async()=>{if(!heatSaved(date)){try{await runHeatmap(date);}catch(e){console.error(t('熱浪圖自動更新失敗：')+e.message);}}};
   void (async()=>{
     if(data.has('dailyAll')||data.has('heatAll'))await heat();
     await refresh(settings.autoScope,[]);const blocked=()=>blockingJobErrors(job.errors,job.total).length,firstOk=!blocked();
@@ -2515,10 +2517,10 @@ setInterval(() => {
     closeFetch.index = true;
     void data.snapshot([]).then(rows => { const ix = id => rows.find(r => r.stock_id === id && String(r.date).slice(0, 10) === date); if (ix('001')) write(`index-${date}.json`, { twse:indexRow(ix('001')), tpex:indexRow(ix('101')) }); }).catch(e => console.error(t('收盤後指數補查失敗：') + e.message));
   }
-  if (closeFetch.done || heatFiles().includes(date)) { closeFetch.done = true; return; }
-  if (Date.now() - closeFetch.at < 15*60e3) return;
+  if (closeFetch.done || Date.now() - closeFetch.at < 15*60e3) return;
+  if (heatSaved(date)) { closeFetch.done = true; return; }
   closeFetch.at = Date.now();
-  void runHeatmap(date).then(h => { if (h?.date === date) closeFetch.done = true; }).catch(e => console.error(t('收盤後行情自動更新失敗：')+e.message));
+  void runHeatmap(date).then(h => { if (h?.date === date && heatSaved(date)) closeFetch.done = true; }).catch(e => console.error(t('收盤後行情自動更新失敗：')+e.message));
 },60e3).unref();
 // 補抓錯過的收盤後更新（見 lib/markets.mjs catchupDue）：先查熱浪圖確認有比本機更新的交易日，才更新研究名單
 const newestAsOf=()=>{let m=null;for(const r of Object.values(raw)){const d=r?.price?.at?.(-1)?.date;if(d&&(!m||d>m))m=d;}return m;};
